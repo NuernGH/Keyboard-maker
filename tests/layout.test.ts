@@ -41,3 +41,21 @@ describe('zip', () => {
     expect(() => execFileSync('unzip', ['-t', p])).not.toThrow();
   });
 });
+
+import { TEMPLATES } from '../src/lib/layout';
+describe('szablony', () => {
+  for (const tpl of TEMPLATES) {
+    test(`${tpl.id}: klawisze nie nachodzą na siebie`, () => {
+      const keys = splitLeft(tpl.params);
+      expect(keys.length).toBe(tpl.params.rows * tpl.params.cols + tpl.params.thumbKeys);
+      for (let i = 0; i < keys.length; i++)
+        for (let j = i + 1; j < keys.length; j++)
+          expect(keysOverlap(keys[i], keys[j]), `${keys[i].id} / ${keys[j].id}`).toBe(false);
+    });
+  }
+  test('ułamkowa kolumna kciuka interpoluje pozycję', () => {
+    const a = splitLeft({ ...SPLIT_4x6_4, thumbAnchorCol: 2 }).find((k) => k.id === 't-0')!;
+    const b = splitLeft({ ...SPLIT_4x6_4, thumbAnchorCol: 2.5 }).find((k) => k.id === 't-0')!;
+    expect(b.x - a.x).toBeCloseTo(PITCH / 2, 6);
+  });
+});

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from 'vitest';
 import { measureVolume, importSTEP, type Shape3D } from 'replicad';
 import { initOC, cellStep } from './oc';
-import { loadCell, buildPlate, detectUp, isValidShape, NO_HOTSWAP_HEIGHT } from '../src/lib/geometry';
+import { loadCell, buildPlate, detectUp, isValidShape, footprint, holeCount, NO_HOTSWAP_HEIGHT } from '../src/lib/geometry';
 import { PITCH, splitLeft, SPLIT_4x6_4, type Key } from '../src/lib/layout';
 
 const grid = (cols: number, rows: number): Key[] =>
@@ -51,4 +51,13 @@ describe('pełna połówka 4×6 + 4', () => {
       expect(measureVolume(reimported)).toBeCloseTo(measureVolume(plate), 0);
     }, 120000);
   }
+});
+
+describe('obrys', () => {
+  test('zamknięta szczelina pod klawiszem jest wypełniona', () => {
+    // przypadek ze zrzutu Marcina: 3 rzędy, 5 kolumn, kciuk pod kolumną 4, wachlarz −17°
+    const keys = splitLeft({ ...SPLIT_4x6_4, rows: 3, cols: 5, stagger: [0, 0, 4.76, 7.14, 4.76], thumbAnchorCol: 3, thumbSplay: -17 });
+    expect(holeCount(footprint(keys, { fillGaps: 0, margin: 0 }))).toBeGreaterThan(0);
+    expect(holeCount(footprint(keys, { fillGaps: 4, margin: 0 }))).toBe(0);
+  });
 });

@@ -3,7 +3,7 @@
   import { onMount } from 'svelte';
   import Preview, { type PreviewHalf, type PreviewMesh } from './ui/Preview.svelte';
   import { t, type Lang } from './ui/i18n';
-  import { SPLIT_4x6_4, splitLeft, mirrorKeys, keysOverlap, PITCH, type SplitParams } from './lib/layout';
+  import { SPLIT_4x6_4, TEMPLATES, splitLeft, mirrorKeys, keysOverlap, PITCH, type SplitParams } from './lib/layout';
   import {
     DEFAULT_PLATE_OPTIONS,
     NO_HOTSWAP_HEIGHT,
@@ -21,6 +21,11 @@
 
   let lang = $state<Lang>('pl');
   let params = $state<SplitParams>(structuredClone(SPLIT_4x6_4));
+  let templateId = $state(TEMPLATES[0].id);
+  function applyTemplate(id: string) {
+    const tpl = TEMPLATES.find((x) => x.id === id);
+    if (tpl) params = structuredClone(tpl.params);
+  }
   let variant = $state<CellVariant>('hotswap');
   let plate = $state<PlateOptions>({ ...DEFAULT_PLATE_OPTIONS });
   let show = $state<'left' | 'right' | 'both'>('both');
@@ -203,7 +208,16 @@
 
     <section>
       <h2>{t(lang, 'template')}</h2>
-      <select disabled data-tip={t(lang, 'tipTemplate')}><option>{t(lang, 'tpl4x6')}</option></select>
+      <select
+        data-tip={t(lang, 'tipTemplate')}
+        bind:value={templateId}
+        onchange={() => applyTemplate(templateId)}
+        aria-label={t(lang, 'template')}
+      >
+        {#each TEMPLATES as tpl (tpl.id)}
+          <option value={tpl.id}>{tpl.name[lang]}</option>
+        {/each}
+      </select>
       <p class="muted">{leftKeys.length * 2} {t(lang, 'keys')}</p>
     </section>
 
@@ -260,7 +274,7 @@
         <label data-tip={t(lang, 'tipThumbKeys')}>{t(lang, 'thumbKeys')} <input type="number" min="0" max="6" bind:value={params.thumbKeys} /></label>
         <label data-tip={t(lang, 'tipThumbCol')}
           >{t(lang, 'thumbCol')}
-          <input type="number" min="1" max={params.cols} bind:value={() => params.thumbAnchorCol + 1, (v) => (params.thumbAnchorCol = v - 1)} /></label
+          <input type="number" min="1" max={params.cols} step="0.25" bind:value={() => params.thumbAnchorCol + 1, (v) => (params.thumbAnchorCol = v - 1)} /></label
         >
         <label data-tip={t(lang, 'tipThumbX')}>{t(lang, 'thumbX')} <input type="number" step="0.5" bind:value={params.thumbOffsetX} /></label>
         <label data-tip={t(lang, 'tipThumbY')}>{t(lang, 'thumbY')} <input type="number" step="0.5" bind:value={params.thumbOffsetY} /></label>

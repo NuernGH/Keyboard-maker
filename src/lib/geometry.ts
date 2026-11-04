@@ -9,13 +9,15 @@
 // między nimi wypełnia obrys (domknięcie offsetem +r / −r).
 
 import {
+  Blueprints,
   cast,
+  CompoundBlueprint,
+  Drawing,
   drawRectangle,
   getOC,
   importSTEP,
   makeBox,
   measureVolume,
-  type Drawing,
   type Shape3D,
 } from 'replicad';
 import { PITCH, type Key } from './layout';
@@ -133,9 +135,36 @@ export function footprint(keys: Key[], opts: PlateOptions): Drawing {
     d = d ? d.fuse(r) : r;
   }
   if (!d) throw new Error('Brak klawiszy');
-  if (opts.fillGaps > 0) d = d.offset(opts.fillGaps).offset(-opts.fillGaps);
+  if (opts.fillGaps > 0) d = fillHoles(d.offset(opts.fillGaps).offset(-opts.fillGaps));
   if (opts.margin > 0) d = d.offset(opts.margin);
   return d;
+}
+
+/**
+ * Usuwa zamknięte dziury z obrysu (np. szczelinę między dolnym klawiszem a kciukiem,
+ * otoczoną z każdej strony klawiszami). Offset ich nie zamyka, a w płycie nie są potrzebne.
+ */
+export function fillHoles(d: Drawing): Drawing {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const outer = (shape: any): any => {
+    if (shape instanceof CompoundBlueprint) return shape.blueprints[0];
+    if (shape instanceof Blueprints) return new Blueprints(shape.blueprints.map(outer));
+    return shape;
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return new Drawing(outer((d as any).innerShape));
+}
+
+/** Liczba zamkniętych dziur w obrysie. */
+export function holeCount(d: Drawing): number {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const count = (shape: any): number => {
+    if (shape instanceof CompoundBlueprint) return shape.blueprints.length - 1;
+    if (shape instanceof Blueprints) return shape.blueprints.reduce((n: number, b: unknown) => n + count(b), 0);
+    return 0;
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return count((d as any).innerShape);
 }
 
 export function buildPlate(keys: Key[], cell: Cell, opts: PlateOptions = DEFAULT_PLATE_OPTIONS): Shape3D {

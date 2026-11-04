@@ -23,7 +23,10 @@ export interface SplitParams {
   stagger: number[];
   /** liczba klawiszy kciukowych */
   thumbKeys: number;
-  /** pozycja pierwszego klawisza kciukowego względem dolnego klawisza w kolumnie `thumbAnchorCol` (mm) */
+  /**
+   * Kolumna (od 0), pod którą zaczyna się klaster kciuka. Może być ułamkowa (krok 0,25):
+   * 2,5 to połowa drogi między kolumną 2 a 3, a stagger jest wtedy interpolowany.
+   */
   thumbAnchorCol: number;
   thumbOffsetX: number;
   thumbOffsetY: number;
@@ -51,6 +54,72 @@ export const SPLIT_4x6_4: SplitParams = {
   thumbLastWidth: 1.5,
   thumbLastVertical: true,
 };
+
+export interface Template {
+  id: string;
+  name: { pl: string; en: string };
+  params: SplitParams;
+}
+
+/** Gotowe szablony splitu (proporcje wzorowane na popularnych klasach układów). */
+export const TEMPLATES: Template[] = [
+  {
+    id: 'split-4x6-4',
+    name: { pl: 'Split 4×6 + 4 kciukowe (58)', en: 'Split 4×6 + 4 thumb keys (58)' },
+    params: SPLIT_4x6_4,
+  },
+  {
+    id: 'split-4x6-5',
+    name: { pl: 'Split 4×6 + 5 kciukowych (58 z enkoderem)', en: 'Split 4×6 + 5 thumb keys' },
+    params: { ...SPLIT_4x6_4, thumbKeys: 5, thumbAnchorCol: 2, thumbSplay: -6, thumbLastWidth: 1, thumbLastVertical: false },
+  },
+  {
+    id: 'split-3x6-3',
+    name: { pl: 'Split 3×6 + 3 kciukowe (42)', en: 'Split 3×6 + 3 thumb keys (42)' },
+    params: {
+      ...SPLIT_4x6_4,
+      rows: 3,
+      thumbKeys: 3,
+      thumbAnchorCol: 3.5,
+      thumbOffsetY: -PITCH - 3,
+      thumbSplay: -10,
+      thumbLastWidth: 1.5,
+      thumbLastVertical: true,
+    },
+  },
+  {
+    id: 'split-3x5-3',
+    name: { pl: 'Split 3×5 + 3 kciukowe (36)', en: 'Split 3×5 + 3 thumb keys (36)' },
+    params: {
+      ...SPLIT_4x6_4,
+      rows: 3,
+      cols: 5,
+      stagger: [0, 4.76, 7.14, 4.76, 2.38],
+      thumbKeys: 3,
+      thumbAnchorCol: 2.5,
+      thumbOffsetY: -PITCH - 3,
+      thumbSplay: -10,
+      thumbLastWidth: 1,
+      thumbLastVertical: false,
+    },
+  },
+  {
+    id: 'split-3x5-2',
+    name: { pl: 'Split 3×5 + 2 kciukowe (34)', en: 'Split 3×5 + 2 thumb keys (34)' },
+    params: {
+      ...SPLIT_4x6_4,
+      rows: 3,
+      cols: 5,
+      stagger: [0, 4.76, 7.14, 4.76, 2.38],
+      thumbKeys: 2,
+      thumbAnchorCol: 3,
+      thumbOffsetY: -PITCH - 3,
+      thumbSplay: -12,
+      thumbLastWidth: 1,
+      thumbLastVertical: false,
+    },
+  },
+];
 
 const rotPt = (x: number, y: number, deg: number): [number, number] => {
   const a = (deg * Math.PI) / 180;
@@ -81,8 +150,12 @@ export function splitLeft(p: SplitParams): Key[] {
   // wspólnego narożnika (jak wachlarz w Ergogen). Przy wachlarzu w dół (splay < 0)
   // obracamy wokół dolnego narożnika, w górę wokół górnego, by klawisze się nie nakładały.
   const ac = Math.min(Math.max(p.thumbAnchorCol, 0), p.cols - 1);
+  const c0 = Math.floor(ac);
+  const c1 = Math.min(c0 + 1, p.cols - 1);
+  const f = ac - c0;
+  const st = (p.stagger[c0] ?? 0) * (1 - f) + (p.stagger[c1] ?? 0) * f;
   const anchorX = ac * PITCH + p.thumbOffsetX;
-  const anchorY = -(p.rows - 1) * PITCH + (p.stagger[ac] ?? 0) + p.thumbOffsetY;
+  const anchorY = -(p.rows - 1) * PITCH + st + p.thumbOffsetY;
   const pivotTop = p.thumbSplay >= 0;
   let angle = p.thumbAngle;
   // narożnik obrotu bieżącego klawisza (lewy górny albo lewy dolny), liczony dla 1U
