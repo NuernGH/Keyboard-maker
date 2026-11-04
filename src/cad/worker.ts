@@ -7,12 +7,33 @@ import { buildPlate, loadCell, type Cell } from '../lib/geometry';
 import type { Request, Response, BuildInput } from './protocol';
 
 let ready: Promise<void> | null = null;
+
+/**
+ * Wersja do podglądu w Claude (VITE_WASM_GZ=1): host plików przyjmuje pliki do 15 MB,
+ * a WASM OpenCascade ma ok. 23 MB, więc publikujemy go spakowanego gzipem i
+ * rozpakowujemy tutaj. Gdy serwer sam zdejmie gzip (Content-Encoding), bajty są już surowe.
+ */
+async function wasmOptions(): Promise<Record<string, unknown>> {
+  if (import.meta.env.VITE_WASM_GZ !== '1') return { locateFile: () => wasmUrl };
+  const res = await fetch(new URL('occt.wasm.gz', self.location.href));
+  if (!res.ok) throw new Error(`Nie udało się pobrać jądra CAD (${res.status})`);
+  let buf: Uint8Array<ArrayBuffer> = new Uint8Array(await res.arrayBuffer());
+  if (buf[0] === 0x1f && buf[1] === 0x8b) {
+    const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'));
+    buf = new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+  return { wasmBinary: buf };
+}
+
 function init(): Promise<void> {
   if (!ready) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ready = (opencascade as any)({ locateFile: () => wasmUrl }).then((oc: unknown) => {
-      setOC(oc as never);
-    });
+    ready = wasmOptions()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then((opts) => (opencascade as any)(opts))
+      .then((oc: unknown) => {
+        setOC(oc as never);
+      });
+    ready.catch(() => (ready = null));
   }
   return ready!;
 }

@@ -14,6 +14,7 @@
   } from './lib/cell-spec';
   import { CadClient } from './cad/client';
   import type { BuildInput } from './cad/protocol';
+  import { zipStore } from './lib/zip';
 
   type Side = 'left' | 'right';
 
@@ -127,17 +128,38 @@
     try {
       const data = await client(s).exportFile(inp, format);
       const name = `plate-${s}-${variant}.${format}`;
-      const blob = new Blob([data], { type: format === 'stl' ? 'model/stl' : 'model/step' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = name;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      await saveFile(name, data);
     } catch (e) {
       error = (e as Error).message;
     } finally {
       status = '';
     }
+  }
+
+  /**
+   * Zapis pliku. W podglądzie Claude strona nie może sama pobierać plików, więc używa
+   * zdolności `downloads`, która przyjmuje tylko wybrane rozszerzenia: STL/STEP pakujemy w ZIP.
+   */
+  async function saveFile(name: string, data: ArrayBuffer) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const claude = (window as any).claude;
+    const downloads = claude?.use ? await claude.use('downloads') : null;
+    if (downloads) {
+      const zip = zipStore([{ name, data: new Uint8Array(data) }]);
+      try {
+        await downloads.save({ filename: name.replace(/\.[^.]+$/, '') + '.zip', data: zip });
+      } catch (e) {
+        const code = (e as { code?: string }).code;
+        if (code !== 'declined') throw new Error((e as Error).message ?? String(code));
+      }
+      return;
+    }
+    const blob = new Blob([data], { type: name.endsWith('.stl') ? 'model/stl' : 'model/step' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
   }
 
   async function loadDefaultCell() {
@@ -306,7 +328,7 @@
   .app {
     display: grid;
     grid-template-columns: 320px 1fr;
-    height: 100vh;
+    height: 100%;
   }
   aside {
     overflow-y: auto;

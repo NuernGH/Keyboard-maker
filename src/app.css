@@ -11,3 +11,5 @@
 * { box-sizing: border-box; }
 body { margin: 0; }
 a { color: inherit; }
+html, body, #app { height: 100%; }
+body { background: var(--bg); }

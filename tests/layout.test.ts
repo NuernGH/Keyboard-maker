@@ -22,3 +22,22 @@ describe('układ 4×6 + 4', () => {
     expect(r[27].rot).toBeCloseTo(-keys[27].rot);
   });
 });
+
+import { zipStore, crc32 } from '../src/lib/zip';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+describe('zip', () => {
+  test('crc32 zgodny z wzorcem', () => {
+    expect(crc32(new TextEncoder().encode('123456789'))).toBe(0xcbf43926);
+  });
+  test('archiwum przechodzi test unzip', async () => {
+    const blob = zipStore([{ name: 'płyta.stl', data: new TextEncoder().encode('solid x') }]);
+    const dir = mkdtempSync(join(tmpdir(), 'zip-'));
+    const p = join(dir, 'a.zip');
+    writeFileSync(p, Buffer.from(await blob.arrayBuffer()));
+    expect(() => execFileSync('unzip', ['-t', p])).not.toThrow();
+  });
+});

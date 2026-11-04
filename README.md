@@ -11,6 +11,7 @@ npm install
 npm run dev      # http://localhost:5173
 npm test         # testy układu i geometrii (OpenCascade w Node)
 npm run build    # statyczna strona w dist/
+python3 tools/build-artifact.py <katalog>   # wersja do podglądu w Claude (WASM spakowany gzipem, eksport jako ZIP)
 ```
 
 ## Co umie prototyp
