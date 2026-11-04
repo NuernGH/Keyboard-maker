@@ -15,6 +15,7 @@
   import { CadClient } from './cad/client';
   import type { BuildInput } from './cad/protocol';
   import { zipStore } from './lib/zip';
+  import Tooltip from './ui/Tooltip.svelte';
 
   type Side = 'left' | 'right';
 
@@ -189,6 +190,7 @@
   const allExact = $derived(halves.every((h) => h.mesh));
 </script>
 
+<Tooltip />
 <div class="app">
   <aside>
     <header>
@@ -201,13 +203,13 @@
 
     <section>
       <h2>{t(lang, 'template')}</h2>
-      <select disabled><option>{t(lang, 'tpl4x6')}</option></select>
+      <select disabled data-tip={t(lang, 'tipTemplate')}><option>{t(lang, 'tpl4x6')}</option></select>
       <p class="muted">{leftKeys.length * 2} {t(lang, 'keys')}</p>
     </section>
 
     <section>
       <h2>{t(lang, 'cell')}</h2>
-      <label>
+      <label data-tip={t(lang, 'tipVariant')}>
         {t(lang, 'variant')}
         <select bind:value={variant}>
           <option value="hotswap">{t(lang, 'hotswap')}</option>
@@ -216,10 +218,10 @@
         </select>
       </label>
       <div class="row">
-        <span class="muted">{t(lang, 'cellFile')}: {cellId === 'default' ? t(lang, 'cellDefault') : cellName}</span>
+        <span class="muted" data-tip={t(lang, 'tipCellFile')}>{t(lang, 'cellFile')}: {cellId === 'default' ? t(lang, 'cellDefault') : cellName}</span>
       </div>
       <div class="row">
-        <label class="file">
+        <label class="file" data-tip={t(lang, 'tipLoadOwn')}>
           {t(lang, 'loadOwn')}
           <input type="file" accept=".step,.stp,.STEP,.STP" onchange={onCellFile} />
         </label>
@@ -227,7 +229,7 @@
           <button onclick={loadDefaultCell}>Part1.STEP</button>
         {/if}
       </div>
-      <label>
+      <label data-tip={t(lang, 'tipUpAxis')}>
         {t(lang, 'upAxis')}
         <select bind:value={up}>
           <option value="auto">{t(lang, 'auto')}</option>
@@ -241,10 +243,10 @@
     <section>
       <h2>{t(lang, 'layout')}</h2>
       <div class="grid2">
-        <label>{t(lang, 'rows')} <input type="number" min="1" max="8" bind:value={params.rows} /></label>
-        <label>{t(lang, 'cols')} <input type="number" min="1" max="10" bind:value={params.cols} /></label>
+        <label data-tip={t(lang, 'tipRows')}>{t(lang, 'rows')} <input type="number" min="1" max="8" bind:value={params.rows} /></label>
+        <label data-tip={t(lang, 'tipCols')}>{t(lang, 'cols')} <input type="number" min="1" max="10" bind:value={params.cols} /></label>
       </div>
-      <span class="label">{t(lang, 'stagger')}</span>
+      <span class="label" data-tip={t(lang, 'tipStagger')}>{t(lang, 'stagger')}</span>
       <div class="stagger">
         {#each params.stagger as _, i (i)}
           <input type="number" step="0.5" bind:value={params.stagger[i]} aria-label="stagger {i + 1}" />
@@ -255,16 +257,16 @@
     <section>
       <h2>{t(lang, 'thumb')}</h2>
       <div class="grid2">
-        <label>{t(lang, 'thumbKeys')} <input type="number" min="0" max="6" bind:value={params.thumbKeys} /></label>
-        <label
+        <label data-tip={t(lang, 'tipThumbKeys')}>{t(lang, 'thumbKeys')} <input type="number" min="0" max="6" bind:value={params.thumbKeys} /></label>
+        <label data-tip={t(lang, 'tipThumbCol')}
           >{t(lang, 'thumbCol')}
           <input type="number" min="1" max={params.cols} bind:value={() => params.thumbAnchorCol + 1, (v) => (params.thumbAnchorCol = v - 1)} /></label
         >
-        <label>{t(lang, 'thumbX')} <input type="number" step="0.5" bind:value={params.thumbOffsetX} /></label>
-        <label>{t(lang, 'thumbY')} <input type="number" step="0.5" bind:value={params.thumbOffsetY} /></label>
-        <label>{t(lang, 'thumbAngle')} <input type="number" step="1" bind:value={params.thumbAngle} /></label>
-        <label>{t(lang, 'thumbSplay')} <input type="number" step="1" bind:value={params.thumbSplay} /></label>
-        <label
+        <label data-tip={t(lang, 'tipThumbX')}>{t(lang, 'thumbX')} <input type="number" step="0.5" bind:value={params.thumbOffsetX} /></label>
+        <label data-tip={t(lang, 'tipThumbY')}>{t(lang, 'thumbY')} <input type="number" step="0.5" bind:value={params.thumbOffsetY} /></label>
+        <label data-tip={t(lang, 'tipThumbAngle')}>{t(lang, 'thumbAngle')} <input type="number" step="1" bind:value={params.thumbAngle} /></label>
+        <label data-tip={t(lang, 'tipThumbSplay')}>{t(lang, 'thumbSplay')} <input type="number" step="1" bind:value={params.thumbSplay} /></label>
+        <label data-tip={t(lang, 'tipThumbLastW')}
           >{t(lang, 'thumbLastW')}
           <select bind:value={params.thumbLastWidth}>
             <option value={1}>1U</option>
@@ -273,7 +275,7 @@
             <option value={2}>2U</option>
           </select></label
         >
-        <label class="check"><input type="checkbox" bind:checked={params.thumbLastVertical} /> {t(lang, 'thumbLastV')}</label>
+        <label class="check" data-tip={t(lang, 'tipThumbLastV')}><input type="checkbox" bind:checked={params.thumbLastVertical} /> {t(lang, 'thumbLastV')}</label>
       </div>
       {#if overlap}<p class="warn">{t(lang, 'overlap')}</p>{/if}
     </section>
@@ -281,10 +283,10 @@
     <section>
       <h2>{t(lang, 'plate')}</h2>
       <div class="grid2">
-        <label>{t(lang, 'fillGaps')} <input type="number" min="0" step="0.5" bind:value={plate.fillGaps} /></label>
-        <label>{t(lang, 'margin')} <input type="number" min="0" step="0.5" bind:value={plate.margin} /></label>
+        <label data-tip={t(lang, 'tipFillGaps')}>{t(lang, 'fillGaps')} <input type="number" min="0" step="0.5" bind:value={plate.fillGaps} /></label>
+        <label data-tip={t(lang, 'tipMargin')}>{t(lang, 'margin')} <input type="number" min="0" step="0.5" bind:value={plate.margin} /></label>
       </div>
-      <label>
+      <label data-tip={t(lang, 'tipHalves')}>
         {t(lang, 'halves')}
         <select bind:value={show}>
           <option value="both">{t(lang, 'both')}</option>
@@ -299,8 +301,8 @@
       {#each ['left', 'right'] as const as s (s)}
         <div class="row">
           <span class="side">{t(lang, s)}</span>
-          <button onclick={() => exportFile(s, 'stl')} disabled={!cellStep}>STL</button>
-          <button onclick={() => exportFile(s, 'step')} disabled={!cellStep}>STEP</button>
+          <button onclick={() => exportFile(s, 'stl')} disabled={!cellStep} data-tip={t(lang, 'tipStl')}>STL</button>
+          <button onclick={() => exportFile(s, 'step')} disabled={!cellStep} data-tip={t(lang, 'tipStep')}>STEP</button>
         </div>
       {/each}
     </section>
@@ -314,12 +316,12 @@
   <main>
     <Preview bind:this={preview} {halves} {cellHeight} />
     <div class="hud">
-      <span class="badge" class:exact={allExact}>
+      <span class="badge" class:exact={allExact} data-tip={t(lang, 'tipBadge')}>
         {#if anyBusy}{t(lang, 'computing')}{:else if allExact}{t(lang, 'exact')}{#if lastMs}&nbsp;· {lastMs} ms{/if}{:else}{t(lang, 'quick')}{/if}
       </span>
       {#if status}<span class="badge">{status}</span>{/if}
       {#if error}<span class="badge err">{t(lang, 'error')}: {error}</span>{/if}
-      <button onclick={() => preview?.resetView()}>{t(lang, 'resetView')}</button>
+      <button onclick={() => preview?.resetView()} data-tip={t(lang, 'tipResetView')}>{t(lang, 'resetView')}</button>
     </div>
   </main>
 </div>
