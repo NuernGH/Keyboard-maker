@@ -11,7 +11,7 @@ const dict = {
   noHotswap: { pl: 'Bez hot-swap (górne 5,08 mm)', en: 'No hot-swap (top 5.08 mm)' },
   thinPlate: { pl: 'Cienka płyta 1,5 mm', en: 'Thin plate 1.5 mm' },
   cellFile: { pl: 'Plik STEP komórki', en: 'Cell STEP file' },
-  cellDefault: { pl: 'Part1.STEP (MX, Kailh hot-swap)', en: 'Part1.STEP (MX, Kailh hot-swap)' },
+  cellDefault: { pl: 'key socket.STEP (MX, Kailh hot-swap)', en: 'key socket.STEP (MX, Kailh hot-swap)' },
   loadOwn: { pl: 'Wczytaj własny…', en: 'Load your own…' },
   upAxis: { pl: 'Oś płyty w pliku', en: 'Plate axis in file' },
   auto: { pl: 'automatycznie', en: 'auto' },

@@ -26,7 +26,7 @@
   let show = $state<'left' | 'right' | 'both'>('both');
   let up = $state<UpAxis | 'auto'>('auto');
 
-  let cellName = $state('Part1.STEP');
+  let cellName = $state('key socket.STEP');
   let cellStep = $state<ArrayBuffer | null>(null);
   let cellId = $state('default');
 
@@ -164,9 +164,9 @@
   }
 
   async function loadDefaultCell() {
-    const res = await fetch(`${import.meta.env.BASE_URL}cells/mx-hotswap-part1.step`);
+    const res = await fetch(`${import.meta.env.BASE_URL}cells/mx-hotswap.step`);
     cellStep = await res.arrayBuffer();
-    cellName = 'Part1.STEP';
+    cellName = 'key socket.STEP';
     cellId = 'default';
   }
 
@@ -226,7 +226,7 @@
           <input type="file" accept=".step,.stp,.STEP,.STP" onchange={onCellFile} />
         </label>
         {#if cellId !== 'default'}
-          <button onclick={loadDefaultCell}>Part1.STEP</button>
+          <button onclick={loadDefaultCell}>key socket.STEP</button>
         {/if}
       </div>
       <label data-tip={t(lang, 'tipUpAxis')}>

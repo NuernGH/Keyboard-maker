@@ -1,7 +1,7 @@
 # Keyboard-maker
 
 Generator płyt klawiatur w przeglądarce. Etap 1 (prototyp techniczny): płaski split 4×6 + 4 klawisze kciukowe
-z wzorcowej komórki Cherry MX, eksport STL (do druku) i STEP (do SolidWorks). Całość liczy się lokalnie,
+z wzorcowej komórki Cherry MX (`key socket.STEP` od Marcina), eksport STL (do druku) i STEP (do SolidWorks). Całość liczy się lokalnie,
 bez serwera. Docelowo ta sama aplikacja trafi do exe przez Tauri.
 
 ## Uruchomienie
@@ -18,7 +18,7 @@ python3 tools/build-artifact.py <katalog>   # wersja do podglądu w Claude (WASM
 
 - Szablon split 4×6 + 4 kciukowe: stagger kolumn, pozycja, obrót i wachlarz klastra kciuka, ostatni klawisz 1–2U, pionowo lub poziomo.
 - Trzy warianty komórki:
-  - **Hot-swap**: cała komórka z `Part1.STEP` (8,58 mm), z kieszenią na gniazdo Kailh MX.
+  - **Hot-swap**: cała komórka (8,58 mm), z kieszenią na gniazdo Kailh MX, bez wycięć na diodę.
   - **Bez hot-swap**: tylko górne 5,08 mm komórki (płyta 1,27 mm z otworem 14×14 i ścianki z wybraniem 15,2), przełączniki lutowane.
   - **Cienka płyta 1,5 mm**: sam otwór 14×14, bez ścianek.
 - Własna komórka: wczytaj dowolny plik STEP komórki 1U. Oś płyty wykrywa się automatycznie albo ustawiasz ją ręcznie.
@@ -32,7 +32,7 @@ python3 tools/build-artifact.py <katalog>   # wersja do podglądu w Claude (WASM
 2. Obrys płyty to suma prostokątów klawiszy, domknięta offsetem (+r, −r), żeby wypełnić szczeliny przy obróconych klawiszach kciuka.
 3. Płyta = obrys wyciągnięty na wysokość komórki minus negatywy w pozycjach klawiszy. Negatywy idą jako osobne narzędzia jednej operacji odejmowania (`cutMany` w `src/lib/geometry.ts`), bo jako jeden compound OpenCascade psuł ściany dna w wariancie hot-swap.
 
-Testy sprawdzają, że siatka 2×2 ma dokładnie objętość czterech komórek z `Part1.STEP` (wymiary 1:1), że bryła przechodzi `BRepCheck_Analyzer` i że STEP po ponownym wczytaniu ma tę samą objętość.
+Testy sprawdzają, że siatka 2×2 ma dokładnie objętość czterech komórek (wymiary 1:1), że bryła przechodzi `BRepCheck_Analyzer` i że STEP po ponownym wczytaniu ma tę samą objętość.
 
 ## Struktura
 
@@ -43,7 +43,7 @@ Testy sprawdzają, że siatka 2×2 ma dokładnie objętość czterech komórek z
 | `src/lib/geometry.ts` | geometria w replicad / OpenCascade: komórka, obrys, płyta |
 | `src/cad/` | Web Worker z jądrem CAD i klient do niego |
 | `src/ui/` | podgląd Three.js, teksty PL/EN |
-| `public/cells/mx-hotswap-part1.step` | wzorcowa komórka 1U MX z hot-swap (Part1.STEP od Marcina) |
+| `public/cells/mx-hotswap.step` | wzorcowa komórka 1U MX z hot-swap (`key socket.STEP` od Marcina, poprawiony Part1.STEP bez wycięć na diodę) |
 | `tests/` | testy Vitest |
 
 ## Licencja

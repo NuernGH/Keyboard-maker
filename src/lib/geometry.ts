@@ -4,7 +4,7 @@
 // Zasada: płyta = (obrys wszystkich klawiszy, wyciągnięty na wysokość komórki)
 //                 − („negatywy” komórek w pozycjach klawiszy).
 // Negatyw komórki = jej prostopadłościan obrysu minus sama komórka, czyli dokładnie
-// to, co Part1.STEP wycina (otwór 14×14, wybranie 15,2, kieszeń hot-swap, otwory pinów).
+// to, co komórka wycina (otwór 14×14, wybranie 15,2, kieszeń hot-swap, otwory pinów).
 // Dzięki temu obrócone klawisze kciuka nie zasypują sobie nawzajem otworów, a szczeliny
 // między nimi wypełnia obrys (domknięcie offsetem +r / −r).
 
@@ -44,7 +44,7 @@ export interface CellSource {
   /** zawartość pliku STEP komórki 1U */
   step: Blob;
   /**
-   * Oś „do góry” komórki w pliku (strona płyty). Part1.STEP z SolidWorks ma ją wzdłuż +X.
+   * Oś „do góry” komórki w pliku (strona płyty). Komórki z SolidWorks od Marcina mają ją wzdłuż +X.
    * 'auto' wybiera najkrótszy wymiar obrysu i stronę, po której jest mniej materiału (płyta z otworem).
    */
   up: UpAxis | 'auto';
