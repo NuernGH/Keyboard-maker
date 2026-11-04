@@ -72,7 +72,7 @@ const dict = {
   island: { pl: 'Wyspa na nice!nano i OLED z enkoderem', en: 'Island for nice!nano and OLED with encoder' },
   islandDepth: { pl: 'Głębokość wyspy (mm)', en: 'Island depth (mm)' },
   showElectronics: { pl: 'Pokaż elektronikę w podglądzie', en: 'Show electronics in preview' },
-  tipIsland: { pl: 'Pole obok wewnętrznej kolumny, drukowane razem z płytą. Na wierzchu leży moduł OLED 1,3" z enkoderem EC11, pod nim od spodu nice!nano z USB-C wyprowadzonym górą.', en: 'Area next to the inner column, printed with the plate. The 1.3" OLED + EC11 module sits on top, the nice!nano below it from underneath, USB-C out the top edge.' },
+  tipIsland: { pl: 'Pole obok wewnętrznej kolumny, drukowane razem z płytą. Na wierzchu leży moduł OLED 1,3" z enkoderem EC11, pod nim od spodu nice!nano przy górnej krawędzi, z gniazdem USB-C równo ze ścianką.', en: 'Area next to the inner column, printed with the plate. The 1.3" OLED + EC11 module sits on top, the nice!nano below it from underneath at the top edge, USB-C flush with the wall.' },
   tipIslandDepth: { pl: 'Jak głęboko wyspa sięga od wierzchu płyty w dół. Domyślne 10,5 mm mieści płytkę modułu, luty pod nią i nice!nano (4,8 mm).', en: 'How far the island reaches down from the plate top. The default 10.5 mm fits the module board, solder joints under it and the nice!nano (4.8 mm).' },
   tipIslandX: { pl: 'Przesuwa wyspę w bok, w mm.', en: 'Moves the island sideways, in mm.' },
   tipIslandY: { pl: 'Przesuwa wyspę w górę lub w dół, w mm.', en: 'Moves the island up or down, in mm.' },

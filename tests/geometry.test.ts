@@ -97,3 +97,13 @@ describe('wyspa na elektronikę', () => {
         expect(measureVolume(re)).toBeCloseTo(measureVolume(plate), 0);
       }, 180000);
 });
+
+describe('nice!nano przy krawędzi', () => {
+  test('gniazdo USB-C kończy się na górnej ściance wyspy', () => {
+    const g = islandFor(SPLIT_4x6_4, DEFAULT_ISLAND, 'left', 'hotswap', 8.58)!;
+    const usb = g.ghosts.find((p) => p.kind === 'usb')!;
+    expect(usb.box.y1).toBeCloseTo(g.rect.y1, 6);
+    const nano = g.ghosts.find((p) => p.kind === 'nano')!;
+    expect(g.rect.y1 - nano.box.y1).toBeCloseTo(NANO.usbOverhang, 6);
+  });
+});

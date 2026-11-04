@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Wyspa na elektronikę (wariant A): pole obok wewnętrznej kolumny, drukowane razem z płytą.
 // Na wierzchu leży moduł OLED 1,3" z enkoderem EC11 (płytka 65 × 35 mm), pod nim w kieszeni
-// od spodu nice!nano v2 (18 × 33,3 mm) z USB-C wyprowadzonym przez górną ściankę.
+// od spodu nice!nano v2 (18 × 33,3 mm) przy górnej krawędzi, z gniazdem USB-C równo ze ścianką.
 // Wymiary modułu zmierzone z modelu referencyjnego Marcina (GrabCAD, tylko lokalnie);
 // nice!nano z uproszczonego modelu w models/controllers. Tu same liczby, bez CAD.
 
@@ -24,7 +24,7 @@ export const ISLAND_H = 68;
 
 /** Moduł OLED + EC11 ułożony pionowo: 35 mm w poprzek, 65 mm wzdłuż, enkoder u góry. */
 export const MODULE = { w: 35, h: 65, pcb: 1.2, clearance: 0.2, underClearance: 2.5 };
-export const NANO = { w: 18, h: 33.3, height: 4.8, clearance: 0.3, usbW: 10, usbH: 5.4 };
+export const NANO = { w: 18, h: 33.3, height: 4.8, clearance: 0.3, usbW: 10, usbH: 5.4, usbOverhang: 1.0 };
 
 export interface Box {
   x0: number;
@@ -36,7 +36,7 @@ export interface Box {
 }
 
 export interface GhostPart {
-  kind: 'nano' | 'pcb' | 'display' | 'encoder' | 'knob';
+  kind: 'nano' | 'usb' | 'pcb' | 'display' | 'encoder' | 'knob';
   box: Box;
 }
 
@@ -89,6 +89,10 @@ export function islandFor(
 
   const nw = NANO.w + 2 * NANO.clearance;
   const nh = NANO.h + 2 * NANO.clearance;
+  // nice!nano przy samej górnej krawędzi: gniazdo USB-C (wystaje 1 mm poza płytkę) kończy się
+  // równo ze ścianką wyspy, więc kabel wchodzi od razu, bez kanału.
+  const nTop = y1 - NANO.usbOverhang;
+  const nCy = nTop - NANO.h / 2;
 
   const cuts: Box[] = [
     // gniazdo płytki modułu (płytka leży równo z wierzchem płyty)
@@ -96,9 +100,9 @@ export function islandFor(
     // miejsce pod płytką na luty i nóżki elementów
     box(cx - mw / 2 + 2.5, mBot + 2.5, -MODULE.pcb - MODULE.underClearance, cx + mw / 2 - 2.5, mTop - 2.5, 0),
     // kieszeń nice!nano od spodu
-    box(cx - nw / 2, mCy - nh / 2, -D - 1, cx + nw / 2, mCy + nh / 2, -D + NANO.usbH),
-    // wyjście USB-C przez górną ściankę wyspy
-    box(cx - NANO.usbW / 2, mCy + nh / 2 - 1, -D - 1, cx + NANO.usbW / 2, y1 + 1, -D + NANO.usbH),
+    box(cx - nw / 2, nCy - nh / 2, -D - 1, cx + nw / 2, nCy + nh / 2, -D + NANO.usbH),
+    // otwór na gniazdo USB-C w górnej ściance wyspy
+    box(cx - NANO.usbW / 2, nCy, -D - 1, cx + NANO.usbW / 2, y1 + 1, -D + NANO.usbH),
   ];
   // przepusty na piny modułu: listwa 9 pinów przy dłuższym boku, 31–53 mm od góry modułu
   for (const s of [-1, 1]) {
@@ -109,7 +113,8 @@ export function islandFor(
   if (variant === 'hotswap') cuts.push(box(x0 - 0.01, y0 - 1, -cellHeight - 1, x0 + 2.5, y1 + 1, -cellHeight + 2.4));
 
   const ghosts: GhostPart[] = [
-    { kind: 'nano', box: box(cx - NANO.w / 2, mCy - NANO.h / 2, -D, cx + NANO.w / 2, mCy + NANO.h / 2, -D + NANO.height) },
+    { kind: 'nano', box: box(cx - NANO.w / 2, nTop - NANO.h, -D, cx + NANO.w / 2, nTop, -D + 1.6) },
+    { kind: 'usb', box: box(cx - 4.5, nTop - 6.5, -D + 1.6, cx + 4.5, y1, -D + 4.8) },
     { kind: 'pcb', box: box(cx - MODULE.w / 2, mTop - MODULE.clearance - MODULE.h, -MODULE.pcb, cx + MODULE.w / 2, mTop - MODULE.clearance, 0) },
     { kind: 'display', box: box(cx - 11.5, mTop - 61, 0, cx + 11.5, mTop - 26, 3.1) },
     { kind: 'encoder', box: box(cx - 6, mTop - 18.9, 0, cx + 6, mTop - 4.4, 9.5) },

@@ -42,6 +42,7 @@
 
   const ghostMats: Record<GhostPart['kind'], THREE.Material> = {
     nano: new THREE.MeshStandardMaterial({ color: 0x2a6f97, roughness: 0.6 }),
+    usb: new THREE.MeshStandardMaterial({ color: 0xc0c6ca, roughness: 0.3, metalness: 0.7 }),
     pcb: new THREE.MeshStandardMaterial({ color: 0x3d7a4f, roughness: 0.7 }),
     display: new THREE.MeshStandardMaterial({ color: 0x10161a, roughness: 0.2, metalness: 0.2 }),
     encoder: new THREE.MeshStandardMaterial({ color: 0x9aa3a8, roughness: 0.5, metalness: 0.4 }),
