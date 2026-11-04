@@ -1,0 +1,150 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Model układu: lista klawiszy z pozycją środka (mm), obrotem (stopnie) i rozmiarem (U).
+// Oś Y w górę (widok z góry), Z w górę z płyty. Wszystkie wymiary w mm.
+
+export const PITCH = 19.05;
+
+export interface Key {
+  id: string;
+  /** środek klawisza, mm */
+  x: number;
+  y: number;
+  /** obrót wokół środka, stopnie, przeciwnie do ruchu wskazówek zegara */
+  rot: number;
+  /** szerokość i wysokość w jednostkach U (1U = 19,05 mm) */
+  w: number;
+  h: number;
+}
+
+export interface SplitParams {
+  rows: number;
+  cols: number;
+  /** przesunięcie kolumn w górę (mm), od zewnętrznej (0) do wewnętrznej */
+  stagger: number[];
+  /** liczba klawiszy kciukowych */
+  thumbKeys: number;
+  /** pozycja pierwszego klawisza kciukowego względem dolnego klawisza w kolumnie `thumbAnchorCol` (mm) */
+  thumbAnchorCol: number;
+  thumbOffsetX: number;
+  thumbOffsetY: number;
+  /** obrót całego klastra (stopnie, ujemny = w prawo, w stronę środka) */
+  thumbAngle: number;
+  /** dodatkowy obrót każdego kolejnego klawisza (wachlarz) */
+  thumbSplay: number;
+  /** szerokość ostatniego (najbardziej wewnętrznego) klawisza kciukowego w U */
+  thumbLastWidth: number;
+  /** obróć ostatni klawisz o 90° (pionowy 1,5U jak w Lily58) */
+  thumbLastVertical: boolean;
+}
+
+/** Szablon 4×6 + 4 kciukowe, płaski split z lekkim staggerem kolumn. */
+export const SPLIT_4x6_4: SplitParams = {
+  rows: 4,
+  cols: 6,
+  stagger: [0, 0, 4.76, 7.14, 4.76, 2.38],
+  thumbKeys: 4,
+  thumbAnchorCol: 2,
+  thumbOffsetX: 0,
+  thumbOffsetY: -PITCH - 2,
+  thumbAngle: 0,
+  thumbSplay: -8,
+  thumbLastWidth: 1.5,
+  thumbLastVertical: true,
+};
+
+const rotPt = (x: number, y: number, deg: number): [number, number] => {
+  const a = (deg * Math.PI) / 180;
+  return [x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a)];
+};
+
+/**
+ * Lewa połówka splitu. Kolumna 0 jest zewnętrzna (lewa krawędź), ostatnia wewnętrzna.
+ * Rząd 0 to górny rząd (cyfry). Klaster kciuka idzie od kolumny `thumbAnchorCol` w prawo.
+ */
+export function splitLeft(p: SplitParams): Key[] {
+  const keys: Key[] = [];
+  for (let c = 0; c < p.cols; c++) {
+    const st = p.stagger[c] ?? 0;
+    for (let r = 0; r < p.rows; r++) {
+      keys.push({
+        id: `k-${r}-${c}`,
+        x: c * PITCH,
+        y: -r * PITCH + st,
+        rot: 0,
+        w: 1,
+        h: 1,
+      });
+    }
+  }
+
+  // Klaster kciuka: łańcuch klawiszy, każdy kolejny obrócony o `thumbSplay` wokół
+  // wspólnego narożnika (jak wachlarz w Ergogen). Przy wachlarzu w dół (splay < 0)
+  // obracamy wokół dolnego narożnika, w górę wokół górnego, by klawisze się nie nakładały.
+  const ac = Math.min(Math.max(p.thumbAnchorCol, 0), p.cols - 1);
+  const anchorX = ac * PITCH + p.thumbOffsetX;
+  const anchorY = -(p.rows - 1) * PITCH + (p.stagger[ac] ?? 0) + p.thumbOffsetY;
+  const pivotTop = p.thumbSplay >= 0;
+  let angle = p.thumbAngle;
+  // narożnik obrotu bieżącego klawisza (lewy górny albo lewy dolny), liczony dla 1U
+  let [cx, cy] = rotPt(-PITCH / 2, pivotTop ? PITCH / 2 : -PITCH / 2, angle);
+  cx += anchorX;
+  cy += anchorY;
+  for (let i = 0; i < p.thumbKeys; i++) {
+    const last = i === p.thumbKeys - 1;
+    let w = last ? p.thumbLastWidth : 1;
+    let h = 1;
+    if (last && p.thumbLastVertical) [w, h] = [1, p.thumbLastWidth];
+    const rot = angle;
+    // pionowy klawisz wyrównujemy górą do łańcucha (wystaje w dół)
+    const toCenterY = pivotTop ? (-h * PITCH) / 2 : PITCH - (h * PITCH) / 2;
+    const [dx, dy] = rotPt((w * PITCH) / 2, toCenterY, rot);
+    keys.push({ id: `t-${i}`, x: cx + dx, y: cy + dy, rot, w, h });
+    const [nx, ny] = rotPt(w * PITCH, 0, rot);
+    cx += nx;
+    cy += ny;
+    angle += p.thumbSplay;
+  }
+  return keys;
+}
+
+/** Prawa połówka: lustro pozycji lewej. Komórki NIE są lustrzane (gniazda hot-swap zostają w tej samej orientacji). */
+export function mirrorKeys(keys: Key[]): Key[] {
+  return keys.map((k) => ({ ...k, x: -k.x, rot: -k.rot }));
+}
+
+/** Prostokąt zajmowany przez klawisz (4 narożniki), mm. */
+export function keyCorners(k: Key): [number, number][] {
+  const hw = (k.w * PITCH) / 2;
+  const hh = (k.h * PITCH) / 2;
+  return (
+    [
+      [-hw, -hh],
+      [hw, -hh],
+      [hw, hh],
+      [-hw, hh],
+    ] as [number, number][]
+  ).map(([x, y]) => {
+    const [rx, ry] = rotPt(x, y, k.rot);
+    return [rx + k.x, ry + k.y];
+  });
+}
+
+/** Sprawdza, czy dwa klawisze nachodzą na siebie (test osi rozdzielającej), z tolerancją. */
+export function keysOverlap(a: Key, b: Key, tol = 0.01): boolean {
+  const pa = keyCorners(a);
+  const pb = keyCorners(b);
+  for (const poly of [pa, pb]) {
+    for (let i = 0; i < 4; i++) {
+      const [x1, y1] = poly[i];
+      const [x2, y2] = poly[(i + 1) % 4];
+      const nx = y2 - y1;
+      const ny = x1 - x2;
+      const len = Math.hypot(nx, ny);
+      const proj = (p: [number, number][]) => p.map(([x, y]) => (x * nx + y * ny) / len);
+      const A = proj(pa);
+      const B = proj(pb);
+      if (Math.max(...A) <= Math.min(...B) + tol || Math.max(...B) <= Math.min(...A) + tol) return false;
+    }
+  }
+  return true;
+}
