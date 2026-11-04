@@ -16,12 +16,15 @@
   import type { BuildInput } from './cad/protocol';
   import { zipStore } from './lib/zip';
   import Tooltip from './ui/Tooltip.svelte';
+  import { DEFAULT_ISLAND, islandFor, type IslandParams } from './lib/island';
 
   type Side = 'left' | 'right';
 
   let lang = $state<Lang>('pl');
   let params = $state<SplitParams>(structuredClone(SPLIT_4x6_4));
   let templateId = $state(TEMPLATES[0].id);
+  let island = $state<IslandParams>({ ...DEFAULT_ISLAND });
+  let showElectronics = $state(true);
   function applyTemplate(id: string) {
     const tpl = TEMPLATES.find((x) => x.id === id);
     if (tpl) params = structuredClone(tpl.params);
@@ -62,6 +65,8 @@
     return false;
   });
 
+  const islandGeom = (s: Side) =>
+    islandFor($state.snapshot(params) as SplitParams, $state.snapshot(island) as IslandParams, s, variant, cellHeight);
   const keysFor = (s: Side) => (s === 'left' ? leftKeys : rightKeys);
   const sides = $derived<Side[]>(show === 'both' ? ['left', 'right'] : [show]);
 
@@ -74,20 +79,22 @@
       cellId,
       cellStep,
       up,
+      island: islandGeom(s),
     };
   }
   const inputKey = (i: BuildInput) => JSON.stringify({ ...i, cellStep: undefined });
 
   let halves = $derived.by<PreviewHalf[]>(() => {
     // rozstaw połówek: prawa obok lewej z odstępem 2U
-    const lb = Math.max(...leftKeys.map((k) => k.x + (Math.max(k.w, k.h) * PITCH) / 2));
+    const ig = islandGeom('left');
+    const lb = Math.max(ig ? ig.rect.x1 : -Infinity, ...leftKeys.map((k) => k.x + (Math.max(k.w, k.h) * PITCH) / 2));
     const gap = 2 * PITCH;
     return sides.map((s) => {
       const inp = inputFor(s);
       const m = meshes[s];
       const fresh = inp && m && m.key === inputKey(inp) ? m.mesh : null;
       const offsetX = s === 'right' && show === 'both' ? 2 * lb + gap : 0;
-      return { keys: keysFor(s), offsetX, mesh: fresh };
+      return { keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), showElectronics };
     });
   });
 
@@ -308,6 +315,20 @@
           <option value="right">{t(lang, 'right')}</option>
         </select>
       </label>
+    </section>
+
+    <section>
+      <h2>{t(lang, 'electronics')}</h2>
+      <label class="check" data-tip={t(lang, 'tipIsland')}><input type="checkbox" bind:checked={island.enabled} /> {t(lang, 'island')}</label>
+      {#if island.enabled}
+        <div class="grid2">
+          <label data-tip={t(lang, 'tipIslandDepth')}>{t(lang, 'islandDepth')} <input type="number" min="5" step="0.5" bind:value={island.depth} /></label>
+          <span></span>
+          <label data-tip={t(lang, 'tipIslandX')}>{t(lang, 'thumbX')} <input type="number" step="0.5" bind:value={island.offsetX} /></label>
+          <label data-tip={t(lang, 'tipIslandY')}>{t(lang, 'thumbY')} <input type="number" step="0.5" bind:value={island.offsetY} /></label>
+        </div>
+        <label class="check" data-tip={t(lang, 'tipShowElectronics')}><input type="checkbox" bind:checked={showElectronics} /> {t(lang, 'showElectronics')}</label>
+      {/if}
     </section>
 
     <section>

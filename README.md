@@ -23,6 +23,7 @@ python3 tools/build-artifact.py <katalog>   # wersja do podglądu w Claude (WASM
   - **Cienka płyta 1,5 mm**: sam otwór 14×14, bez ścianek.
 - Własna komórka: wczytaj dowolny plik STEP komórki 1U. Oś płyty wykrywa się automatycznie albo ustawiasz ją ręcznie.
 - Lewa i prawa połówka. Prawa to lustro pozycji klawiszy, ale komórki nie są lustrzane, więc gniazda hot-swap mają tę samą orientację.
+- Wyspa na elektronikę (wariant A): pole 38 × 68 mm przy wewnętrznej kolumnie z gniazdem na moduł OLED 1,3" z enkoderem EC11, kieszenią od spodu na nice!nano v2, wyjściem USB-C i przepustami na piny. W podglądzie widać uproszczone bryły elektroniki (nie trafiają do eksportu).
 - Podgląd 3D: najpierw szybki podgląd komórek, potem dokładna bryła z CAD (liczona w Web Workerze).
 - Interfejs po polsku i angielsku.
 
@@ -40,6 +41,7 @@ Testy sprawdzają, że siatka 2×2 ma dokładnie objętość czterech komórek (
 | --- | --- |
 | `src/lib/layout.ts` | model układu (klawisze w mm), szablon 4×6 + 4, lustro, test nakładania |
 | `src/lib/cell-spec.ts` | stałe i typy komórki (bez zależności od CAD) |
+| `src/lib/island.ts` | wymiary i wycięcia wyspy na elektronikę (bez CAD) |
 | `src/lib/geometry.ts` | geometria w replicad / OpenCascade: komórka, obrys, płyta |
 | `src/cad/` | Web Worker z jądrem CAD i klient do niego |
 | `src/ui/` | podgląd Three.js, teksty PL/EN |

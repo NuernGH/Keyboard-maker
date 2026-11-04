@@ -61,3 +61,39 @@ describe('obrys', () => {
     expect(holeCount(footprint(keys, { fillGaps: 4, margin: 0 }))).toBe(0);
   });
 });
+
+import { islandFor, DEFAULT_ISLAND, NANO, MODULE } from '../src/lib/island';
+import { mirrorKeys } from '../src/lib/layout';
+
+describe('wyspa na elektronikę', () => {
+  test('mieści nice!nano i moduł, zostawia strop między nimi', () => {
+    const g = islandFor(SPLIT_4x6_4, DEFAULT_ISLAND, 'left', 'hotswap', 8.58)!;
+    const [seat, under, nano] = g.cuts;
+    expect(seat.x1 - seat.x0).toBeGreaterThan(MODULE.w);
+    expect(seat.y1 - seat.y0).toBeGreaterThan(MODULE.h);
+    expect(nano.x1 - nano.x0).toBeGreaterThan(NANO.w);
+    expect(nano.y1 - nano.y0).toBeGreaterThan(NANO.h);
+    expect(nano.z1 + g.depth).toBeGreaterThan(NANO.height);
+    expect(under.z0 - nano.z1).toBeGreaterThanOrEqual(1.2);
+    // wyspa nie zachodzi na klawisze
+    const keys = splitLeft(SPLIT_4x6_4);
+    const maxKeyX = Math.max(...keys.filter((k) => k.id.startsWith('k')).map((k) => k.x + PITCH / 2));
+    expect(g.rect.x0).toBeGreaterThanOrEqual(maxKeyX - 1e-6);
+  });
+
+  for (const variant of ['hotswap', 'no-hotswap'] as const)
+    for (const side of ['left', 'right'] as const)
+      test(`${variant} ${side}: płyta z wyspą jest poprawna, STEP bez strat`, async () => {
+        const cell = await loadCell({ step: cellStep(), up: 'auto' }, variant);
+        const base = splitLeft(SPLIT_4x6_4);
+        const keys = side === 'left' ? base : mirrorKeys(base);
+        const g = islandFor(SPLIT_4x6_4, DEFAULT_ISLAND, side, variant, cell.height);
+        const plate = buildPlate(keys, cell, undefined, g);
+        expect(isValidShape(plate)).toBe(true);
+        expect(plate.solids.length).toBe(1);
+        const b = plate.boundingBox.bounds;
+        expect(-b[0][2]).toBeCloseTo(DEFAULT_ISLAND.depth, 3);
+        const re = (await importSTEP(plate.blobSTEP())) as Shape3D;
+        expect(measureVolume(re)).toBeCloseTo(measureVolume(plate), 0);
+      }, 180000);
+});

@@ -4,6 +4,7 @@
   import * as THREE from 'three';
   import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
   import { PITCH, type Key } from '../lib/layout';
+  import type { IslandGeom, GhostPart } from '../lib/island';
 
   export interface PreviewMesh {
     vertices: Float32Array;
@@ -15,6 +16,8 @@
     offsetX: number;
     /** dokładna bryła z CAD; gdy brak lub nieaktualna, pokazujemy szybki podgląd komórek */
     mesh: PreviewMesh | null;
+    island?: IslandGeom | null;
+    showElectronics?: boolean;
   }
 
   let { halves, cellHeight, holeSize = 14 }: { halves: PreviewHalf[]; cellHeight: number; holeSize?: number } =
@@ -36,6 +39,28 @@
     transparent: true,
     opacity: 0.85,
   });
+
+  const ghostMats: Record<GhostPart['kind'], THREE.Material> = {
+    nano: new THREE.MeshStandardMaterial({ color: 0x2a6f97, roughness: 0.6 }),
+    pcb: new THREE.MeshStandardMaterial({ color: 0x3d7a4f, roughness: 0.7 }),
+    display: new THREE.MeshStandardMaterial({ color: 0x10161a, roughness: 0.2, metalness: 0.2 }),
+    encoder: new THREE.MeshStandardMaterial({ color: 0x9aa3a8, roughness: 0.5, metalness: 0.4 }),
+    knob: new THREE.MeshStandardMaterial({ color: 0xb5543c, roughness: 0.5 }),
+  };
+
+  function boxMesh(b: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number }, mat: THREE.Material, round = false) {
+    const w = b.x1 - b.x0;
+    const h = b.y1 - b.y0;
+    const d = b.z1 - b.z0;
+    let g: THREE.BufferGeometry;
+    if (round) {
+      g = new THREE.CylinderGeometry(w / 2, w / 2, d, 32);
+      g.rotateX(Math.PI / 2);
+    } else g = new THREE.BoxGeometry(w, h, d);
+    const m = new THREE.Mesh(g, mat);
+    m.position.set((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2);
+    return m;
+  }
 
   function cellGeometry(w: number, h: number, height: number): THREE.BufferGeometry {
     const W = w * PITCH;
@@ -70,6 +95,13 @@
     for (const half of halves) {
       const hg = new THREE.Group();
       hg.position.x = half.offsetX;
+      if (half.island && half.showElectronics !== false) {
+        for (const gp of half.island.ghosts) hg.add(boxMesh(gp.box, ghostMats[gp.kind], gp.kind === 'knob'));
+      }
+      if (!half.mesh && half.island) {
+        const r = half.island.rect;
+        hg.add(boxMesh({ x0: r.x0, y0: r.y0, z0: -half.island.depth, x1: r.x1, y1: r.y1, z1: -0.01 }, quickMat));
+      }
       if (half.mesh) {
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.BufferAttribute(half.mesh.vertices, 3));

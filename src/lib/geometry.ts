@@ -21,6 +21,7 @@ import {
   type Shape3D,
 } from 'replicad';
 import { PITCH, type Key } from './layout';
+import type { IslandGeom } from './island';
 
 import {
   DEFAULT_PLATE_OPTIONS,
@@ -128,11 +129,15 @@ export function thinPlateCell(hole = MX_HOLE): Cell {
 }
 
 /** Obrys 2D: suma prostokątów klawiszy, domknięta offsetem. */
-export function footprint(keys: Key[], opts: PlateOptions): Drawing {
+export function footprint(keys: Key[], opts: PlateOptions, island: IslandGeom | null = null): Drawing {
   let d: Drawing | null = null;
   for (const k of keys) {
     const r = drawRectangle(k.w * PITCH, k.h * PITCH).rotate(k.rot).translate(k.x, k.y);
     d = d ? d.fuse(r) : r;
+  }
+  if (d && island) {
+    const r = island.rect;
+    d = d.fuse(drawRectangle(r.x1 - r.x0, r.y1 - r.y0).translate((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2));
   }
   if (!d) throw new Error('Brak klawiszy');
   if (opts.fillGaps > 0) d = fillHoles(d.offset(opts.fillGaps).offset(-opts.fillGaps));
@@ -167,12 +172,22 @@ export function holeCount(d: Drawing): number {
   return count((d as any).innerShape);
 }
 
-export function buildPlate(keys: Key[], cell: Cell, opts: PlateOptions = DEFAULT_PLATE_OPTIONS): Shape3D {
-  const outline = footprint(keys, opts);
-  const body = outline.sketchOnPlane('XY', -cell.height).extrude(cell.height) as Shape3D;
+export function buildPlate(
+  keys: Key[],
+  cell: Cell,
+  opts: PlateOptions = DEFAULT_PLATE_OPTIONS,
+  island: IslandGeom | null = null,
+): Shape3D {
+  const outline = footprint(keys, opts, island);
+  let body = outline.sketchOnPlane('XY', -cell.height).extrude(cell.height) as Shape3D;
+  if (island && island.depth > cell.height + 1e-6) {
+    const r = island.rect;
+    body = body.fuse(makeBox([r.x0, r.y0, -island.depth], [r.x1, r.y1, 0])) as Shape3D;
+  }
   const negatives = keys.map((k) =>
     cell.negative.clone().rotate(k.rot, [0, 0, 0], [0, 0, 1]).translate(k.x, k.y, 0),
   );
+  if (island) for (const b of island.cuts) negatives.push(makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]));
   return cutMany(body, negatives);
 }
 

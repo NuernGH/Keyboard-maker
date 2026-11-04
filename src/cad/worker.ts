@@ -57,7 +57,7 @@ async function plateFor(input: BuildInput): Promise<Shape3D> {
   if (lastPlate?.key === key) return lastPlate.shape;
   await init();
   const cell = await getCell(input);
-  const shape = buildPlate(input.keys, cell, input.plate);
+  const shape = buildPlate(input.keys, cell, input.plate, input.island);
   lastPlate = { key, shape };
   return shape;
 }

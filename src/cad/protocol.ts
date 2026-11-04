@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { UpAxis, CellVariant, PlateOptions } from '../lib/cell-spec';
 import type { Key } from '../lib/layout';
+import type { IslandGeom } from '../lib/island';
 
 export interface BuildInput {
   keys: Key[];
@@ -10,6 +11,7 @@ export interface BuildInput {
   cellId: string;
   cellStep: ArrayBuffer;
   up: UpAxis | 'auto';
+  island: IslandGeom | null;
 }
 
 export type Request =
