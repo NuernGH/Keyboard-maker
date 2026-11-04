@@ -69,14 +69,19 @@ const dict = {
   tipBadge: { pl: 'Szybki podgląd pokazuje same komórki od razu. Dokładna bryła to wynik z jądra CAD, taki sam jak w eksporcie.', en: 'The quick preview shows the cells right away. The exact solid comes from the CAD kernel and matches the export.' },
   tipResetView: { pl: 'Ustawia kamerę tak, by obie połówki były widoczne. Obracasz lewym przyciskiem, przesuwasz prawym, przybliżasz kółkiem.', en: 'Frames both halves. Rotate with the left button, pan with the right, zoom with the wheel.' },
   electronics: { pl: 'Elektronika', en: 'Electronics' },
-  island: { pl: 'Wyspa na nice!nano i OLED z enkoderem', en: 'Island for nice!nano and OLED with encoder' },
+  island: { pl: 'Wyspa na kontroler i OLED z enkoderem', en: 'Island for controller and OLED with encoder' },
+  controller: { pl: 'Kontroler', en: 'Controller' },
+  moduleSide: { pl: 'OLED z enkoderem na', en: 'OLED with encoder on' },
+  none: { pl: 'Żadnej', en: 'None' },
+  tipController: { pl: 'Płytka kontrolera. Kieszeń od spodu i otwór na USB w ściance dopasowują się do jej wymiarów.', en: 'Controller board. The pocket underneath and the USB opening in the wall follow its size.' },
+  tipModuleSide: { pl: 'Na której połówce leży moduł OLED 1,3" z enkoderem. Druga połówka dostaje mniejszą wyspę tylko na kontroler.', en: 'Which half carries the 1.3" OLED + encoder module. The other half gets a smaller island just for the controller.' },
   islandDepth: { pl: 'Głębokość wyspy (mm)', en: 'Island depth (mm)' },
   showElectronics: { pl: 'Pokaż elektronikę w podglądzie', en: 'Show electronics in preview' },
-  tipIsland: { pl: 'Pole obok wewnętrznej kolumny, drukowane razem z płytą. Na wierzchu leży moduł OLED 1,3" z enkoderem EC11, pod nim od spodu nice!nano przy górnej krawędzi, z gniazdem USB-C równo ze ścianką.', en: 'Area next to the inner column, printed with the plate. The 1.3" OLED + EC11 module sits on top, the nice!nano below it from underneath at the top edge, USB-C flush with the wall.' },
+  tipIsland: { pl: 'Pole obok wewnętrznej kolumny, drukowane razem z płytą. Na wierzchu leży moduł OLED 1,3" z enkoderem EC11, pod nim od spodu kontroler przy górnej krawędzi, z gniazdem USB równo ze ścianką.', en: 'Area next to the inner column, printed with the plate. The 1.3" OLED + EC11 module sits on top, the controller below it from underneath at the top edge, USB flush with the wall.' },
   tipIslandDepth: { pl: 'Jak głęboko wyspa sięga od wierzchu płyty w dół. Domyślne 10,5 mm mieści płytkę modułu, luty pod nią i nice!nano (4,8 mm).', en: 'How far the island reaches down from the plate top. The default 10.5 mm fits the module board, solder joints under it and the nice!nano (4.8 mm).' },
   tipIslandX: { pl: 'Przesuwa wyspę w bok, w mm.', en: 'Moves the island sideways, in mm.' },
   tipIslandY: { pl: 'Przesuwa wyspę w górę lub w dół, w mm.', en: 'Moves the island up or down, in mm.' },
-  tipShowElectronics: { pl: 'Pokazuje uproszczone bryły nice!nano i modułu OLED z enkoderem. Nie trafiają do eksportu.', en: 'Shows simplified nice!nano and OLED + encoder module. They are not exported.' },
+  tipShowElectronics: { pl: 'Pokazuje uproszczone bryły kontrolera i modułu OLED z enkoderem. Nie trafiają do eksportu.', en: 'Shows simplified controller and OLED + encoder module. They are not exported.' },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type MsgKey = keyof typeof dict;

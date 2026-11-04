@@ -16,7 +16,7 @@
   import type { BuildInput } from './cad/protocol';
   import { zipStore } from './lib/zip';
   import Tooltip from './ui/Tooltip.svelte';
-  import { DEFAULT_ISLAND, islandFor, type IslandParams } from './lib/island';
+  import { CONTROLLERS, DEFAULT_ISLAND, islandFor, type IslandParams } from './lib/island';
 
   type Side = 'left' | 'right';
 
@@ -86,14 +86,18 @@
 
   let halves = $derived.by<PreviewHalf[]>(() => {
     // rozstaw połówek: prawa obok lewej z odstępem 2U
-    const ig = islandGeom('left');
-    const lb = Math.max(ig ? ig.rect.x1 : -Infinity, ...leftKeys.map((k) => k.x + (Math.max(k.w, k.h) * PITCH) / 2));
+    const kb = Math.max(...leftKeys.map((k) => k.x + (Math.max(k.w, k.h) * PITCH) / 2));
+    const il = islandGeom('left');
+    const ir = islandGeom('right');
+    // zasięg w stronę środka: lewa w +X, prawa (lustro) w −X
+    const reachL = Math.max(kb, il ? il.rect.x1 : -Infinity);
+    const reachR = Math.max(kb, ir ? -ir.rect.x0 : -Infinity);
     const gap = 2 * PITCH;
     return sides.map((s) => {
       const inp = inputFor(s);
       const m = meshes[s];
       const fresh = inp && m && m.key === inputKey(inp) ? m.mesh : null;
-      const offsetX = s === 'right' && show === 'both' ? 2 * lb + gap : 0;
+      const offsetX = s === 'right' && show === 'both' ? reachL + reachR + gap : 0;
       return { keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), showElectronics };
     });
   });
@@ -322,6 +326,19 @@
       <label class="check" data-tip={t(lang, 'tipIsland')}><input type="checkbox" bind:checked={island.enabled} /> {t(lang, 'island')}</label>
       {#if island.enabled}
         <div class="grid2">
+          <label data-tip={t(lang, 'tipController')}>{t(lang, 'controller')}
+            <select bind:value={island.controller}>
+              {#each Object.entries(CONTROLLERS) as [id, c] (id)}<option value={id}>{c.name}</option>{/each}
+            </select>
+          </label>
+          <label data-tip={t(lang, 'tipModuleSide')}>{t(lang, 'moduleSide')}
+            <select bind:value={island.moduleSide}>
+              <option value="left">{t(lang, 'left')}</option>
+              <option value="right">{t(lang, 'right')}</option>
+              <option value="both">{t(lang, 'both')}</option>
+              <option value="none">{t(lang, 'none')}</option>
+            </select>
+          </label>
           <label data-tip={t(lang, 'tipIslandDepth')}>{t(lang, 'islandDepth')} <input type="number" min="5" step="0.5" bind:value={island.depth} /></label>
           <span></span>
           <label data-tip={t(lang, 'tipIslandX')}>{t(lang, 'thumbX')} <input type="number" step="0.5" bind:value={island.offsetX} /></label>

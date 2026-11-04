@@ -17,6 +17,7 @@ import {
   getOC,
   importSTEP,
   makeBox,
+  makeCylinder,
   measureVolume,
   type Shape3D,
 } from 'replicad';
@@ -187,7 +188,13 @@ export function buildPlate(
   const negatives = keys.map((k) =>
     cell.negative.clone().rotate(k.rot, [0, 0, 0], [0, 0, 1]).translate(k.x, k.y, 0),
   );
-  if (island) for (const b of island.cuts) negatives.push(makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]));
+  if (island)
+    for (const b of island.cuts)
+      negatives.push(
+        b.round
+          ? (makeCylinder((b.x1 - b.x0) / 2, b.z1 - b.z0, [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, b.z0], [0, 0, 1]) as Shape3D)
+          : makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]),
+      );
   return cutMany(body, negatives);
 }
 

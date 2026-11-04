@@ -107,3 +107,59 @@ describe('nice!nano przy krawędzi', () => {
     expect(g.rect.y1 - nano.box.y1).toBeCloseTo(NANO.usbOverhang, 6);
   });
 });
+
+import { MODULE_HOLES } from '../src/lib/island';
+describe('mocowanie modułu', () => {
+  test('4 otwory pod śruby w rozstawie 59 × 29 mm, poza kanałami', () => {
+    const g = islandFor(SPLIT_4x6_4, DEFAULT_ISLAND, 'left', 'hotswap', 8.58)!;
+    const holes = g.cuts.filter((c) => c.round);
+    expect(holes.length).toBe(4);
+    const xs = holes.map((h) => (h.x0 + h.x1) / 2);
+    const ys = holes.map((h) => (h.y0 + h.y1) / 2);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(MODULE_HOLES.dx, 6);
+    expect(Math.max(...ys) - Math.min(...ys)).toBeCloseTo(MODULE_HOLES.dy, 6);
+    const under = g.cuts[1];
+    for (const y of ys) expect(y < under.y0 || y > under.y1).toBe(true);
+  });
+});
+
+import { CONTROLLERS, islandSize, type ControllerId } from '../src/lib/island';
+describe('kontrolery i połówka z modułem', () => {
+  test('domyślnie moduł tylko na lewej, prawa ma małą wyspę bez modułu', () => {
+    const l = islandFor(SPLIT_4x6_4, DEFAULT_ISLAND, 'left', 'hotswap', 8.58)!;
+    const r = islandFor(SPLIT_4x6_4, DEFAULT_ISLAND, 'right', 'hotswap', 8.58)!;
+    expect(l.ghosts.some((g) => g.kind === 'display')).toBe(true);
+    expect(r.ghosts.some((g) => g.kind === 'display')).toBe(false);
+    expect(r.cuts.some((c) => c.round)).toBe(false);
+    expect(r.rect.x1 - r.rect.x0).toBeLessThan(l.rect.x1 - l.rect.x0);
+    expect(r.rect.y1 - r.rect.y0).toBeLessThan(l.rect.y1 - l.rect.y0);
+  });
+
+  for (const id of Object.keys(CONTROLLERS) as ControllerId[])
+    test(`${id}: kieszeń mieści płytkę, USB kończy się na ściance`, () => {
+      const c = CONTROLLERS[id];
+      for (const moduleSide of ['left', 'none'] as const) {
+        const ip = { ...DEFAULT_ISLAND, controller: id, moduleSide };
+        const g = islandFor(SPLIT_4x6_4, ip, 'left', 'hotswap', 8.58)!;
+        const pocket = g.cuts[moduleSide === 'left' ? 2 : 0];
+        expect(pocket.x1 - pocket.x0).toBeGreaterThan(c.w);
+        expect(pocket.y1 - pocket.y0).toBeGreaterThan(c.h);
+        expect(pocket.z1 + g.depth).toBeGreaterThan(c.height);
+        expect(pocket.x0).toBeGreaterThan(g.rect.x0);
+        expect(pocket.x1).toBeLessThan(g.rect.x1);
+        expect(pocket.y0).toBeGreaterThan(g.rect.y0);
+        const usb = g.ghosts.find((p) => p.kind === 'usb')!;
+        expect(usb.box.y1).toBeCloseTo(g.rect.y1, 6);
+        expect(islandSize(ip, 'left').w).toBeCloseTo(g.rect.x1 - g.rect.x0, 6);
+      }
+    });
+
+  test('mała wyspa (prawa) daje poprawną bryłę', async () => {
+    const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
+    const keys = mirrorKeys(splitLeft(SPLIT_4x6_4));
+    const g = islandFor(SPLIT_4x6_4, { ...DEFAULT_ISLAND, controller: 's2mini' }, 'right', 'hotswap', cell.height);
+    const plate = buildPlate(keys, cell, undefined, g);
+    expect(isValidShape(plate)).toBe(true);
+    expect(plate.solids.length).toBe(1);
+  }, 180000);
+});
