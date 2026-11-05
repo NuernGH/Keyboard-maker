@@ -28,6 +28,9 @@
   let templateId = $state(TEMPLATES[0].id);
   let island = $state<IslandParams>({ ...DEFAULT_ISLAND });
   let showElectronics = $state(true);
+  /** przełączniki Cherry MX w podglądzie (tylko widok, nie trafiają do eksportu) */
+  let showSwitches = $state(true);
+  let switchMesh = $state<PreviewMesh | null>(null);
   let caseP = $state<CaseParams>({ ...DEFAULT_CASE });
   /** obudowa ma sens tylko dla pełnych komórek (cienka płyta nie utrzyma śrub) */
   const caseOn = $derived(caseP.enabled && variant !== 'thin-plate');
@@ -303,6 +306,16 @@
     cellId = 'default';
   }
 
+  async function loadSwitchModel() {
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}switches/cherry-mx.step`);
+      if (!res.ok) return;
+      switchMesh = await client('right').switchMesh(await res.arrayBuffer(), '+Y');
+    } catch (e) {
+      console.warn('Model przełącznika niedostępny', e);
+    }
+  }
+
   async function onCellFile(e: Event) {
     const f = (e.target as HTMLInputElement).files?.[0];
     if (!f) return;
@@ -316,6 +329,7 @@
     void loadDefaultCell();
     Promise.all((['left', 'right'] as Side[]).map((s) => client(s).init()))
       .then(() => (status = ''))
+      .then(loadSwitchModel)
       .catch((e) => (error = String(e)));
   });
 
@@ -364,6 +378,7 @@
           <option value="thin-plate">{t(lang, 'thinPlate')}</option>
         </select>
       </label>
+      <label class="check" data-tip={t(lang, 'tipShowSwitches')}><input type="checkbox" bind:checked={showSwitches} /> {t(lang, 'showSwitches')}</label>
       <div class="row">
         <span class="muted" data-tip={t(lang, 'tipCellFile')}>{t(lang, 'cellFile')}: {cellId === 'default' ? t(lang, 'cellDefault') : cellName}</span>
       </div>
@@ -622,7 +637,7 @@
   </aside>
 
   <main>
-    <Preview bind:this={preview} {halves} {cellHeight} stabs={plate.stabs ?? 'cherry'} />
+    <Preview bind:this={preview} {halves} {cellHeight} stabs={plate.stabs ?? 'cherry'} switchMesh={showSwitches ? switchMesh : null} />
     <div class="hud">
       <span class="badge" class:exact={allExact} data-tip={t(lang, 'tipBadge')}>
         {#if anyBusy}{t(lang, 'computing')}{:else if allExact}{t(lang, 'exact')}{#if lastMs}&nbsp;· {lastMs} ms{/if}{:else}{t(lang, 'quick')}{/if}

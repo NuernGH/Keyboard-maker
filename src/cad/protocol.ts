@@ -42,6 +42,8 @@ export interface BuildInput {
 export type Request =
   | { id: number; type: 'init' }
   | { id: number; type: 'mesh'; input: BuildInput }
+  /** model przełącznika do podglądu (STEP, oś „do góry” w pliku) */
+  | { id: number; type: 'switch'; step: ArrayBuffer; up: UpAxis }
   | { id: number; type: 'export'; format: 'stl' | 'step'; input: BuildInput }
   | { id: number; type: 'dactyl-mesh'; input: DactylInput }
   | { id: number; type: 'dactyl-export'; format: 'stl' | 'step'; input: DactylInput };

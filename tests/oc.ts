@@ -13,3 +13,5 @@ export function initOC(): Promise<void> {
 }
 export const cellStep = () =>
   new Blob([readFileSync(fileURLToPath(new URL('../public/cells/mx-hotswap.step', import.meta.url)))]);
+export const switchStep = () =>
+  new Blob([readFileSync(fileURLToPath(new URL('../public/switches/cherry-mx.step', import.meta.url)))]);

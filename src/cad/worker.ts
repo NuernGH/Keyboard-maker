@@ -8,6 +8,7 @@ import type { Request, Response, BuildInput, DactylInput } from './protocol';
 import { buildDactyl } from '../lib/dactyl';
 import { buildDactylShell, buildDactylBottom } from '../lib/dactyl-geometry';
 import { controllerHolder } from '../lib/dactyl-parts';
+import { loadSwitch } from '../lib/switch-model';
 
 let ready: Promise<void> | null = null;
 
@@ -124,8 +125,13 @@ self.onmessage = async (e: MessageEvent<Request>) => {
       post({ id: req.id, type: 'ready' });
       return;
     }
-    const shape = req.type === 'dactyl-mesh' || req.type === 'dactyl-export' ? await dactylFor(req.input) : await plateFor(req.input);
-    if (req.type === 'mesh' || req.type === 'dactyl-mesh') {
+    const shape =
+      req.type === 'switch'
+        ? (await init(), await loadSwitch({ step: new Blob([req.step]), up: req.up }))
+        : req.type === 'dactyl-mesh' || req.type === 'dactyl-export'
+          ? await dactylFor(req.input)
+          : await plateFor(req.input);
+    if (req.type === 'mesh' || req.type === 'switch' || req.type === 'dactyl-mesh') {
       const m = shape.mesh({ tolerance: 0.05, angularTolerance: 0.3 });
       const vertices = new Float32Array(m.vertices);
       const normals = new Float32Array(m.normals);

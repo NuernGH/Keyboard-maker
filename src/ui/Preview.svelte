@@ -3,7 +3,7 @@
   import { onMount } from 'svelte';
   import * as THREE from 'three';
   import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-  import { PITCH, switchOffsets, type Key } from '../lib/layout';
+  import { PITCH, switchOffsets, switchSpots, type Key } from '../lib/layout';
   import type { IslandGeom, GhostPart } from '../lib/island';
 
   export interface PreviewMesh {
@@ -31,7 +31,15 @@
     cellHeight,
     holeSize = 14,
     stabs = 'cherry',
-  }: { halves: PreviewHalf[]; cellHeight: number; holeSize?: number; stabs?: 'cherry' | 'mx' | 'none' } = $props();
+    switchMesh = null,
+  }: {
+    halves: PreviewHalf[];
+    cellHeight: number;
+    holeSize?: number;
+    stabs?: 'cherry' | 'mx' | 'none';
+    /** przełącznik ustawiony jak komórka (wierzch płyty z = 0); null = bez przełączników */
+    switchMesh?: PreviewMesh | null;
+  } = $props();
 
   let host: HTMLDivElement;
   let renderer: THREE.WebGLRenderer;
@@ -55,6 +63,8 @@
     transparent: true,
     opacity: 0.85,
   });
+
+  const switchMat = new THREE.MeshStandardMaterial({ color: 0x3b4148, metalness: 0.05, roughness: 0.5 });
 
   const ghostMats: Record<GhostPart['kind'], THREE.Material> = {
     nano: new THREE.MeshStandardMaterial({ color: 0x2a6f97, roughness: 0.6 }),
@@ -165,6 +175,19 @@
         ce.position.z = cm.position.z;
         hg.add(ce);
       }
+      if (switchMesh) {
+        const spots = half.keys.flatMap((k) => switchSpots(k, stabs).map(([x, y]) => [x, y, k.rot] as const));
+        if (spots.length) {
+          const sg = new THREE.BufferGeometry();
+          sg.setAttribute('position', new THREE.BufferAttribute(switchMesh.vertices, 3));
+          sg.setAttribute('normal', new THREE.BufferAttribute(switchMesh.normals, 3));
+          sg.setIndex(new THREE.BufferAttribute(switchMesh.triangles, 1));
+          const im = new THREE.InstancedMesh(sg, switchMat, spots.length);
+          const m4 = new THREE.Matrix4();
+          spots.forEach(([x, y, rot], i) => im.setMatrixAt(i, m4.makeRotationZ((rot * Math.PI) / 180).setPosition(x, y, 0)));
+          hg.add(im);
+        }
+      }
       if (half.mesh) {
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.BufferAttribute(half.mesh.vertices, 3));
@@ -220,6 +243,7 @@
     void halves;
     void cellHeight;
     void stabs;
+    void switchMesh;
     rebuild();
   });
 

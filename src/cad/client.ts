@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { BuildInput, DactylInput, Request, Response } from './protocol';
+import type { UpAxis } from '../lib/cell-spec';
 
 type MeshResponse = Extract<Response, { type: 'mesh' }>;
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
@@ -45,6 +46,11 @@ export class CadClient {
     const r = await this.call({ type: 'dactyl-export', format, input });
     if (r.type !== 'file') throw new Error('Nieoczekiwana odpowiedź workera');
     return r.data;
+  }
+
+  /** siatka przełącznika ustawionego jak komórka (wierzch płyty z = 0, trzpień w (0, 0)) */
+  async switchMesh(step: ArrayBuffer, up: UpAxis): Promise<MeshResponse> {
+    return (await this.call({ type: 'switch', step, up })) as MeshResponse;
   }
 
   async exportFile(input: BuildInput, format: 'stl' | 'step'): Promise<ArrayBuffer> {
