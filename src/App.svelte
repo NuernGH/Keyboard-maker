@@ -447,6 +447,7 @@
           <option value="none">{t(lang, 'stabNone')}</option>
         </select>
       </label>
+      {#if plate.stabs === 'mx'}<p class="muted">{t(lang, 'mxSpacing')}</p>{/if}
       {#if !single}
       <label data-tip={t(lang, 'tipHalves')}>
         {t(lang, 'halves')}
