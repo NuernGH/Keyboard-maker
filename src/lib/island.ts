@@ -320,10 +320,9 @@ export function islandFor(
     cuts.push(...ctrlCuts);
     ghosts.push(...ctrlGhosts);
   }
-  // przy hot-swap kieszenie gniazd wychodzą na boki komórki w osi X (blaszki gniazda Kailh, ok. 4 × 2,3 mm
-  // przy dnie): wyspa obok kolumny (wewnątrz albo na zewnątrz) zostawia im wnękę. Nad i pod klawiszami
-  // (boki w osi Y) kieszeń jest zamknięta w komórce, więc wnęka nie jest potrzebna.
-  if (variant === 'hotswap' && (pos === 'inner' || pos === 'outer')) cuts.push(box(x0 - 0.01, y0 - 1, -cellHeight - 1, x0 + 2.5, y1 + 1, -cellHeight + 2.4));
+  // Kanały na przewody rzędu w komórce hot-swap wychodzą na boki komórki, ale są otwarte od spodu:
+  // przy wyspie przewód schodzi w dół, w miejsce na kable pod płytą, więc wyspa nie potrzebuje wnęki.
+  void variant;
 
   let g: IslandGeom = { rect: { x0, y0, x1, y1 }, depth: D, cuts, ghosts };
   if (local) g = place(g, pos, p, ip);
@@ -501,8 +500,6 @@ function edgeIsland(
     );
     for (let i = firstModGhost; i < ghosts.length; i++) ghosts[i] = { ...ghosts[i], box: tl(ghosts[i].box) };
   }
-  // wyspa nad lub pod klawiszami: kieszenie gniazd hot-swap wychodzą tylko na boki w osi X, wnęka niepotrzebna
-  void variant;
 
   // przeniesienie na siatkę: nad nią (y w górę) albo pod nią (y w dół)
   const { kx0, kx1, ky0, ky1 } = gridBounds(p);
