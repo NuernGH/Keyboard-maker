@@ -1,11 +1,11 @@
 import { beforeAll, describe, expect, test } from 'vitest';
 import { measureVolume } from 'replicad';
 import { initOC, cellStep } from './oc';
-import { loadCell, buildPlate, buildCase, screwPilots, isValidShape } from '../src/lib/geometry';
-import { SPLIT_4x6_4, TEMPLATES, splitLeft, mirrorKeys } from '../src/lib/layout';
+import { loadCell, buildPlate, buildCase, buildLedge, footprint, screwPilots, isValidShape } from '../src/lib/geometry';
+import { SPLIT_4x6_4, TEMPLATES, PITCH, splitLeft, mirrorKeys } from '../src/lib/layout';
 import { islandFor, DEFAULT_ISLAND } from '../src/lib/island';
-import { makeBox } from 'replicad';
-import { caseLayout, DEFAULT_CASE, SCREW_MARGIN, SCREW_SPECS, type ScrewSize } from '../src/lib/case';
+import { makeBox, type Shape3D } from 'replicad';
+import { caseLayout, DEFAULT_CASE, SCREW_MARGIN, SCREW_SPECS, LEDGE, type ScrewSize } from '../src/lib/case';
 
 beforeAll(initOC, 60000);
 const opts = { fillGaps: 4, margin: SCREW_MARGIN };
@@ -59,4 +59,62 @@ describe('spód obudowy', () => {
         expect(lay.pads[0].x0).toBeGreaterThan(board.x0);
         expect(lay.pads[0].x1).toBeLessThan(board.x1);
       }, 240000);
+});
+
+describe('gzyms pod płytą', () => {
+  for (const c of cases)
+    for (const variant of ['hotswap', 'no-hotswap'] as const)
+      test(`${c.name}, ${variant}`, async () => {
+        const cell = await loadCell({ step: cellStep(), up: 'auto' }, variant);
+        const base = splitLeft(c.p);
+        const keys = c.side === 'left' ? base : mirrorKeys(base);
+        const island = islandFor(c.p, c.ip, c.side, variant, cell.height)!;
+        const lay = caseLayout(keys, island, cell.height, DEFAULT_CASE);
+        const ledge = buildLedge(footprint(keys, opts, island), island, cell.height, DEFAULT_CASE, opts.margin, lay.floorTop)!;
+        expect(ledge).not.toBeNull();
+        expect(isValidShape(ledge)).toBe(true);
+        // od dna do 0,1 mm pod płytą
+        const bb = ledge.boundingBox.bounds;
+        expect(bb[1][2]).toBeCloseTo(-cell.height - LEDGE.gap, 3);
+        expect(bb[0][2]).toBeLessThanOrEqual(lay.floorTop);
+        const vol = (a: Shape3D, b: Shape3D) => measureVolume(a.clone().intersect(b) as never);
+        const plate = buildPlate(keys, cell, opts, island);
+        expect(vol(ledge, plate)).toBeLessThan(0.01);
+        // z dala od komórek (z przełącznikami i gniazdami hot-swap): klawisz poszerzony o 1 mm (w narożniku 1,41 < 1,5 mm), od dna do płyty
+        for (const k of keys) {
+          const hw = (k.w * PITCH) / 2 + 1;
+          const hh = (k.h * PITCH) / 2 + 1;
+          const box = makeBox([-hw, -hh, lay.floorTop - 1], [hw, hh, 0]).rotate(k.rot, [0, 0, 0], [0, 0, 1]).translate(k.x, k.y, 0) as Shape3D;
+          expect(vol(ledge, box)).toBeLessThan(0.01);
+        }
+        // nie wchodzi w wyspę (kontroler, OLED) ani w gniazda i drogę wtyku USB
+        const r = island.rect;
+        expect(vol(ledge, makeBox([r.x0, r.y0, -50], [r.x1, r.y1, 0]) as Shape3D)).toBeLessThan(0.01);
+        for (const g of island.ghosts)
+          expect(vol(ledge, makeBox([g.box.x0, g.box.y0, g.box.z0], [g.box.x1, g.box.y1, g.box.z1]) as Shape3D)).toBeLessThan(0.01);
+        for (const u of lay.usbCuts) expect(vol(ledge, makeBox([u.x0, u.y0, u.z0], [u.x1, u.y1, u.z1]) as Shape3D)).toBeLessThan(0.01);
+        // obudowa z gzymsem: ma go (więcej materiału) i dalej nie zachodzi na płytę
+        const without = buildCase(keys, opts, island, cell.height, { ...DEFAULT_CASE, ledge: 0 }, lay);
+        const shell = buildCase(keys, opts, island, cell.height, DEFAULT_CASE, lay);
+        expect(isValidShape(shell)).toBe(true);
+        expect(shell.solids.length).toBe(1);
+        expect(measureVolume(shell) - measureVolume(without)).toBeGreaterThan(100);
+        expect(vol(shell, plate)).toBeLessThan(0.01);
+      }, 240000);
+
+  test('pod kciukami płyta leży na gzymsie', async () => {
+    const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
+    const keys = splitLeft(SPLIT_4x6_4);
+    const island = islandFor(SPLIT_4x6_4, DEFAULT_ISLAND, 'left', 'hotswap', cell.height);
+    const lay = caseLayout(keys, island, cell.height, DEFAULT_CASE);
+    const ledge = buildLedge(footprint(keys, opts, island), island, cell.height, DEFAULT_CASE, opts.margin, lay.floorTop)!;
+    const thumbs = keys.filter((k) => Math.abs(k.rot) > 1e-6);
+    expect(thumbs.length).toBeGreaterThan(0);
+    for (const k of thumbs) {
+      // pas 6 mm poniżej klawisza (w układzie klawisza), tuż pod płytą
+      const hh = (k.h * PITCH) / 2;
+      const box = makeBox([-(k.w * PITCH) / 2, -hh - 6, -cell.height - 0.5], [(k.w * PITCH) / 2, hh + 6, -cell.height]).rotate(k.rot, [0, 0, 0], [0, 0, 1]).translate(k.x, k.y, 0) as Shape3D;
+      expect(measureVolume(ledge.clone().intersect(box) as never)).toBeGreaterThan(5);
+    }
+  }, 240000);
 });

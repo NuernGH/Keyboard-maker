@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Spód obudowy: wanna pod płytą. Ścianki otaczają płytę do jej górnej powierzchni, w środku
-// zostaje miejsce na przewody, a płyta leży na słupkach i jest przykręcona od spodu śrubami M2,5.
+// zostaje miejsce na przewody, a płyta leży brzegiem na gzymsie przy ściance i na słupkach
+// w środku; jest przykręcona od spodu śrubami M2,5.
 // Tu same liczby (pozycje śrub, wymiary); bryłę buduje geometry.ts.
 
 import { PITCH, type Key } from './layout';
@@ -26,6 +27,12 @@ export interface CaseParams {
   supports?: boolean;
   /** rozmiar śrub spodu; brak = M3 */
   screwSize?: ScrewSize;
+  /**
+   * Gzyms wzdłuż wewnętrznej ścianki: pas od dna do 0,1 mm pod spód płyty, na którym płyta
+   * leży brzegiem. Wartość = ile mm gzyms wchodzi pod płytę (0 = bez gzymsu). Musi być
+   * mniejsza niż margines płyty, żeby nie dotykał komórek.
+   */
+  ledge?: number;
 }
 
 export const DEFAULT_CASE: CaseParams = {
@@ -38,6 +45,7 @@ export const DEFAULT_CASE: CaseParams = {
   explode: 25,
   supports: true,
   screwSize: 'M3',
+  ledge: 4.5,
 };
 
 export type ScrewSize = 'M3' | 'M2.5';
@@ -262,8 +270,39 @@ export function caseLayout(
   };
 }
 
+/** Gzyms: luz pod płytą, minimalny odstęp od komórek i od wyspy (mm). */
+export const LEDGE = { gap: 0.1, fromCells: 1.5, fromIsland: 1, fromUsb: 2 };
+
+/** Szerokość gzymsu pod płytą: z parametrów, ale nie bliżej komórek niż LEDGE.fromCells. */
+export function ledgeWidth(cp: CaseParams, plateMargin: number): number {
+  const w = Math.min(cp.ledge ?? 0, plateMargin - LEDGE.fromCells);
+  return w > 0.3 ? w : 0;
+}
+
+/**
+ * Obszary bez gzymsu (XY): wyspa (sięga niżej niż płyta) i otwory z wyspy wychodzące poza nią
+ * (gniazdo USB z miejscem na wtyk) i cała droga wtyku do ścianki, żeby gzyms jej nie zasłaniał.
+ */
+export function ledgeKeepouts(island: IslandGeom | null, cellHeight: number, cp: CaseParams): Box[] {
+  if (!island) return [];
+  const r = island.rect;
+  const out: Box[] = [];
+  const g = LEDGE.fromIsland;
+  if (island.depth > cellHeight - 1e-6) out.push({ x0: r.x0 - g, x1: r.x1 + g, y0: r.y0 - g, y1: r.y1 + g, z0: 0, z1: 0 });
+  for (const c of island.cuts) {
+    if (c.round) continue;
+    const outside = c.x0 < r.x0 - 1e-6 || c.x1 > r.x1 + 1e-6 || c.y0 < r.y0 - 1e-6 || c.y1 > r.y1 + 1e-6;
+    if (!outside || c.z0 > -cellHeight) continue; // tylko otwory schodzące pod płytę
+    const u = LEDGE.fromUsb;
+    out.push({ x0: c.x0 - u, x1: c.x1 + u, y0: c.y0 - u, y1: c.y1 + u, z0: 0, z1: 0 });
+  }
+  // droga wtyku od gniazda przez ściankę (te same wycięcia co w ściance, z zapasem)
+  for (const b of usbCaseCuts(island, cp)) out.push({ ...b, x0: b.x0 - 0.5, x1: b.x1 + 0.5, y0: b.y0 - 0.5, y1: b.y1 + 0.5 });
+  return out;
+}
+
 /** Podpory: średnica, odstęp od spodu płyty, minimalne odległości (mm). */
-export const SUPPORT = { d: 4, gap: 0.1, spacing: 45, fromScrew: 15, fromEdge: 12 };
+export const SUPPORT = { d: 4, gap: 0.1, spacing: 30, fromScrew: 12, fromEdge: 12 };
 
 /**
  * Pozycje podpór: na granicach rzędów, w miejscach, gdzie krawędź klawisza dochodzi do
