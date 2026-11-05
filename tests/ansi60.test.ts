@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from 'vitest';
-import { measureVolume } from 'replicad';
+import { measureVolume, makeBox, type Shape3D } from 'replicad';
 import { initOC, cellStep } from './oc';
 import { loadCell, buildPlate, buildCase, buildWedge, screwPilots, isValidShape, stabCuts, platePiece, casePiece } from '../src/lib/geometry';
 import { TEMPLATES, splitLeft, switchOffsets, switchSpots, ANSI_60, parseRowLayout, rowLayoutToText, keysOverlap, PITCH } from '../src/lib/layout';
@@ -162,6 +162,44 @@ describe('bryły 60%', () => {
     const wb = buildWedge(below);
     expect(isValidShape(wb)).toBe(true);
     expect(wb.solids.length).toBe(1);
+  }, 240000);
+
+  test('USB-C: gniazdo przy krawędzi płyty, wolna droga dla wtyku przez płytę i ściankę obudowy', async () => {
+    const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
+    const keys = splitLeft(tpl);
+    const island = islandFor(tpl, { ...ip, tilt: 25 }, 'left', 'hotswap', cell.height, SCREW_MARGIN)!;
+    // wyspa nie jest głębsza niż płyta: bez schodka pod spodem
+    expect(island.depth).toBeCloseTo(cell.height, 6);
+    const usb = island.ghosts.find((g) => g.kind === 'usb')!.box;
+    const nano = island.ghosts.find((g) => g.kind === 'nano')!.box;
+    const edge = island.rect.y1 + SCREW_MARGIN;
+    // gniazdo kończy się równo z krawędzią płyty; kontroler wysoko, 2,5 mm materiału nad nim
+    expect(usb.y1).toBeCloseTo(edge, 6);
+    expect(nano.z0).toBeGreaterThan(-cell.height);
+    const cl = caseLayout(keys, island, cell.height, DEFAULT_CASE, null, 'cherry');
+    const plate = buildPlate(keys, cell, opts, island, screwPilots(cl.screws, cell.height, cl.pilotDepth));
+    const shell = buildCase(keys, opts, island, cell.height, DEFAULT_CASE, cl);
+    expect(isValidShape(plate)).toBe(true);
+    expect(isValidShape(shell)).toBe(true);
+    expect(plate.boundingBox.bounds[0][2]).toBeCloseTo(-cell.height, 3);
+    const vol = (a: Shape3D, b: [number, number, number], c: [number, number, number]) =>
+      measureVolume(a.intersect(makeBox(b, c)));
+    // kontroler i gniazdo nie zachodzą na płytę ani na spód
+    for (const g of [usb, nano]) {
+      expect(vol(plate, [g.x0, g.y0, g.z0], [g.x1, g.y1, g.z1])).toBeLessThan(0.01);
+      expect(vol(shell, [g.x0, g.y0, g.z0], [g.x1, g.y1, g.z1])).toBeLessThan(0.01);
+    }
+    // wtyk z obudową (12,4 × 6,5 mm) od krawędzi płyty na zewnątrz, przez ściankę obudowy
+    const cx = (usb.x0 + usb.x1) / 2;
+    const cz = (usb.z0 + usb.z1) / 2;
+    const p0: [number, number, number] = [cx - 6.2, edge + 0.05, cz - 3.25];
+    const p1: [number, number, number] = [cx + 6.2, edge + 15, cz + 3.25];
+    expect(vol(plate, p0, p1)).toBeLessThan(0.01);
+    expect(vol(shell, p0, p1)).toBeLessThan(0.01);
+    // wtyk wchodzi w gniazdo: przed gniazdem w płycie jest wolne miejsce na jego blaszkę
+    expect(vol(plate, [cx - 4.2, edge - 3, cz - 1.5], [cx + 4.2, edge + 0.05, cz + 1.5])).toBeLessThan(0.01);
+    // nad kontrolerem został dach płyty
+    expect(vol(plate, [nano.x0, nano.y0, -2.4], [nano.x1, nano.y1, -0.1])).toBeGreaterThan(0.9 * (nano.x1 - nano.x0) * (nano.y1 - nano.y0) * 2.3);
   }, 240000);
 
   test('cała płyta i spód hot-swap, podział na części', async () => {

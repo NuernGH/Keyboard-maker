@@ -171,10 +171,13 @@ export function usbCaseCuts(island: IslandGeom | null, cp: CaseParams): Box[] {
     if (!(up || down || right || left) || (up && down) || (left && right)) continue;
     if (c.z0 > -island.depth - 0.5) continue;
     const z0 = c.z0;
-    const z1 = Math.min(c.z1 + plug, 0);
+    // cienki pasek nad otworem by się łamał: wtedy wycięcie otwarte od góry
+    const z1 = c.z1 + plug > -1.5 ? 0 : c.z1 + plug;
+    // otwór w płycie kończy się 1 mm za jej krawędzią (gniazdo USB równo z krawędzią płyty),
+    // więc ściankę wycinamy od krawędzi płyty na zewnątrz, z miejscem na obudowę wtyku
     if (up || down)
-      out.push({ x0: c.x0 - plug, x1: c.x1 + plug, y0: up ? r.y1 - 0.5 : r.y0 - ext, y1: up ? r.y1 + ext : r.y0 + 0.5, z0, z1 });
-    else out.push({ y0: c.y0 - plug, y1: c.y1 + plug, x0: right ? r.x1 - 0.5 : r.x0 - ext, x1: right ? r.x1 + ext : r.x0 + 0.5, z0, z1 });
+      out.push({ x0: c.x0 - plug, x1: c.x1 + plug, y0: up ? c.y1 - 1.5 : c.y0 - ext, y1: up ? c.y1 + ext : c.y0 + 1.5, z0, z1 });
+    else out.push({ y0: c.y0 - plug, y1: c.y1 + plug, x0: right ? c.x1 - 1.5 : c.x0 - ext, x1: right ? c.x1 + ext : c.x0 + 1.5, z0, z1 });
   }
   return out;
 }

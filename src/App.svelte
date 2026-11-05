@@ -105,7 +105,7 @@
     // macropad ma jedną płytę: moduł jest na niej albo nigdzie
     if (params.single) ip.moduleSide = ip.moduleSide === 'none' ? 'none' : 'left';
     else ip.position = 'inner';
-    return islandFor($state.snapshot(params) as SplitParams, ip, s, variant, cellHeight);
+    return islandFor($state.snapshot(params) as SplitParams, ip, s, variant, cellHeight, plateMargin);
   };
   const keysFor = (s: Side) => (s === 'left' ? leftKeys : rightKeys);
   const single = $derived(!!params.single);
@@ -523,7 +523,7 @@
             </select>
           </label>
           {/if}
-          <label data-tip={t(lang, 'tipIslandDepth')}>{t(lang, 'islandDepth')} <input type="number" min="5" step="0.5" bind:value={island.depth} /></label>
+          <label data-tip={t(lang, 'tipIslandDepth')}>{t(lang, 'islandDepth')} <input type="number" min="0" step="0.5" bind:value={island.depth} /></label>
           <span></span>
           <label data-tip={t(lang, 'tipIslandX')}>{t(lang, 'thumbX')} <input type="number" step="0.5" bind:value={island.offsetX} /></label>
           <label data-tip={t(lang, 'tipIslandY')}>{t(lang, 'thumbY')} <input type="number" step="0.5" bind:value={island.offsetY} /></label>

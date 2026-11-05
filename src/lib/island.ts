@@ -73,7 +73,7 @@ export interface IslandParams {
 
 export const DEFAULT_ISLAND: IslandParams = {
   enabled: true,
-  depth: 10.5,
+  depth: 0,
   offsetX: 0,
   offsetY: 0,
   controller: 'nicenano',
@@ -182,13 +182,23 @@ const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: num
 });
 
 /** Otwory w ściance na każde gniazdo USB kontrolera (płytka na środku `cx`, ścianka na `edge`). */
-const usbSlots = (c: Controller, cx: number, nTop: number, edge: number, D: number): Box[] =>
-  (c.ports ?? [0]).map((dx) => box(cx + dx - c.usbW / 2, nTop - 2, -D - 1, cx + dx + c.usbW / 2, edge + 1, -D + c.usbH));
-const usbGhosts = (c: Controller, cx: number, nTop: number, edge: number, D: number): GhostPart[] =>
+const usbSlots = (c: Controller, cx: number, nTop: number, edge: number, D: number, zN: number): Box[] =>
+  (c.ports ?? [0]).map((dx) => box(cx + dx - c.usbW / 2, nTop - 2, -D - 1, cx + dx + c.usbW / 2, edge + 1, zN + c.usbH));
+const usbGhosts = (c: Controller, cx: number, nTop: number, edge: number, zN: number): GhostPart[] =>
   (c.ports ?? [0]).map((dx) => ({
     kind: 'usb' as const,
-    box: box(cx + dx - 4.5, nTop - 6.5, -D + 1.6, cx + dx + 4.5, edge, -D + Math.min(c.height, c.usbH - 0.4)),
+    box: box(cx + dx - 4.5, nTop - 6.5, zN + 1.6, cx + dx + 4.5, edge, zN + Math.min(c.height, c.usbH - 0.4)),
   }));
+
+/**
+ * Materiał nad kontrolerem (mm od wierzchu płyty). Kontroler siedzi wysoko, tuż pod wierzchem,
+ * żeby gniazdo USB było na wysokości ścianki obudowy i wyspa nie musiała być głębsza niż płyta.
+ * Gdy nad nim leży płasko moduł OLED, schodzi pod gniazdo modułu.
+ */
+export const CTRL_ROOF = 2.5;
+const ctrlRoof = (moduleFlatAbove: boolean) => (moduleFlatAbove ? MODULE.pcb + MODULE.underClearance + 1.4 : CTRL_ROOF);
+/** Spód płytki kontrolera (z) przy danym dachu; luz 0,6 mm nad elementami. */
+const ctrlBottom = (c: Controller, roof: number) => -roof - 0.6 - c.height;
 
 const mirrorBox = (b: Box): Box => ({ ...b, x0: -b.x1, x1: -b.x0 });
 
@@ -202,17 +212,22 @@ export function islandFor(
   side: 'left' | 'right',
   variant: CellVariant,
   cellHeight: number,
+  /** margines płyty wokół obrysu: kontroler przesuwamy o tyle na zewnątrz, żeby USB było przy krawędzi płyty */
+  margin = 0,
 ): IslandGeom | null {
   if (!ip.enabled) return null;
   const ctrl = CONTROLLERS[ip.controller] ?? NANO;
   const mod = hasModule(ip, side);
   const { w: W, h: H } = islandSize(ip, side);
-  const D = Math.max(ip.depth, cellHeight, ctrl.height + 1.5);
+  // moduł płasko nad kontrolerem: przy klinie moduł jest na osobnej części, wyspa zostaje płaska
+  const flatModule = mod && !((ip.position === 'top' || ip.position === 'bottom') && (ip.tilt ?? 0) > 0);
+  // głębokość: tyle co płyta, chyba że kontroler pod płaskim modułem potrzebuje więcej
+  const D = Math.max(ip.depth, cellHeight, -ctrlBottom(ctrl, ctrlRoof(flatModule)));
   const pos = ip.position ?? 'inner';
   // długi kontroler (np. ESP32-S3) nie mieści się w poprzek poziomej wyspy z modułem: USB wtedy z końca
   const edgeFits = !mod || ctrl.h + ctrl.usbOverhang + CTRL_CLEARANCE + 1 <= ISLAND_W;
   if ((pos === 'top' || pos === 'bottom') && (ip.usbOut ?? 'edge') === 'edge' && edgeFits) {
-    const g = edgeIsland(p, ip, ctrl, mod, D, variant, cellHeight, pos);
+    const g = edgeIsland(p, ip, ctrl, mod, D, variant, cellHeight, pos, margin);
     if (side === 'left') return g;
     return {
       rect: { ...g.rect, x0: -g.rect.x1, x1: -g.rect.x0 },
@@ -249,18 +264,21 @@ export function islandFor(
   const cw = ctrl.w + 2 * CTRL_CLEARANCE;
   // kontroler przy samej górnej krawędzi: gniazdo USB kończy się równo ze ścianką wyspy,
   // więc kabel wchodzi od razu, bez kanału
-  const nTop = y1 - ctrl.usbOverhang;
+  // gniazdo USB kończy się równo z krawędzią płyty (wyspa + margines)
+  const edgeY = y1 + margin;
+  const nTop = edgeY - ctrl.usbOverhang;
   const nBot = nTop - ctrl.h;
-  const pocketTop = -D + ctrl.height + 0.6;
+  const zN = Math.max(-D, ctrlBottom(ctrl, ctrlRoof(mod)));
+  const pocketTop = zN + ctrl.height + 0.6;
   const ctrlCuts: Box[] = [
     // kieszeń kontrolera od spodu
     box(cx - cw / 2, nBot - CTRL_CLEARANCE, -D - 1, cx + cw / 2, nTop + CTRL_CLEARANCE, pocketTop),
     // otwory na gniazda USB w górnej ściance wyspy
-    ...usbSlots(ctrl, cx, nTop, y1, D),
+    ...usbSlots(ctrl, cx, nTop, edgeY, D, zN),
   ];
   const ctrlGhosts: GhostPart[] = [
-    { kind: 'nano', box: box(cx - ctrl.w / 2, nBot, -D, cx + ctrl.w / 2, nTop, -D + 1.6) },
-    ...usbGhosts(ctrl, cx, nTop, y1, D),
+    { kind: 'nano', box: box(cx - ctrl.w / 2, nBot, zN, cx + ctrl.w / 2, nTop, zN + 1.6) },
+    ...usbGhosts(ctrl, cx, nTop, edgeY, zN),
   ];
 
   const cuts: Box[] = [];
@@ -390,6 +408,7 @@ function edgeIsland(
   variant: CellVariant,
   cellHeight: number,
   pos: 'top' | 'bottom',
+  margin = 0,
 ): IslandGeom {
   const cw = ctrl.w + 2 * CTRL_CLEARANCE;
   const L = mod ? ISLAND_H : cw + 2 * SMALL_WALL;
@@ -406,18 +425,21 @@ function edgeIsland(
     const leftLimit = -MODULE_HOLES.dy / 2 + MODULE_HOLES.pilot / 2 + 1;
     ccx = Math.max(slotX0 - 1 - cw / 2, leftLimit + cw / 2);
   }
-  const nTop = T - ctrl.usbOverhang;
+  const tilt = mod ? Math.max(0, Math.min(60, ip.tilt ?? 0)) : 0;
+  // gniazdo USB równo z krawędzią płyty (wyspa + margines), kontroler wysoko pod wierzchem
+  const edgeY = T + margin;
+  const nTop = edgeY - ctrl.usbOverhang;
   const nBot = nTop - ctrl.h;
-  const pocketTop = -D + ctrl.height + 0.6;
+  const zN = Math.max(-D, ctrlBottom(ctrl, ctrlRoof(mod && !tilt)));
+  const pocketTop = zN + ctrl.height + 0.6;
   const cuts: Box[] = [
     box(ccx - cw / 2, nBot - CTRL_CLEARANCE, -D - 1, ccx + cw / 2, nTop + CTRL_CLEARANCE, pocketTop),
-    ...usbSlots(ctrl, ccx, nTop, T, D),
+    ...usbSlots(ctrl, ccx, nTop, edgeY, D, zN),
   ];
   const ghosts: GhostPart[] = [
-    { kind: 'nano', box: box(ccx - ctrl.w / 2, nBot, -D, ccx + ctrl.w / 2, nTop, -D + 1.6) },
-    ...usbGhosts(ctrl, ccx, nTop, T, D),
+    { kind: 'nano', box: box(ccx - ctrl.w / 2, nBot, zN, ccx + ctrl.w / 2, nTop, zN + 1.6) },
+    ...usbGhosts(ctrl, ccx, nTop, edgeY, zN),
   ];
-  const tilt = mod ? Math.max(0, Math.min(60, ip.tilt ?? 0)) : 0;
   // elementy modułu w układzie pochylonym (przy tilt = 0 bez zmian)
   // przy klinie moduł leży na nim: wszystko, co dotyczy modułu, wycinamy z klina, nie z wyspy
   const zb0 = tilt ? WEDGE.base : 0;
