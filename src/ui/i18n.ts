@@ -112,6 +112,7 @@ const dict = {
   explode: { pl: 'Rozsunięcie w podglądzie (mm)', en: 'Preview explode (mm)' },
   screwInfo: { pl: '{n} śrub {s} × {l} mm na połówkę, wkręcane od spodu.', en: '{n} {s} × {l} mm screws per half, driven from below.' },
   screwSize: { pl: 'Rozmiar śrub', en: 'Screw size' },
+  dactylHeadOut: { pl: 'Łeb śruby wystaje {h} mm spod dna. Dno {f} mm chowa go całego.', en: 'The screw head sticks out {h} mm below the bottom. A {f} mm bottom hides it fully.' },
   tipScrewSize: { pl: 'Śruby spodu: M3 (domyślnie) albo M2,5. Łeb walcowy z gniazdem imbusowym, chowa się w dnie. M3: otwór Ø3,4, łeb Ø6, pilot w płycie Ø2,5, słupek Ø7,5. M2,5: otwór Ø2,9, łeb Ø5, pilot Ø2,2, słupek Ø6,5. Śruby modułu OLED i klina zostają M2,5 (takie otwory ma moduł).', en: 'Bottom screws: M3 (default) or M2.5, socket head cap, hidden in the floor. M3: Ø3.4 hole, Ø6 head, Ø2.5 pilot in the plate, Ø7.5 boss. M2.5: Ø2.9 hole, Ø5 head, Ø2.2 pilot, Ø6.5 boss. The OLED module and wedge screws stay M2.5 (the module has holes for those).' },
   tipCase: { pl: 'Wanna pod płytą: ścianki do wierzchu płyty, płyta leży na słupkach i jest przykręcona od spodu śrubami M3 albo M2,5. Płyta dostaje wtedy pas 6 mm na śruby, a ścianka ma wycięcie na USB.', en: 'A tray under the plate: walls up to the plate top, the plate rests on standoffs and is screwed from below with M3 or M2.5 screws. The plate gets a 6 mm band for the screws and the wall gets a USB opening.' },
   tipCaseWall: { pl: 'Grubość ścianki bocznej spodu.', en: 'Side wall thickness.' },

@@ -1,6 +1,7 @@
 // Dactyl w OpenCascade: poprawność brył i kolizje z kluczowymi częściami (komórki, kontroler, USB).
 import { beforeAll, describe, expect, test } from 'vitest';
-import { measureVolume, type Shape3D } from 'replicad';
+import { makeCylinder, measureVolume, type Shape3D } from 'replicad';
+import { dactylHeadDepth } from '../src/lib/case';
 import { initOC, cellStep } from './oc';
 import { isValidShape, loadCell } from '../src/lib/geometry';
 import { buildDactyl, DACTYL_DEFAULT } from '../src/lib/dactyl';
@@ -14,11 +15,12 @@ beforeAll(async () => {
 const vol = (a: Shape3D, b: Shape3D) => measureVolume(a.clone().intersect(b) as Shape3D);
 
 describe('Dactyl: bryły', () => {
-  test('skorupa hot-swap: poprawna, komórki nietknięte, kontroler i gniazdo bez kolizji, dno poprawne', async () => {
+  for (const size of ['M3', 'M2.5'] as const)
+  test(`skorupa hot-swap, śruby ${size}: poprawna, komórki nietknięte, kontroler i gniazdo bez kolizji, dno poprawne`, async () => {
     const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
-    const m = buildDactyl(DACTYL_DEFAULT, { cellHeight: cell.height });
+    const m = buildDactyl(DACTYL_DEFAULT, { cellHeight: cell.height, screwSize: size });
     const controller = controllerHolder(m, DEFAULT_DACTYL_CONTROLLER);
-    const b = { floor: 3, bossHeight: 7, controller };
+    const b = { floor: 4, bossHeight: 7, controller };
     // płytka i gniazdo USB nie mogą wchodzić w skorupę (przed wycięciami)
     const body = shellBody(m, { ...b, controller: null });
     for (const g of controller.ghosts) expect(vol(body, boxOf(g.box))).toBeLessThan(0.01);
@@ -36,6 +38,14 @@ describe('Dactyl: bryły', () => {
     expect(measureVolume(bottom)).toBeGreaterThan(50000);
     // płytka leży w korytku dna bez kolizji
     for (const g of controller.ghosts) expect(vol(bottom, boxOf(g.box))).toBeLessThan(0.01);
+    // łeb chowa się w dnie 4 mm, nad nim zostaje 1 mm dna, a wokół łba pełny pierścień 1,2 mm
+    const sp = m.screw;
+    expect(dactylHeadDepth(sp, b.floor)).toBeGreaterThanOrEqual(sp.headDepth - 0.2);
+    for (const [x, y] of m.screws) {
+      const h = dactylHeadDepth(sp, b.floor);
+      const ring = makeCylinder(sp.head / 2 + 1.2, h, [x, y, -b.floor], [0, 0, 1]).cut(makeCylinder(sp.head / 2 + 0.01, h, [x, y, -b.floor], [0, 0, 1]));
+      expect(vol(bottom, ring as Shape3D) / measureVolume(ring as Shape3D)).toBeGreaterThan(0.999);
+    }
   }, 300000);
 
   test('skorupa bez hot-swap: poprawna, komórki nietknięte', async () => {

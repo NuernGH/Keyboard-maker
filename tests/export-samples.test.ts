@@ -75,7 +75,7 @@ test.skipIf(!OUTD)('eksport próbek Dactyl', async () => {
   for (const variant of ['hotswap', 'no-hotswap'] as const) {
     const cell = await loadCell({ step: cellStep(), up: 'auto' }, variant);
     const m = buildDactyl(DACTYL_DEFAULT, { cellHeight: cell.height });
-    const b = { floor: 3, bossHeight: 7, controller: controllerHolder(m, DEFAULT_DACTYL_CONTROLLER) };
+    const b = { floor: 4, bossHeight: 7, controller: controllerHolder(m, DEFAULT_DACTYL_CONTROLLER) };
     const shell = buildDactylShell(m, cell, b);
     await write(`dactyl-5x6-right-shell-${variant}`, shell);
     await write(`dactyl-5x6-left-shell-${variant}`, shell.clone().mirror('YZ', [0, 0, 0]) as import('replicad').Shape3D);

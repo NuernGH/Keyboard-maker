@@ -7,8 +7,8 @@ import qh from 'quickhull3d/dist/quickhull3d.js';
 import { cutMany, isValidShape, type Cell } from './geometry';
 import { draw } from 'replicad';
 import { floorLoop, type DactylModel, type Mat, type V3 } from './dactyl';
-import { CASE_SCREW } from './case';
 import type { DactylController } from './dactyl-parts';
+import { dactylHeadDepth } from './case';
 
 /** Bryła otoczki wypukłej zbioru punktów (trójkąty z quickhull, zszyte w bryłę). */
 export function hullSolid(points: V3[]): Shape3D {
@@ -87,7 +87,7 @@ export interface DactylBuild {
   controller: DactylController | null;
 }
 
-export const DEFAULT_DACTYL_BUILD: DactylBuild = { floor: 3, bossHeight: 7, controller: null };
+export const DEFAULT_DACTYL_BUILD: DactylBuild = { floor: 4, bossHeight: 7, controller: null };
 
 /** Bryła skorupy bez komórek (otoczki + tuleje), przycięta do podłogi z = 0. */
 export function shellBody(model: DactylModel, b: DactylBuild): Shape3D {
@@ -95,7 +95,7 @@ export function shellBody(model: DactylModel, b: DactylBuild): Shape3D {
   // nie mają objętości i psują łączenie, więc je pomijamy
   const solids = model.hulls.map(hullSolid).filter((h) => measureVolume(h) > 0.01 && isValidShape(h));
   for (const [x, y] of model.screws)
-    solids.push(makeCylinder(CASE_SCREW.boss / 2, b.bossHeight, [x, y, 0], [0, 0, 1]) as Shape3D);
+    solids.push(makeCylinder(model.screw.boss / 2, b.bossHeight, [x, y, 0], [0, 0, 1]) as Shape3D);
   if (b.controller) solids.push(...b.controller.shellAdd.map(boxOf));
   let body = fuseMany(solids);
   // podłoga: wszystko poniżej z = 0 odcinamy
@@ -115,7 +115,7 @@ export function buildDactylShell(model: DactylModel, cell: Cell, b: DactylBuild 
   const body = shellBody(model, b);
   const tools: Shape3D[] = model.keys.map((k) => placeShape(cell.negative.clone(), k.frame));
   for (const [x, y] of model.screws)
-    tools.push(makeCylinder(CASE_SCREW.pilot / 2, b.bossHeight - 1 + 0.5, [x, y, -0.5], [0, 0, 1]) as Shape3D);
+    tools.push(makeCylinder(model.screw.pilot / 2, b.bossHeight - 1 + 0.5, [x, y, -0.5], [0, 0, 1]) as Shape3D);
   if (b.controller) tools.push(...b.controller.shellCut.map(boxOf));
   return singleSolid(unifyFaces(cutMany(body, tools)));
 }
@@ -144,9 +144,10 @@ export function buildDactylBottom(model: DactylModel, b: DactylBuild = DEFAULT_D
   let body = floorSlab(model, -b.floor, 0);
   if (b.controller) for (const a of b.controller.bottomAdd) body = body.fuse(boxOf(a)) as Shape3D;
   const tools: Shape3D[] = [];
+  const sp = model.screw;
   for (const [x, y] of model.screws) {
-    tools.push(makeCylinder(CASE_SCREW.clearance / 2, b.floor + 1, [x, y, -b.floor - 0.5], [0, 0, 1]) as Shape3D);
-    tools.push(makeCylinder(CASE_SCREW.head / 2, Math.min(CASE_SCREW.headDepth, b.floor - 1) + 0.5, [x, y, -b.floor - 0.5], [0, 0, 1]) as Shape3D);
+    tools.push(makeCylinder(sp.clearance / 2, b.floor + 1, [x, y, -b.floor - 0.5], [0, 0, 1]) as Shape3D);
+    tools.push(makeCylinder(sp.head / 2, dactylHeadDepth(sp, b.floor) + 0.5, [x, y, -b.floor - 0.5], [0, 0, 1]) as Shape3D);
   }
   if (b.controller) tools.push(...b.controller.bottomCut.map(boxOf));
   return singleSolid(cutMany(body, tools));

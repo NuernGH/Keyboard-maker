@@ -67,6 +67,11 @@ export function screwSpec(size: ScrewSize | undefined = DEFAULT_SCREW): ScrewSpe
   return SCREW_SPECS[size] ?? SCREW_SPECS[DEFAULT_SCREW];
 }
 
+/** Dactyl: głębokość wybrania na łeb w dnie; nad łbem zostaje co najmniej 1 mm dna (dociska je tuleja skorupy). */
+export function dactylHeadDepth(sp: ScrewSpec, floor: number): number {
+  return Math.max(Math.min(sp.headDepth, floor - 1), 0);
+}
+
 /** @deprecated wymiary M2,5; nowy kod bierze screwSpec(rozmiar). */
 export const CASE_SCREW = SCREW_SPECS['M2.5'];
 /** Pas płyty wokół klawiszy, w którym są śruby (mm). Płyta dostaje co najmniej taki margines. */
