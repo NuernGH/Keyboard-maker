@@ -114,8 +114,8 @@ export function islandSize(ip: IslandParams, side: 'left' | 'right'): { w: numbe
 export interface Box {
   /** true: walec wpisany w obrys pudełka (oś Z), np. otwór pod śrubę */
   round?: boolean;
-  /** obrót bryły wokół osi X przechodzącej przez (y, z = 0), w stopniach (klin modułu) */
-  tilt?: { deg: number; y: number };
+  /** obrót bryły wokół osi X przechodzącej przez (y, z), w stopniach (klin modułu) */
+  tilt?: { deg: number; y: number; z: number };
   x0: number;
   y0: number;
   z0: number;
@@ -138,20 +138,38 @@ export interface IslandGeom {
   /** uproszczone bryły elektroniki do podglądu (nie trafiają do eksportu) */
   ghosts: GhostPart[];
   /**
-   * Klin nad wyspą: wierzch to płaszczyzna przez linię y = hingeY, z = 0, pochylona o `deg`
-   * wokół osi X (dodatni kąt podnosi stronę y > hingeY).
+   * Klin pod modułem: osobna część stawiana na płaskiej wyspie i przykręcana od spodu wyspy.
+   * Podstawa ma `base` mm, wierzch to płaszczyzna przez linię (y = hingeY, z = base),
+   * pochylona o `deg` wokół osi X (dodatni kąt podnosi stronę y > hingeY).
    */
-  wedge?: { x0: number; x1: number; y0: number; y1: number; deg: number; hingeY: number };
+  wedge?: {
+    x0: number;
+    x1: number;
+    y0: number;
+    y1: number;
+    deg: number;
+    hingeY: number;
+    base: number;
+    /** bryły do odjęcia z klina (gniazdo modułu, otwory, przepusty, otwory pilotowe śrub) */
+    cuts: Box[];
+    /** śruby mocujące klin (XY), wkręcane od spodu wyspy */
+    screws: [number, number][];
+  };
 }
 
-/** Wysokość wierzchu klina nad płytą w punkcie y. */
-export const wedgeZ = (w: NonNullable<IslandGeom['wedge']>, y: number) => (y - w.hingeY) * Math.tan((w.deg * Math.PI) / 180);
+/** Klin: grubość podstawy (mm) i śruby M2,5 od spodu wyspy (przelot, łeb w wybraniu, pilot w klinie). */
+export const WEDGE = { base: 3, clearance: 2.9, head: 5.0, headDepth: 2.6, pilot: 2.2, pilotDepth: 6 };
 
-/** Obrót punktu (y, z) wokół osi X przez (hingeY, 0). */
-export function tiltPoint(y: number, z: number, deg: number, hingeY = 0): [number, number] {
+/** Wysokość wierzchu klina nad płytą w punkcie y. */
+export const wedgeZ = (w: NonNullable<IslandGeom['wedge']>, y: number) =>
+  w.base + (y - w.hingeY) * Math.tan((w.deg * Math.PI) / 180);
+
+/** Obrót punktu (y, z) wokół osi X przez (hingeY, hingeZ). */
+export function tiltPoint(y: number, z: number, deg: number, hingeY = 0, hingeZ = 0): [number, number] {
   const a = (deg * Math.PI) / 180;
   const dy = y - hingeY;
-  return [hingeY + dy * Math.cos(a) - z * Math.sin(a), dy * Math.sin(a) + z * Math.cos(a)];
+  const dz = z - hingeZ;
+  return [hingeY + dy * Math.cos(a) - dz * Math.sin(a), hingeZ + dy * Math.sin(a) + dz * Math.cos(a)];
 }
 
 const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): Box => ({
@@ -201,7 +219,9 @@ export function islandFor(
       depth: D,
       cuts: g.cuts.map(mirrorBox),
       ghosts: g.ghosts.map((gp) => ({ ...gp, box: mirrorBox(gp.box) })),
-      wedge: g.wedge ? { ...g.wedge, x0: -g.wedge.x1, x1: -g.wedge.x0 } : undefined,
+      wedge: g.wedge
+        ? { ...g.wedge, x0: -g.wedge.x1, x1: -g.wedge.x0, cuts: g.wedge.cuts.map(mirrorBox), screws: g.wedge.screws.map(([x, y]) => [-x, y]) }
+        : undefined,
     };
   }
   const inner = p.cols - 1;
@@ -399,8 +419,13 @@ function edgeIsland(
   ];
   const tilt = mod ? Math.max(0, Math.min(60, ip.tilt ?? 0)) : 0;
   // elementy modułu w układzie pochylonym (przy tilt = 0 bez zmian)
-  const T0 = { deg: tilt, y: 0 };
-  const tl = <B extends Box>(b: B): B => (tilt ? { ...b, tilt: T0 } : b);
+  // przy klinie moduł leży na nim: wszystko, co dotyczy modułu, wycinamy z klina, nie z wyspy
+  const zb0 = tilt ? WEDGE.base : 0;
+  const T0 = { deg: tilt, y: 0, z: zb0 };
+  const lift = <B extends Box>(b: B): B => ({ ...b, z0: b.z0 + zb0, z1: b.z1 + zb0 });
+  const tl = <B extends Box>(b: B): B => (tilt ? { ...lift(b), tilt: T0 } : b);
+  const wCuts: Box[] = [];
+  const wScrews: [number, number][] = [];
   if (mod) {
     const firstModCut = cuts.length;
     cuts.push(
@@ -414,16 +439,32 @@ function edgeIsland(
         const r = MODULE_HOLES.pilot / 2;
         cuts.push({ ...box(hx - r, hy - r, -MODULE.pcb - MODULE_HOLES.depth, hx + r, hy + r, 0), round: true });
       }
-    for (let i = firstModCut; i < cuts.length; i++) cuts[i] = tl(cuts[i]);
+    if (tilt) wCuts.push(...cuts.splice(firstModCut).map(tl));
     for (const sy of [-1, 1]) {
       const py = my + sy * 15.5;
       if (!tilt) cuts.push(box(slotX0, py - 1.6, -D - 1, slotX1, py + 1.6, 1));
       else {
-        // przepust prostopadły do płytki na głębokość pinów, dalej pionowo w dół do wnętrza
+        // przepust prostopadły do płytki na głębokość pinów, dalej pionowo w dół przez klin i wyspę
         const pinDepth = MODULE.pcb + 6;
-        cuts.push(tl(box(slotX0, py - 1.6, -pinDepth, slotX1, py + 1.6, 1)));
-        const [yb, zb] = tiltPoint(py, -pinDepth + 0.5, tilt);
-        cuts.push(box(slotX0, yb - 1.6, -D - 1, slotX1, yb + 1.6, zb));
+        wCuts.push(tl(box(slotX0, py - 1.6, -pinDepth, slotX1, py + 1.6, 1)));
+        const [yb, zb] = tiltPoint(py, zb0 - pinDepth + 0.5, tilt, 0, zb0);
+        const drop = box(slotX0, yb - 1.6, -D - 1, slotX1, yb + 1.6, zb);
+        cuts.push(drop);
+        wCuts.push(drop);
+      }
+    }
+    if (tilt) {
+      // dwie śruby: w połowie głębokości klina (tam jest najgrubszy pod gniazdem modułu),
+      // jedna za kieszenią kontrolera, druga za przepustami pinów
+      const sy = T / 2;
+      for (const sx of [mL + 4.5, slotX1 + 4.5]) {
+        wScrews.push([sx, sy]);
+        const c = WEDGE.clearance / 2;
+        const h = WEDGE.head / 2;
+        cuts.push({ ...box(sx - c, sy - c, -D - 1, sx + c, sy + c, 1), round: true });
+        cuts.push({ ...box(sx - h, sy - h, -D - 1, sx + h, sy + h, -D + WEDGE.headDepth), round: true });
+        const pr = WEDGE.pilot / 2;
+        wCuts.push({ ...box(sx - pr, sy - pr, -1, sx + pr, sy + pr, WEDGE.pilotDepth), round: true });
       }
     }
     const pL = mL + MODULE.clearance;
@@ -443,7 +484,8 @@ function edgeIsland(
   const cx = alongCenter(kx0, kx1, L, ip.align) + ip.offsetX;
   // oś obrotu klina: krawędź wyspy przy klawiszach; pod siatką y jest odbite, więc kąt zmienia znak
   const hingeY = (pos === 'top' ? ky1 : ky0) + ip.offsetY;
-  const tiltOut = (b: Box): Box['tilt'] => (b.tilt ? { deg: pos === 'top' ? b.tilt.deg : -b.tilt.deg, y: hingeY } : undefined);
+  const tiltOut = (b: Box): Box['tilt'] =>
+    b.tilt ? { deg: pos === 'top' ? b.tilt.deg : -b.tilt.deg, y: hingeY, z: b.tilt.z } : undefined;
   const tb = <B extends Box>(b: B): B =>
     pos === 'top'
       ? { ...b, x0: cx + b.x0, x1: cx + b.x1, y0: ky1 + b.y0 + ip.offsetY, y1: ky1 + b.y1 + ip.offsetY, tilt: tiltOut(b) }
@@ -454,6 +496,21 @@ function edgeIsland(
     depth: D,
     cuts: cuts.map(tb),
     ghosts: ghosts.map((gp) => ({ ...gp, box: tb(gp.box) })),
-    wedge: tilt ? { x0: r.x0, x1: r.x1, y0: r.y0, y1: r.y1, deg: pos === 'top' ? tilt : -tilt, hingeY } : undefined,
+    wedge: tilt
+      ? {
+          x0: r.x0,
+          x1: r.x1,
+          y0: r.y0,
+          y1: r.y1,
+          deg: pos === 'top' ? tilt : -tilt,
+          hingeY,
+          base: WEDGE.base,
+          cuts: wCuts.map(tb),
+          screws: wScrews.map(([x, y]) => {
+            const b = tb(box(x, y, 0, x, y, 0));
+            return [b.x0, b.y0] as [number, number];
+          }),
+        }
+      : undefined,
   };
 }

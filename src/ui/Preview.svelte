@@ -18,6 +18,8 @@
     mesh: PreviewMesh | null;
     island?: IslandGeom | null;
     showElectronics?: boolean;
+    /** klin pod moduł OLED (osobna część), rysowany wyżej o połowę `explode` */
+    wedgeMesh?: PreviewMesh | null;
     /** spód obudowy (dokładna bryła), rysowany niżej o `explode` mm */
     caseMesh?: PreviewMesh | null;
     caseOn?: boolean;
@@ -41,6 +43,7 @@
   let grid: THREE.GridHelper | undefined;
 
   // Kolory sceny pochodzą z tokenów CSS (app.css), więc nadążają za jasnym/ciemnym motywem.
+  const wedgeMat = new THREE.MeshStandardMaterial({ color: 0x8fa9bf, metalness: 0.05, roughness: 0.6 });
   const caseMat = new THREE.MeshStandardMaterial({ color: 0x3f4b58, metalness: 0.05, roughness: 0.75 });
   const exactMat = new THREE.MeshStandardMaterial({ color: 0xdfe3e8, metalness: 0.05, roughness: 0.55 });
   const plateEdgeMat = new THREE.LineBasicMaterial({ color: 0x5b6875, transparent: true, opacity: 0.55 });
@@ -63,7 +66,7 @@
   };
 
   function boxMesh(
-    b: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; tilt?: { deg: number; y: number } },
+    b: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; tilt?: { deg: number; y: number; z: number } },
     mat: THREE.Material,
     round = false,
   ): THREE.Object3D {
@@ -78,11 +81,12 @@
     const m = new THREE.Mesh(g, mat);
     m.position.set((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2);
     if (!b.tilt) return m;
-    // klin: obrót wokół osi X przez (y, z = 0)
+    // klin: obrót wokół osi X przez (y, z)
     const pivot = new THREE.Group();
-    pivot.position.set(0, b.tilt.y, 0);
+    pivot.position.set(0, b.tilt.y, b.tilt.z);
     pivot.rotation.x = (b.tilt.deg * Math.PI) / 180;
     m.position.y -= b.tilt.y;
+    m.position.z -= b.tilt.z;
     pivot.add(m);
     return pivot;
   }
@@ -123,8 +127,25 @@
     for (const half of halves) {
       const hg = new THREE.Group();
       hg.position.x = half.offsetX;
+      // klin i elektronika na nim podniesione o połowę rozsunięcia obudowy, żeby było widać, że to osobna część
+      const lift = half.wedgeMesh ? (half.explode ?? 0) / 2 : 0;
       if (half.island && half.showElectronics !== false) {
-        for (const gp of half.island.ghosts) hg.add(boxMesh(gp.box, ghostMats[gp.kind], gp.kind === 'knob'));
+        const eg = new THREE.Group();
+        eg.position.z = lift;
+        for (const gp of half.island.ghosts) eg.add(boxMesh(gp.box, ghostMats[gp.kind], gp.kind === 'knob'));
+        hg.add(eg);
+      }
+      if (half.wedgeMesh) {
+        const wg = new THREE.BufferGeometry();
+        wg.setAttribute('position', new THREE.BufferAttribute(half.wedgeMesh.vertices, 3));
+        wg.setAttribute('normal', new THREE.BufferAttribute(half.wedgeMesh.normals, 3));
+        wg.setIndex(new THREE.BufferAttribute(half.wedgeMesh.triangles, 1));
+        const wm = new THREE.Mesh(wg, wedgeMat);
+        wm.position.z = lift;
+        hg.add(wm);
+        const we = new THREE.LineSegments(new THREE.EdgesGeometry(wg, 30), caseEdgeMat);
+        we.position.z = lift;
+        hg.add(we);
       }
       if (!half.mesh && half.island) {
         const r = half.island.rect;

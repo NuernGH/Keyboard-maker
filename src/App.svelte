@@ -118,9 +118,16 @@
   const pieces = $derived<(0 | 1 | undefined)[]>(split ? [0, 1] : [undefined]);
   const sides = $derived<Side[]>(single ? ['left'] : show === 'both' ? ['left', 'right'] : [show]);
 
-  function inputFor(s: Side, part: 'plate' | 'case' = 'plate', piece?: 0 | 1): BuildInput | null {
+  type Part = 'plate' | 'case' | 'wedge';
+  function inputFor(s: Side, part: Part = 'plate', piece?: 0 | 1): BuildInput | null {
     if (!cellStep) return null;
     if (part === 'case' && !caseOn) return null;
+    if (part === 'wedge') {
+      // klin to osobna część, niezależna od podziału i obudowy
+      const isl = islandGeom(s);
+      if (!isl?.wedge) return null;
+      return { keys: [], variant, plate: $state.snapshot(plate) as PlateOptions, cellId, cellStep, up, island: isl, part };
+    }
     const po = $state.snapshot(plate) as PlateOptions;
     // przy obudowie płyta dostaje pas na śruby
     const plateOpts = caseOn ? { ...po, margin: Math.max(po.margin, SCREW_MARGIN) } : po;
@@ -140,8 +147,13 @@
       piece: s === 'left' && split ? piece : undefined,
     };
   }
-  const job = (s: Side, part: 'plate' | 'case', piece?: 0 | 1): Job =>
-    `${part === 'case' ? `${s}-case` : s}${piece === undefined ? '' : `-p${piece}`}`;
+  const job = (s: Side, part: Part, piece?: 0 | 1): Job =>
+    `${part === 'plate' ? s : `${s}-${part}`}${piece === undefined ? '' : `-p${piece}`}`;
+  const wedgeMeshFor = (s: Side) => {
+    const inp = inputFor(s, 'wedge');
+    const m = meshes[job(s, 'wedge')];
+    return inp && m && m.key === inputKey(inp) ? m.mesh : null;
+  };
   let screwInfo = $derived(caseOn ? caseLayout(leftKeys, islandGeom('left'), cellHeight, caseP, split, plate.stabs ?? 'cherry') : null);
   const inputKey = (i: BuildInput) => JSON.stringify({ ...i, cellStep: undefined });
 
@@ -171,6 +183,7 @@
           offsetX: pc * splitGap,
           mesh: mesh('plate'),
           island: islPiece === pc ? isl : null,
+          wedgeMesh: islPiece === pc ? wedgeMeshFor('left') : null,
           showElectronics,
           caseMesh: mesh('case'),
           caseOn,
@@ -186,7 +199,7 @@
       const cm = meshes[job(s, 'case')];
       const caseMesh = cin && cm && cm.key === inputKey(cin) ? cm.mesh : null;
       const offsetX = s === 'right' && sides.length === 2 ? reachL + reachR + gap + 2 * pad : 0;
-      return { keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), showElectronics, caseMesh, caseOn, explode: caseP.explode };
+      return { keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), wedgeMesh: wedgeMeshFor(s), showElectronics, caseMesh, caseOn, explode: caseP.explode };
     });
   });
 
@@ -198,19 +211,20 @@
   const splitGap = 14;
   $effect(() => {
     // przelicz dokładną bryłę po krótkiej przerwie od ostatniej zmiany
-    const jobs = sides.flatMap((s) =>
-      pieces.flatMap((pc) => [[s, 'plate', inputFor(s, 'plate', pc), pc] as const, [s, 'case', inputFor(s, 'case', pc), pc] as const]),
-    );
+    const jobs = sides.flatMap((s) => [
+      ...pieces.flatMap((pc) => [[s, 'plate', inputFor(s, 'plate', pc), pc] as const, [s, 'case', inputFor(s, 'case', pc), pc] as const]),
+      [s, 'wedge', inputFor(s, 'wedge'), undefined] as const,
+    ]);
     clearTimeout(timer);
     timer = setTimeout(async () => {
       // płyta przed obudową na tym samym wątku: najpierw widać płytę
       for (const [s, part, inp, pc] of jobs) if (inp && part === 'plate') void computeMesh(s, part, inp, pc);
-      for (const [s, part, inp, pc] of jobs) if (inp && part === 'case') void computeMesh(s, part, inp, pc);
+      for (const [s, part, inp, pc] of jobs) if (inp && part !== 'plate') void computeMesh(s, part, inp, pc);
     }, 500);
   });
 
   const running: Partial<Record<Job, string>> = {};
-  async function computeMesh(s: Side, part: 'plate' | 'case', inp: BuildInput, piece?: 0 | 1) {
+  async function computeMesh(s: Side, part: Part, inp: BuildInput, piece?: 0 | 1) {
     const j = job(s, part, piece);
     const key = inputKey(inp);
     if (meshes[j]?.key === key || running[j] === key) return;
@@ -232,7 +246,7 @@
     }
   }
 
-  async function exportFile(s: Side, format: 'stl' | 'step', part: 'plate' | 'case' = 'plate', piece?: 0 | 1) {
+  async function exportFile(s: Side, format: 'stl' | 'step', part: Part = 'plate', piece?: 0 | 1) {
     const inp = inputFor(s, part, piece);
     if (!inp) return;
     status = t(lang, 'computing');
@@ -245,7 +259,7 @@
           ? `macropad-${params.rows}x${params.cols}`
           : `${s}`;
       const pc = piece === undefined ? '' : `-${piece + 1}of2`;
-      const name = `${base}-${part === 'case' ? 'case' : 'plate'}${pc}-${variant}.${format}`;
+      const name = part === 'wedge' ? `${base}-oled-wedge-${island.tilt}deg.${format}` : `${base}-${part}${pc}-${variant}.${format}`;
       await saveFile(name, data);
     } catch (e) {
       error = (e as Error).message;
@@ -303,7 +317,7 @@
       .catch((e) => (error = String(e)));
   });
 
-  const anyBusy = $derived(sides.some((s) => pieces.some((pc) => busy[job(s, 'plate', pc)] || busy[job(s, 'case', pc)])));
+  const anyBusy = $derived(sides.some((s) => pieces.some((pc) => busy[job(s, 'plate', pc)] || busy[job(s, 'case', pc)]) || busy[job(s, 'wedge')]));
   const mm = (v: number) => Math.round(v);
   const allExact = $derived(halves.every((h) => h.mesh && (!h.caseOn || h.caseMesh)));
 </script>
@@ -584,6 +598,13 @@
             <button onclick={() => exportFile(s, 'step', 'case', pc)} disabled={!cellStep} data-tip={t(lang, 'tipStep')}>STEP</button>
           </div>
           {/each}
+        {/if}
+        {#if islandGeom(s)?.wedge}
+          <div class="row">
+            <span class="side">{single ? t(lang, 'wedgePart') : `${t(lang, 'wedgePart')}: ${t(lang, s).toLowerCase()}`}</span>
+            <button onclick={() => exportFile(s, 'stl', 'wedge')} disabled={!cellStep} data-tip={t(lang, 'tipStl')}>STL</button>
+            <button onclick={() => exportFile(s, 'step', 'wedge')} disabled={!cellStep} data-tip={t(lang, 'tipStep')}>STEP</button>
+          </div>
         {/if}
       {/each}
     </section>

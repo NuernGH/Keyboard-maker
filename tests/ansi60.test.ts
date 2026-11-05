@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from 'vitest';
 import { measureVolume } from 'replicad';
 import { initOC, cellStep } from './oc';
-import { loadCell, buildPlate, buildCase, screwPilots, isValidShape, stabCuts, platePiece, casePiece } from '../src/lib/geometry';
+import { loadCell, buildPlate, buildCase, buildWedge, screwPilots, isValidShape, stabCuts, platePiece, casePiece } from '../src/lib/geometry';
 import { TEMPLATES, splitLeft, switchOffsets, switchSpots, ANSI_60, parseRowLayout, rowLayoutToText, keysOverlap, PITCH } from '../src/lib/layout';
 import { islandFor, DEFAULT_ISLAND, type IslandParams } from '../src/lib/island';
 import { caseLayout, DEFAULT_CASE, SCREW_MARGIN } from '../src/lib/case';
@@ -120,20 +120,37 @@ describe('bryły 60%', () => {
       expect(measureVolume(buildPlate(keys, cell, { ...o, stabs: 'none' }))).toBeGreaterThan(measureVolume(plate));
     }, 120000);
 
-  test('klin 25° z modułem OLED i enkoderem', async () => {
+  test('klin 25° pod OLED jako osobna część przykręcana do płaskiej wyspy', async () => {
     const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
     const keys = splitLeft(tpl);
     const flat = islandFor(tpl, ip, 'left', 'hotswap', cell.height)!;
     const wedge = islandFor(tpl, { ...ip, tilt: 25 }, 'left', 'hotswap', cell.height)!;
-    expect(wedge.wedge?.deg).toBe(25);
+    const w = wedge.wedge!;
+    expect(w.deg).toBe(25);
+    expect(w.screws.length).toBe(2);
     expect(wedge.rect).toEqual(flat.rect);
-    // tył klina ok. 38 · tg 25° ≈ 17,7 mm nad płytą
+    // płyta zostaje płaska: nic nie wystaje ponad z = 0
     const plate = buildPlate(keys, cell, opts, wedge);
     expect(isValidShape(plate)).toBe(true);
     expect(plate.solids.length).toBe(1);
-    const bb = plate.boundingBox.bounds;
-    expect(bb[1][2]).toBeCloseTo(38 * Math.tan((25 * Math.PI) / 180), 1);
-    // pokrętło pochylone: jego środek jest dalej od klawiszy niż przy płaskiej wyspie i wyżej
+    expect(plate.boundingBox.bounds[1][2]).toBeLessThan(0.01);
+    // klin: jedna bryła na z = 0, tył ok. 3 + 38 · tg 25° ≈ 20,7 mm
+    const part = buildWedge(wedge);
+    expect(isValidShape(part)).toBe(true);
+    expect(part.solids.length).toBe(1);
+    const bb = part.boundingBox.bounds;
+    expect(bb[0][2]).toBeCloseTo(0, 3);
+    expect(bb[1][2]).toBeCloseTo(3 + 38 * Math.tan((25 * Math.PI) / 180), 1);
+    // klin nie wchodzi w płytę
+    expect(measureVolume(part.intersect(plate))).toBeLessThan(0.01);
+    // śruby: otwór w wyspie (płyta ma tam mniej materiału niż płaska wyspa bez klina)
+    for (const [x, y] of w.screws) {
+      expect(x).toBeGreaterThan(w.x0 + 3);
+      expect(x).toBeLessThan(w.x1 - 3);
+      expect(y).toBeGreaterThan(w.y0 + 3);
+      expect(y).toBeLessThan(w.y1 - 3);
+    }
+    // pokrętło pochylone razem z klinem
     const knob = (g: typeof flat) => g.ghosts.find((x) => x.kind === 'knob')!.box;
     expect(knob(wedge).tilt?.deg).toBe(25);
     // klin pod klawiaturą (wyspa u dołu) pochyla się w drugą stronę
@@ -142,6 +159,9 @@ describe('bryły 60%', () => {
     const pb = buildPlate(keys, cell, opts, below);
     expect(isValidShape(pb)).toBe(true);
     expect(pb.solids.length).toBe(1);
+    const wb = buildWedge(below);
+    expect(isValidShape(wb)).toBe(true);
+    expect(wb.solids.length).toBe(1);
   }, 240000);
 
   test('cała płyta i spód hot-swap, podział na części', async () => {

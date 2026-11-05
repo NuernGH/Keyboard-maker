@@ -201,7 +201,6 @@ export function buildPlate(
     for (const [x, y] of switchSpots(k, stabs))
       negatives.push(cell.negative.clone().rotate(k.rot, [0, 0, 0], [0, 0, 1]).translate(x, y, 0));
   }
-  if (island?.wedge) body = body.fuse(wedgeSolid(island.wedge)) as Shape3D;
   if (island) for (const b of island.cuts) negatives.push(boxSolid(b));
   if (stabs === 'cherry') for (const k of keys) negatives.push(...stabCuts(k, cell.height));
   negatives.push(...pilots);
@@ -213,19 +212,26 @@ export function boxSolid(b: Box): Shape3D {
   let sh = b.round
     ? (makeCylinder((b.x1 - b.x0) / 2, b.z1 - b.z0, [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, b.z0], [0, 0, 1]) as Shape3D)
     : makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]);
-  if (b.tilt) sh = sh.rotate(b.tilt.deg, [0, b.tilt.y, 0], [1, 0, 0]) as Shape3D;
+  if (b.tilt) sh = sh.rotate(b.tilt.deg, [0, b.tilt.y, b.tilt.z], [1, 0, 0]) as Shape3D;
   return sh;
 }
 
-/** Klin nad wyspą: pryzmat o przekroju trójkąta (krawędź przy klawiszach na wysokości płyty). */
-export function wedgeSolid(w: NonNullable<IslandGeom['wedge']>): Shape3D {
+/**
+ * Klin pod moduł OLED z enkoderem: osobna część stawiana na płaskiej wyspie. Przekrój to
+ * podstawa `base` mm i trójkąt nad nią (krawędź przy klawiszach na wysokości podstawy).
+ * Drukuje się podstawą w dół, bez podpór.
+ */
+export function buildWedge(island: IslandGeom): Shape3D {
+  const w = island.wedge;
+  if (!w) throw new Error('Wyspa nie ma klina');
   const zA = wedgeZ(w, w.y0);
   const zB = wedgeZ(w, w.y1);
   // w układzie płaszczyzny YZ: pierwsza współrzędna to y, druga z
-  const pts: [number, number][] = zA > zB ? [[w.y0, 0], [w.y1, 0], [w.y0, zA]] : [[w.y0, 0], [w.y1, 0], [w.y1, zB]];
+  const pts: [number, number][] = [[w.y0, 0], [w.y1, 0], [w.y1, zB], [w.y0, zA]];
   let pen = draw(pts[0]);
   for (const p of pts.slice(1)) pen = pen.lineTo(p);
-  return pen.close().sketchOnPlane('YZ', w.x0).extrude(w.x1 - w.x0) as Shape3D;
+  const body = pen.close().sketchOnPlane('YZ', w.x0).extrude(w.x1 - w.x0) as Shape3D;
+  return cutMany(body, w.cuts.map(boxSolid));
 }
 
 /**
