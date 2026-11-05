@@ -4,6 +4,11 @@ Generator płyt klawiatur w przeglądarce. Etap 1 (prototyp techniczny): płaski
 z wzorcowej komórki Cherry MX (`key socket.STEP` od Marcina), eksport STL (do druku) i STEP (do SolidWorks). Całość liczy się lokalnie,
 bez serwera. Docelowo ta sama aplikacja trafi do exe przez Tauri.
 
+## Wersja online
+
+https://nuerngh.github.io/Keyboard-maker/ — publikowana automatycznie przez GitHub Actions
+(`.github/workflows/pages.yml`) po każdym merge'u do `main`.
+
 ## Uruchomienie
 
 ```bash
