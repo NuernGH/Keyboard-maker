@@ -3,7 +3,7 @@
 // gniazdem USB do ściany; w ścianie otwór na wtyk i od zewnątrz wybranie na jego obudowę.
 
 import { apply, floorLoop, mul, Rz, T, type DactylModel, type Mat } from './dactyl';
-import { CONTROLLERS, type ControllerId } from './island';
+import { CONTROLLERS, USB_PLUG, pcbOf, usbBottomOf, usbCenterOf, type ControllerId } from './island';
 
 export type PartBox = { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; m?: Mat };
 
@@ -14,7 +14,7 @@ export interface DactylController {
   bottomAdd: PartBox[];
   bottomCut: PartBox[];
   /** sama płytka z gniazdem (do podglądu i sprawdzania kolizji) */
-  ghosts: { kind: 'board' | 'usb' | 'plug'; box: PartBox }[];
+  ghosts: { kind: 'board' | 'usb' | 'plug'; box: PartBox; model?: string }[];
   /** środek gniazda USB na wewnętrznej stronie ściany (XY) */
   usb: [number, number];
 }
@@ -30,8 +30,14 @@ export interface ControllerParams {
 export const DEFAULT_DACTYL_CONTROLLER: ControllerParams = { controller: 'nicenano', col: 0.5, shift: 0 };
 
 /** Wymiary korytka i otworu (mm). */
-/** `lift`: podkładka pod płytką, żeby obudowa wtyku nie zahaczała o dno. */
-export const HOLDER = { gap: 0.3, wall: 1.6, height: 4.5, lift: 1, plugW: 12.5, plugH: 7, plugFrom: 1.5 };
+/**
+ * `lift`: podest pod płytką, żeby obudowa wtyku nie zahaczała o dno. nice!nano ma gniazdo USB
+ * osadzone we wcięciu płytki (nisko), więc podest jest wyższy: 2,5 mm. `height`: ścianki korytka.
+ */
+/** połowa szerokości podestu: wolny pas 2,5 mm przy każdym brzegu na luty pinów */
+const PAD_HALF = 4.5;
+
+export const HOLDER = { gap: 0.3, wall: 1.6, height: 5.5, lift: 2.5, plugW: USB_PLUG.w, plugH: USB_PLUG.h, plugFrom: 1.5 };
 
 /**
  * Ustawia kontroler przy tylnej ścianie: znajduje wewnętrzną krawędź ściany nad kolumną `col`
@@ -69,15 +75,16 @@ export function controllerHolder(model: DactylModel, cp: ControllerParams): Dact
   const yEdge = -c.usbOverhang - 0.5; // krawędź płytki: gniazdo 0,5 mm od ściany
   const yBack = yEdge - c.h;
   const zb = HOLDER.lift; // spód płytki
-  const usbZ = zb + 1.6 + (c.height - 1.6) / 2;
+  const usbZ = zb + usbCenterOf(c);
   const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): PartBox => ({ x0, y0, z0, x1, y1, z1, m });
   const bottomAdd = [
     box(-hw - g - w, yBack - g - w, -1, -hw - g, -0.4, HOLDER.height),
     box(hw + g, yBack - g - w, -1, hw + g + w, -0.4, HOLDER.height),
     box(-hw - g - w, yBack - g - w, -1, hw + g + w, yBack - g, HOLDER.height),
-    // podkładka pod płytką (tylko pod brzegami, środek wolny na pady baterii od spodu)
-    box(-hw - g, yBack - g, -1, -hw + 2, -0.4, zb),
-    box(hw - 2, yBack - g, -1, hw + g, -0.4, zb),
+    // podest pod płytką między rzędami pinów (luty pinów są 1,27 mm od brzegów): pod gniazdem USB,
+    // które przy wtykaniu kabla dostaje największy nacisk, i pasek przy drugim końcu płytki
+    box(-PAD_HALF, yEdge - 7, -1, PAD_HALF, yEdge - 0.01, zb),
+    box(-PAD_HALF, yBack - g, -1, PAD_HALF, yBack + 3, zb),
   ];
   const ports = c.ports ?? [0];
   const shellCut: PartBox[] = [];
@@ -88,8 +95,8 @@ export function controllerHolder(model: DactylModel, cp: ControllerParams): Dact
   // korytko musi zmieścić się pod skorupą: wycinamy w niej miejsce na płytkę z luzem
   shellCut.push(box(-hw - g - w - 0.3, yBack - g - w - 0.3, -1, hw + g + w + 0.3, 0.01, Math.max(HOLDER.height, zb + c.height) + 0.5));
   const ghosts = [
-    { kind: 'board' as const, box: box(-hw, yBack, zb, hw, yEdge, zb + 1.6) },
-    ...ports.map((px) => ({ kind: 'usb' as const, box: box(px - 4.5, yEdge - 7.3 + c.usbOverhang, zb + 1.6, px + 4.5, yEdge + c.usbOverhang, zb + c.height) })),
+    { kind: 'board' as const, box: box(-hw, yBack, zb, hw, yEdge, zb + pcbOf(c)), model: c.model },
+    ...ports.map((px) => ({ kind: 'usb' as const, box: box(px - 4.5, yEdge - 7.3 + c.usbOverhang, zb + usbBottomOf(c), px + 4.5, yEdge + c.usbOverhang, zb + c.height) })),
   ];
   const u = apply(m, [0, 0, 0]);
   return { shellAdd: [], shellCut, bottomAdd, bottomCut: [], ghosts, usb: [u[0], u[1]] };

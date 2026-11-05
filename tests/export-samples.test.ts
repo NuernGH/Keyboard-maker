@@ -15,7 +15,7 @@ test.skipIf(!OUT)('eksport próbek', async () => {
     for (const side of ['left', 'right'] as const) {
       const base = splitLeft(SPLIT_4x6_4);
       const keys = side === 'left' ? base : mirrorKeys(base);
-      const island = islandFor(SPLIT_4x6_4, DEFAULT_ISLAND, side, variant, cell.height);
+      const island = islandFor(SPLIT_4x6_4, DEFAULT_ISLAND, side, variant, cell.height, SCREW_MARGIN);
       const opts = { fillGaps: 4, margin: SCREW_MARGIN };
       const lay = caseLayout(keys, island, cell.height, DEFAULT_CASE);
       const plate = buildPlate(keys, cell, opts, island, screwPilots(lay.screws, cell.height, lay.pilotDepth));
@@ -42,7 +42,7 @@ test.skipIf(!OUT60)('eksport próbek 60%', async () => {
   for (const variant of ['hotswap', 'no-hotswap'] as const) {
     const cell = await loadCell({ step: cellStep(), up: 'auto' }, variant);
     const keys = splitLeft(p);
-    const island = islandFor(p, ip, 'left', variant, cell.height);
+    const island = islandFor(p, ip, 'left', variant, cell.height, SCREW_MARGIN);
     const sp = planSplit(keys, island, SCREW_MARGIN, DEFAULT_CASE.gap + DEFAULT_CASE.wall, DEFAULT_PRINT)!;
     const lay = caseLayout(keys, island, cell.height, DEFAULT_CASE, sp);
     const plate = buildPlate(keys, cell, opts, island, screwPilots(lay.screws, cell.height, lay.pilotDepth));

@@ -24,6 +24,7 @@
     type DactylParams,
   } from '../lib/dactyl';
   import { controllerHolder, DEFAULT_DACTYL_CONTROLLER, type ControllerParams } from '../lib/dactyl-parts';
+  import { loadControllerModel, placeOnBoard } from './controllerModel';
   import { CONTROLLERS, type ControllerId } from '../lib/island';
   import { NO_HOTSWAP_HEIGHT } from '../lib/cell-spec';
   import { dactylHeadDepth, screwSpec, type ScrewSize } from '../lib/case';
@@ -132,6 +133,17 @@
     }
   });
   const holder = $derived(model && ctrlOn ? controllerHolder(model, $state.snapshot(ctrl) as ControllerParams) : null);
+  // modele kontrolerów wczytane do podglądu (ścieżka -> geometria)
+  let ctrlGeo = $state(new Map<string, THREE.BufferGeometry>());
+  $effect(() => {
+    for (const gh of holder?.ghosts ?? []) {
+      const path = gh.model;
+      if (path && !ctrlGeo.has(path))
+        void loadControllerModel(path).then((g) => {
+          if (g && !ctrlGeo.has(path)) ctrlGeo = new Map(ctrlGeo).set(path, g);
+        });
+    }
+  });
   const size = $derived(model ? modelSize(model) : null);
   const caps = $derived(model ? capCollisions(model) : []);
   const cells = $derived(model ? cellCollisions(model) : []);
@@ -308,7 +320,21 @@
     if (holder) {
       const eg = new THREE.Group();
       eg.position.z = bt ? -explode : 0;
-      for (const gh of holder.ghosts) eg.add(boxAt(gh.box, gh.kind === 'board' ? mats.board : mats.usb));
+      // kontroler z modelem (np. nice!nano): model zamiast pudełek płytki i gniazda USB
+      const board = holder.ghosts.find((gh) => gh.kind === 'board' && gh.model && ctrlGeo.get(gh.model));
+      if (board) {
+        const geo = ctrlGeo.get(board.model!)!;
+        const usb = holder.ghosts.find((gh) => gh.kind === 'usb');
+        const cm = new THREE.Mesh(geo, mats.board);
+        cm.matrixAutoUpdate = false;
+        const local = placeOnBoard(geo, board.box, usb?.box);
+        cm.matrix.copy(board.box.m ? toMatrix(board.box.m).multiply(local) : local);
+        eg.add(cm);
+      }
+      for (const gh of holder.ghosts) {
+        if (board && (gh.kind === 'board' || gh.kind === 'usb')) continue;
+        eg.add(boxAt(gh.box, gh.kind === 'board' ? mats.board : mats.usb));
+      }
       g.add(eg);
     }
     if (showCaps) {
@@ -393,6 +419,7 @@
     void showCaps;
     void explode;
     void holder;
+    void ctrlGeo;
     void caps;
     rebuild();
   });

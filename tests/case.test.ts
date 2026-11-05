@@ -26,7 +26,7 @@ describe('spód obudowy', () => {
         const cell = await loadCell({ step: cellStep(), up: 'auto' }, variant);
         const base = splitLeft(c.p);
         const keys = c.side === 'left' ? base : mirrorKeys(base);
-        const island = islandFor(c.p, c.ip, c.side, variant, cell.height);
+        const island = islandFor(c.p, c.ip, c.side, variant, cell.height, SCREW_MARGIN);
         const lay = caseLayout(keys, island, cell.height, cp);
         expect(lay.screw).toEqual(sp);
         expect(lay.screws.length).toBeGreaterThanOrEqual(4);
@@ -58,6 +58,14 @@ describe('spód obudowy', () => {
         expect(board.z0 - lay.pads[0].z1).toBeCloseTo(0.2, 6);
         expect(lay.pads[0].x0).toBeGreaterThan(board.x0);
         expect(lay.pads[0].x1).toBeLessThan(board.x1);
+        // wtyk USB-C z obudową (12,4 × 6,5 mm) na wysokości gniazda: od krawędzi płyty na zewnątrz
+        // przechodzi przez płytę i ściankę bez kolizji (gniazdo nice!nano leży nisko, we wcięciu płytki)
+        const usb = island!.ghosts.find((g) => g.kind === 'usb')!.box;
+        const cx = (usb.x0 + usb.x1) / 2;
+        const cz = (usb.z0 + usb.z1) / 2;
+        const plug = makeBox([cx - 6.2, usb.y1 + 0.05, cz - 3.25], [cx + 6.2, usb.y1 + 15, cz + 3.25]);
+        expect(measureVolume(plate.clone().intersect(plug.clone()) as never)).toBeLessThan(0.01);
+        expect(measureVolume(shell.clone().intersect(plug) as never)).toBeLessThan(0.01);
       }, 240000);
 });
 
