@@ -43,6 +43,12 @@ describe('front modułu OLED', () => {
     // kołeczek pod krążkiem kończy się tuż nad mikrostykiem
     const nub = f.clone().intersect(slab(FRONT.btn.u - 1, FRONT.btn.v - 1, 0, FRONT.btn.u + 1, FRONT.btn.v + 1, FRONT.post));
     expect(nub.boundingBox.bounds[0][2]).toBeCloseTo(FRONT.btn.top + FRONT.btn.nubGap, 2);
+    // faza na górnej krawędzi: w samym narożniku czoła brak materiału, niżej ścianka pełna
+    const ex = (65.4 + 2 * FRONT.wall) / 2;
+    expect(vol(f.clone().intersect(slab(-1, -ex + 0, H - 0.3, 1, -ex + 0.3, H)))).toBeLessThan(1e-4);
+    expect(vol(f.clone().intersect(slab(-1, -19.3, 0.5, 1, -19.0, 2)))).toBeGreaterThan(0.5);
+    // fazka okna: przy krawędzi okna czoło jest ścięte
+    expect(vol(f.clone().intersect(slab(FRONT.win.u - 1, FRONT.win.v + FRONT.win.h / 2, H - 0.2, FRONT.win.u + 1, FRONT.win.v + FRONT.win.h / 2 + 0.3, H)))).toBeLessThan(1e-4);
     // nad szkłem (do 3,1 mm nad płytką) nic nie ma
     expect(vol(f.clone().intersect(slab(-6.6, -11.5, 0, 28.4, 11.5, 3.15)))).toBeLessThan(1e-4);
   }, 120000);

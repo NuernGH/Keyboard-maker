@@ -251,6 +251,8 @@ export function buildFrontLocal(): Shape3D {
   const ow = mh + 2 * F.wall;
   const oh = mw + 2 * F.wall;
   let body = drawRoundedRectangle(ow, oh, F.r).sketchOnPlane('XY', 0).extrude(H) as Shape3D;
+  // faza na górnej krawędzi: mniejsza niż ścianka, więc nie otwiera wnętrza
+  if (F.edge > 0) body = body.chamfer(F.edge, (e) => e.inPlane('XY', H)) as Shape3D;
   body = body.cut(drawRoundedRectangle(mh, mw, Math.max(0.5, F.r - F.wall)).sketchOnPlane('XY', -1).extrude(F.post + 1) as Shape3D) as Shape3D;
   // słupki pod wkręty (dociskają płytkę w otworach montażowych), połączone z narożnikiem ramki
   const holes: [number, number][] = [];
@@ -283,6 +285,13 @@ export function buildFrontLocal(): Shape3D {
   }
   // okno na ekran, otwór na korpus enkodera, kieszeń nad taśmą wyświetlacza
   tools.push(boxW(F.win.u - F.win.w / 2, F.win.v - F.win.h / 2, zt, F.win.u + F.win.w / 2, F.win.v + F.win.h / 2, zb));
+  if (F.winChamfer > 0) {
+    // fazka wokół okna: ostrosłup ścięty od czoła w głąb
+    const c = F.winChamfer;
+    const lo = drawRectangle(F.win.w, F.win.h).translate(F.win.u, F.win.v).sketchOnPlane('XY', H - c);
+    const hi = drawRectangle(F.win.w + 2 * c + 0.02, F.win.h + 2 * c + 0.02).translate(F.win.u, F.win.v).sketchOnPlane('XY', H + 0.01);
+    tools.push(lo.loftWith(hi) as Shape3D);
+  }
   tools.push(boxW(F.enc.u - F.enc.size / 2, F.enc.v - F.enc.size / 2, zt, F.enc.u + F.enc.size / 2, F.enc.v + F.enc.size / 2, zb));
   tools.push(boxW(F.flex.u0, F.flex.v0, F.post - 0.01, F.flex.u1, F.flex.v1, F.post + F.flex.depth));
   // przyciski na zawiasie: szczelina wokół krążka i dwie wzdłuż języka w stronę +u

@@ -121,6 +121,9 @@ export const FRONT = {
   hole: 2.7,
   csk: 5.2,
   r: 3,
+  /** faza 45° na górnej krawędzi ramki (mm) i wokół okna, żeby front nie był „kostką” */
+  edge: 1.4,
+  winChamfer: 0.6,
   /** odstęp narożnika frontu od krawędzi komórek klawiszy (w rzucie z góry) */
   keyGap: 0.3,
   /** okno na ekran (środek względem środka płytki) */
