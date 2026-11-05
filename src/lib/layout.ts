@@ -204,12 +204,15 @@ export function keyCorners(k: Key): [number, number][] {
 
 /** Sprawdza, czy dwa klawisze nachodzą na siebie (test osi rozdzielającej), z tolerancją. */
 export function keysOverlap(a: Key, b: Key, tol = 0.01): boolean {
-  const pa = keyCorners(a);
-  const pb = keyCorners(b);
+  return polysOverlap(keyCorners(a), keyCorners(b), tol);
+}
+
+/** Czy dwa wypukłe wielokąty zachodzą na siebie (test osi rozdzielającej); styk krawędzią się nie liczy. */
+export function polysOverlap(pa: [number, number][], pb: [number, number][], tol = 0.01): boolean {
   for (const poly of [pa, pb]) {
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < poly.length; i++) {
       const [x1, y1] = poly[i];
-      const [x2, y2] = poly[(i + 1) % 4];
+      const [x2, y2] = poly[(i + 1) % poly.length];
       const nx = y2 - y1;
       const ny = x1 - x2;
       const len = Math.hypot(nx, ny);

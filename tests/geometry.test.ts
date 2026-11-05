@@ -163,3 +163,15 @@ describe('kontrolery i połówka z modułem', () => {
     expect(plate.solids.length).toBe(1);
   }, 180000);
 });
+
+import { TEMPLATES, keyCorners, polysOverlap } from '../src/lib/layout';
+describe('wyspa nie wchodzi na klawisze w żadnym szablonie', () => {
+  for (const t of TEMPLATES)
+    for (const moduleSide of ['left', 'none'] as const)
+      test(`${t.id}, moduł: ${moduleSide}`, () => {
+        const g = islandFor(t.params, { ...DEFAULT_ISLAND, moduleSide }, 'left', 'hotswap', 8.58)!;
+        const r = g.rect;
+        const rp: [number, number][] = [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]];
+        for (const k of splitLeft(t.params)) expect(polysOverlap(keyCorners(k), rp)).toBe(false);
+      });
+});

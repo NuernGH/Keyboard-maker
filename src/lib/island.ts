@@ -6,7 +6,7 @@
 // Wymiary modułu zmierzone z modelu referencyjnego Marcina (GrabCAD, tylko lokalnie);
 // kontrolery z modeli producentów, też tylko lokalnie. Tu same liczby, bez CAD.
 
-import { PITCH, type SplitParams } from './layout';
+import { PITCH, splitLeft, keyCorners, polysOverlap, type SplitParams } from './layout';
 import type { CellVariant } from './cell-spec';
 
 export type ControllerId = 'nicenano' | 'promicro-c' | 'promicro-micro' | 'kb2040' | 's2mini';
@@ -60,6 +60,8 @@ export const ISLAND_W = 38;
 export const ISLAND_H = 68;
 /** ścianka wokół kontrolera na wyspie bez modułu */
 export const SMALL_WALL = 3;
+/** minimalny odstęp wyspy od klawiszy kciuka (mm) */
+export const KEY_GAP = 1;
 
 /** Moduł OLED + EC11 ułożony pionowo: 35 mm w poprzek, 65 mm wzdłuż, enkoder u góry. */
 export const MODULE = { w: 35, h: 65, pcb: 1.2, clearance: 0.2, underClearance: 2.5 };
@@ -137,8 +139,16 @@ export function islandFor(
   const D = Math.max(ip.depth, cellHeight, ctrl.height + 1.5);
   const inner = p.cols - 1;
   const x0 = inner * PITCH + PITCH / 2 + ip.offsetX;
-  const y1 = (p.stagger[inner] ?? 0) + PITCH / 2 + ip.offsetY;
   const x1 = x0 + W;
+  // Wyspa stoi przy górze wewnętrznej kolumny. Gdy płyta ma mało rzędów, dół wyspy wchodziłby
+  // na klawisze kciuka, więc podnosimy ją, aż zostanie między nimi KEY_GAP luzu.
+  let y1 = (p.stagger[inner] ?? 0) + PITCH / 2 + ip.offsetY;
+  const keyPolys = splitLeft(p).map(keyCorners);
+  const hits = (top: number) => {
+    const r: [number, number][] = [[x0, top - H - KEY_GAP], [x1, top - H - KEY_GAP], [x1, top], [x0, top]];
+    return keyPolys.some((k) => polysOverlap(k, r));
+  };
+  for (let i = 0; i < 400 && hits(y1); i++) y1 += 0.25;
   const y0 = y1 - H;
   const cx = (x0 + x1) / 2;
 
