@@ -44,6 +44,7 @@
     island.position = tpl.params.single ? 'top' : 'inner';
     island.align = tpl.params.rowLayout ? 'end' : 'center';
     island.tilt = tpl.params.rowLayout ? 25 : 0;
+    island.front = !!tpl.params.rowLayout;
     if (tpl.params.rowLayout) rowText = rowLayoutToText(tpl.params.rowLayout);
   }
   function onRowText() {
@@ -121,14 +122,14 @@
   const pieces = $derived<(0 | 1 | undefined)[]>(split ? [0, 1] : [undefined]);
   const sides = $derived<Side[]>(single ? ['left'] : show === 'both' ? ['left', 'right'] : [show]);
 
-  type Part = 'plate' | 'case' | 'wedge';
+  type Part = 'plate' | 'case' | 'wedge' | 'front';
   function inputFor(s: Side, part: Part = 'plate', piece?: 0 | 1): BuildInput | null {
     if (!cellStep) return null;
     if (part === 'case' && !caseOn) return null;
-    if (part === 'wedge') {
-      // klin to osobna część, niezależna od podziału i obudowy
+    if (part === 'wedge' || part === 'front') {
+      // klin i front to osobne części, niezależne od podziału i obudowy
       const isl = islandGeom(s);
-      if (!isl?.wedge) return null;
+      if (!(part === 'wedge' ? isl?.wedge : isl?.front)) return null;
       return { keys: [], variant, plate: $state.snapshot(plate) as PlateOptions, cellId, cellStep, up, island: isl, part };
     }
     const po = $state.snapshot(plate) as PlateOptions;
@@ -152,11 +153,13 @@
   }
   const job = (s: Side, part: Part, piece?: 0 | 1): Job =>
     `${part === 'plate' ? s : `${s}-${part}`}${piece === undefined ? '' : `-p${piece}`}`;
-  const wedgeMeshFor = (s: Side) => {
-    const inp = inputFor(s, 'wedge');
-    const m = meshes[job(s, 'wedge')];
+  const partMeshFor = (s: Side, part: 'wedge' | 'front') => {
+    const inp = inputFor(s, part);
+    const m = meshes[job(s, part)];
     return inp && m && m.key === inputKey(inp) ? m.mesh : null;
   };
+  const wedgeMeshFor = (s: Side) => partMeshFor(s, 'wedge');
+  const frontMeshFor = (s: Side) => partMeshFor(s, 'front');
   let screwInfo = $derived(caseOn ? caseLayout(leftKeys, islandGeom('left'), cellHeight, caseP, split, plate.stabs ?? 'cherry') : null);
   const inputKey = (i: BuildInput) => JSON.stringify({ ...i, cellStep: undefined });
 
@@ -187,6 +190,7 @@
           mesh: mesh('plate'),
           island: islPiece === pc ? isl : null,
           wedgeMesh: islPiece === pc ? wedgeMeshFor('left') : null,
+          frontMesh: islPiece === pc ? frontMeshFor('left') : null,
           showElectronics,
           caseMesh: mesh('case'),
           caseOn,
@@ -202,7 +206,7 @@
       const cm = meshes[job(s, 'case')];
       const caseMesh = cin && cm && cm.key === inputKey(cin) ? cm.mesh : null;
       const offsetX = s === 'right' && sides.length === 2 ? reachL + reachR + gap + 2 * pad : 0;
-      return { keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), wedgeMesh: wedgeMeshFor(s), showElectronics, caseMesh, caseOn, explode: caseP.explode };
+      return { keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), wedgeMesh: wedgeMeshFor(s), frontMesh: frontMeshFor(s), showElectronics, caseMesh, caseOn, explode: caseP.explode };
     });
   });
 
@@ -217,6 +221,7 @@
     const jobs = sides.flatMap((s) => [
       ...pieces.flatMap((pc) => [[s, 'plate', inputFor(s, 'plate', pc), pc] as const, [s, 'case', inputFor(s, 'case', pc), pc] as const]),
       [s, 'wedge', inputFor(s, 'wedge'), undefined] as const,
+      [s, 'front', inputFor(s, 'front'), undefined] as const,
     ]);
     clearTimeout(timer);
     timer = setTimeout(async () => {
@@ -250,8 +255,10 @@
   }
 
   async function exportFile(s: Side, format: 'stl' | 'step', part: Part = 'plate', piece?: 0 | 1) {
-    const inp = inputFor(s, part, piece);
-    if (!inp) return;
+    const base0 = inputFor(s, part, piece);
+    if (!base0) return;
+    // front eksportujemy czołem do stołu, gotowy do druku
+    const inp = part === 'front' ? { ...base0, print: true } : base0;
     status = t(lang, 'computing');
     error = '';
     try {
@@ -262,7 +269,12 @@
           ? `macropad-${params.rows}x${params.cols}`
           : `${s}`;
       const pc = piece === undefined ? '' : `-${piece + 1}of2`;
-      const name = part === 'wedge' ? `${base}-oled-wedge-${island.tilt}deg.${format}` : `${base}-${part}${pc}-${variant}.${format}`;
+      const name =
+        part === 'wedge'
+          ? `${base}-oled-wedge-${island.tilt}deg.${format}`
+          : part === 'front'
+            ? `${base}-oled-front.${format}`
+            : `${base}-${part}${pc}-${variant}.${format}`;
       await saveFile(name, data);
     } catch (e) {
       error = (e as Error).message;
@@ -331,7 +343,7 @@
       .catch((e) => (error = String(e)));
   });
 
-  const anyBusy = $derived(sides.some((s) => pieces.some((pc) => busy[job(s, 'plate', pc)] || busy[job(s, 'case', pc)]) || busy[job(s, 'wedge')]));
+  const anyBusy = $derived(sides.some((s) => pieces.some((pc) => busy[job(s, 'plate', pc)] || busy[job(s, 'case', pc)]) || busy[job(s, 'wedge')] || busy[job(s, 'front')]));
   const mm = (v: number) => Math.round(v);
   const allExact = $derived(halves.every((h) => h.mesh && (!h.caseOn || h.caseMesh)));
 </script>
@@ -518,6 +530,7 @@
           </label>
           {#if (island.position === 'top' || island.position === 'bottom') && island.moduleSide !== 'none'}
           <label data-tip={t(lang, 'tipTilt')}>{t(lang, 'tilt')} <input type="number" min="0" max="60" step="5" bind:value={island.tilt} /></label>
+          <label class="check" data-tip={t(lang, 'tipFront')}><input type="checkbox" bind:checked={island.front} /> {t(lang, 'front')}</label>
           {/if}
           {#if island.position === 'top' || island.position === 'bottom'}
           <label data-tip={t(lang, 'tipUsbOut')}>{t(lang, 'usbOut')}
@@ -619,6 +632,13 @@
             <span class="side">{single ? t(lang, 'wedgePart') : `${t(lang, 'wedgePart')}: ${t(lang, s).toLowerCase()}`}</span>
             <button onclick={() => exportFile(s, 'stl', 'wedge')} disabled={!cellStep} data-tip={t(lang, 'tipStl')}>STL</button>
             <button onclick={() => exportFile(s, 'step', 'wedge')} disabled={!cellStep} data-tip={t(lang, 'tipStep')}>STEP</button>
+          </div>
+        {/if}
+        {#if islandGeom(s)?.front}
+          <div class="row">
+            <span class="side" data-tip={t(lang, 'tipFrontPart')}>{single ? t(lang, 'frontPart') : `${t(lang, 'frontPart')}: ${t(lang, s).toLowerCase()}`}</span>
+            <button onclick={() => exportFile(s, 'stl', 'front')} disabled={!cellStep} data-tip={t(lang, 'tipStl')}>STL</button>
+            <button onclick={() => exportFile(s, 'step', 'front')} disabled={!cellStep} data-tip={t(lang, 'tipStep')}>STEP</button>
           </div>
         {/if}
       {/each}

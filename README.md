@@ -29,6 +29,7 @@ python3 tools/build-artifact.py <katalog>   # wersja do podglądu w Claude (WASM
 - Własna komórka: wczytaj dowolny plik STEP komórki 1U. Oś płyty wykrywa się automatycznie albo ustawiasz ją ręcznie.
 - Lewa i prawa połówka. Prawa to lustro pozycji klawiszy, ale komórki nie są lustrzane, więc gniazda hot-swap mają tę samą orientację.
 - Wyspa na elektronikę (wariant A): pole 38 × 68 mm przy wewnętrznej kolumnie z gniazdem na moduł OLED 1,3" z enkoderem EC11, kieszenią od spodu na nice!nano v2, wyjściem USB-C i przepustami na piny. W podglądzie widać uproszczone bryły elektroniki (nie trafiają do eksportu).
+- Front na moduł OLED (osobna część, opcja przy wyspie nad lub pod klawiszami): ramka z oknem na ekran, otworem na korpus EC11 i dwoma przyciskami na zawiasie nad mikrostykami modułu, przykręcana od góry 4 wkrętami M2,5×10 z łbem stożkowym w otwory w klinie lub wyspie. Przy włączonym froncie wyspa jest szersza, a moduł odsunięty od klawiszy, żeby pochylony front nie wchodził nad nasadki. Eksport czołem do stołu.
 - Podgląd 3D: najpierw szybki podgląd komórek, potem dokładna bryła z CAD (liczona w Web Workerze).
 - Interfejs po polsku i angielsku.
 
@@ -59,4 +60,7 @@ Testy sprawdzają, że siatka 2×2 ma dokładnie objętość czterech komórek (
 
 AGPL-3.0-or-later, patrz [LICENSE](LICENSE). Biblioteki: replicad (AGPL-3.0), OpenCascade przez replicad-opencascadejs (LGPL-2.1), Three.js (MIT), Svelte (MIT).
 Model przełącznika `public/switches/cherry-mx.step` jest na licencji MIT (tekst w `public/switches/README.md`).
+Front modułu OLED to własna geometria (kod w `src/lib/geometry.ts`, AGPL). Pomysł ramki ze słupkami, otworem na korpus enkodera
+i przyciskami na zawiasie pochodzi z projektu [„1.3'' OLED EC11 Housing”](https://makerworld.com/en/models/1843152-1-3-oled-ec11-housing)
+autorstwa Make'n'Modify (CC BY-SA 4.0). Dziękujemy. Pliki tamtego projektu nie są częścią repozytorium.
 Modele z GrabCAD nie trafiają do tego repozytorium.

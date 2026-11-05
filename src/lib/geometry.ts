@@ -15,6 +15,7 @@ import {
   Drawing,
   draw,
   drawRectangle,
+  drawRoundedRectangle,
   getOC,
   importSTEP,
   makeBox,
@@ -23,7 +24,7 @@ import {
   type Shape3D,
 } from 'replicad';
 import { PITCH, switchSpots, type Key } from './layout';
-import { wedgeZ, type Box, type IslandGeom } from './island';
+import { FRONT, frontHeight, MODULE, MODULE_HOLES, wedgeZ, type Box, type IslandGeom } from './island';
 import { CASE_SCREW, SUPPORT, type CaseLayout, type CaseParams } from './case';
 import { leftRegion, type PrintSplit } from './split';
 
@@ -232,6 +233,83 @@ export function buildWedge(island: IslandGeom): Shape3D {
   for (const p of pts.slice(1)) pen = pen.lineTo(p);
   const body = pen.close().sketchOnPlane('YZ', w.x0).extrude(w.x1 - w.x0) as Shape3D;
   return cutMany(body, w.cuts.map(boxSolid));
+}
+
+const boxW = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) =>
+  makeBox([Math.min(x0, x1), Math.min(y0, y1), Math.min(z0, z1)], [Math.max(x0, x1), Math.max(y0, y1), Math.max(z0, z1)]);
+const cyl = (x: number, y: number, r: number, z0: number, z1: number) => makeCylinder(r, z1 - z0, [x, y, z0], [0, 0, 1]) as Shape3D;
+
+/**
+ * Front modułu OLED w jego własnym układzie (patrz FRONT): w = 0 to wierzch płytki modułu,
+ * ramka stoi na wyspie lub klinie wokół gniazda, czoło na wysokości FRONT.post + FRONT.face.
+ */
+export function buildFrontLocal(): Shape3D {
+  const F = FRONT;
+  const H = frontHeight();
+  const mw = MODULE.w + 2 * MODULE.clearance;
+  const mh = MODULE.h + 2 * MODULE.clearance;
+  const ow = mh + 2 * F.wall;
+  const oh = mw + 2 * F.wall;
+  let body = drawRoundedRectangle(ow, oh, F.r).sketchOnPlane('XY', 0).extrude(H) as Shape3D;
+  body = body.cut(drawRoundedRectangle(mh, mw, Math.max(0.5, F.r - F.wall)).sketchOnPlane('XY', -1).extrude(F.post + 1) as Shape3D) as Shape3D;
+  // słupki pod wkręty (dociskają płytkę w otworach montażowych), połączone z narożnikiem ramki
+  const holes: [number, number][] = [];
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) holes.push([(sx * MODULE_HOLES.dy) / 2, (sy * MODULE_HOLES.dx) / 2]);
+  for (const [x, y] of holes) {
+    body = body.fuse(cyl(x, y, F.postD / 2, 0, F.post + 0.01)) as Shape3D;
+    body = body.fuse(boxW(x, y, 0, Math.sign(x) * (mh / 2 + 0.01), Math.sign(y) * (mw / 2 + 0.01), F.post + 0.01)) as Shape3D;
+  }
+  const b = F.btn;
+  // kołeczki pod krążkami przycisków: naciskają mikrostyki modułu
+  for (const sv of [-1, 1]) body = body.fuse(cyl(b.u, sv * b.v, b.nub / 2, b.top + b.nubGap, F.post + 0.01)) as Shape3D;
+
+  const tools: Shape3D[] = [];
+  const zt = -1;
+  const zb = H + 1;
+  // otwory na wkręty z pogłębieniem stożkowym 90°
+  for (const [x, y] of holes) {
+    tools.push(cyl(x, y, F.hole / 2, zt, zb));
+    const rc = F.csk / 2;
+    const rh = F.hole / 2;
+    const cone = draw([0, H - (rc - rh)])
+      .lineTo([rh, H - (rc - rh)])
+      .lineTo([rc, H])
+      .lineTo([rc, zb])
+      .lineTo([0, zb])
+      .close()
+      .sketchOnPlane('XZ')
+      .revolve() as Shape3D;
+    tools.push(cone.translate(x, y, 0) as Shape3D);
+  }
+  // okno na ekran, otwór na korpus enkodera, kieszeń nad taśmą wyświetlacza
+  tools.push(boxW(F.win.u - F.win.w / 2, F.win.v - F.win.h / 2, zt, F.win.u + F.win.w / 2, F.win.v + F.win.h / 2, zb));
+  tools.push(boxW(F.enc.u - F.enc.size / 2, F.enc.v - F.enc.size / 2, zt, F.enc.u + F.enc.size / 2, F.enc.v + F.enc.size / 2, zb));
+  tools.push(boxW(F.flex.u0, F.flex.v0, F.post - 0.01, F.flex.u1, F.flex.v1, F.post + F.flex.depth));
+  // przyciski na zawiasie: szczelina wokół krążka i dwie wzdłuż języka w stronę +u
+  for (const sv of [-1, 1]) {
+    const cv = sv * b.v;
+    const ro = b.d / 2 + b.slot;
+    const ring = cyl(b.u, cv, ro, F.post - 0.5, zb)
+      .cut(cyl(b.u, cv, b.d / 2, F.post - 1, zb + 1))
+      .cut(boxW(b.u, cv - b.armHalf, F.post - 1, b.u + ro + 1, cv + b.armHalf, zb + 1)) as Shape3D;
+    tools.push(ring);
+    for (const e of [-1, 1]) {
+      const y0 = cv + e * b.armHalf;
+      tools.push(boxW(b.u + 2.9, y0, F.post - 0.5, b.armTo, y0 + e * b.slot, zb));
+    }
+  }
+  return cutMany(body, tools);
+}
+
+/** Front ustawiony na module (do podglądu) albo czołem do stołu (do druku). */
+export function buildFront(island: IslandGeom, forPrint = false): Shape3D {
+  const f = island.front;
+  if (!f) throw new Error('Wyspa nie ma frontu');
+  let sh = buildFrontLocal();
+  if (forPrint) return sh.rotate(180, [0, 0, 0], [1, 0, 0]).translate(0, 0, frontHeight()) as Shape3D;
+  if (f.s === -1) sh = sh.rotate(180, [0, 0, 0], [0, 0, 1]) as Shape3D;
+  if (f.deg) sh = sh.rotate(f.deg, [0, 0, 0], [1, 0, 0]) as Shape3D;
+  return sh.translate(...f.origin) as Shape3D;
 }
 
 /**
