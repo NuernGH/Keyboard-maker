@@ -205,14 +205,19 @@ describe('macropad: USB długą krawędzią', () => {
       test(`${position}, ${controller}`, async () => {
         const g = islandFor(mp, { ...DEFAULT_ISLAND, position, controller, usbOut: 'edge' }, 'left', 'hotswap', 8.58)!;
         const usb = g.ghosts.find((p) => p.kind === 'usb')!.box;
-        if (position === 'top') expect(usb.y1).toBeCloseTo(g.rect.y1, 6);
+        if (controller === 'esp32s3') {
+          // za długi, żeby stać w poprzek wyspy z modułem: USB wychodzi z końca wyspy
+          expect(Math.min(Math.abs(usb.x0 - g.rect.x0), Math.abs(usb.x1 - g.rect.x1))).toBeLessThan(1e-6);
+        } else if (position === 'top') expect(usb.y1).toBeCloseTo(g.rect.y1, 6);
         else expect(usb.y0).toBeCloseTo(g.rect.y0, 6);
-        const pocket = g.cuts[0];
+        // w wyspie obróconej (ESP32-S3) kolejność: gniazdo modułu, miejsce na luty, kieszeń
+        const pocket = g.cuts[controller === 'esp32s3' ? 2 : 0];
         // kieszeń kontrolera nie rusza otworów pod śruby
         for (const h of g.cuts.filter((c) => c.round))
           expect(h.x1 <= pocket.x0 || h.x0 >= pocket.x1 || h.y1 <= pocket.y0 || h.y0 >= pocket.y1).toBe(true);
         // od strony klawiszy zostaje ścianka
-        if (position === 'top') expect(pocket.y0).toBeGreaterThan(g.rect.y0);
+        if (controller === 'esp32s3') { /* wyspa obrócona, ścianka sprawdzona wyżej */ }
+        else if (position === 'top') expect(pocket.y0).toBeGreaterThan(g.rect.y0);
         else expect(pocket.y1).toBeLessThan(g.rect.y1);
         const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
         const plate = buildPlate(splitLeft(mp), cell, undefined, g);
@@ -261,4 +266,23 @@ describe('macropad: wyrównanie wyspy i dodatkowe klawisze', () => {
     expect(isValidShape(plate)).toBe(true);
     expect(plate.solids.length).toBe(1);
   }, 180000);
+});
+
+describe('ESP32-S3 z dwoma gniazdami USB', () => {
+  for (const moduleSide of ['left', 'none'] as const)
+    test(`moduł: ${moduleSide}`, async () => {
+      const ip = { ...DEFAULT_ISLAND, controller: 'esp32s3' as const, moduleSide };
+      const g = islandFor(SPLIT_4x6_4, ip, 'left', 'hotswap', 8.58)!;
+      const usb = g.ghosts.filter((p) => p.kind === 'usb');
+      expect(usb.length).toBe(2);
+      for (const u of usb) expect(u.box.y1).toBeCloseTo(g.rect.y1, 6);
+      const pocket = g.cuts[moduleSide === 'left' ? 2 : 0];
+      expect(pocket.y0).toBeGreaterThan(g.rect.y0);
+      for (const h of g.cuts.filter((c) => c.round))
+        expect(h.x1 <= pocket.x0 || h.x0 >= pocket.x1 || h.y1 <= pocket.y0 || h.y0 >= pocket.y1).toBe(true);
+      const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
+      const plate = buildPlate(splitLeft(SPLIT_4x6_4), cell, undefined, g);
+      expect(isValidShape(plate)).toBe(true);
+      expect(plate.solids.length).toBe(1);
+    }, 180000);
 });

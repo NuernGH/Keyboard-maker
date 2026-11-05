@@ -9,7 +9,7 @@
 import { PITCH, splitLeft, keyCorners, polysOverlap, type SplitParams } from './layout';
 import type { CellVariant } from './cell-spec';
 
-export type ControllerId = 'nicenano' | 'promicro-c' | 'promicro-micro' | 'kb2040' | 's2mini';
+export type ControllerId = 'nicenano' | 'promicro-c' | 'promicro-micro' | 'kb2040' | 's2mini' | 'esp32s3';
 export type ModuleSide = 'left' | 'right' | 'both' | 'none';
 /**
  * Gdzie stoi wyspa: `inner` przy wewnętrznej kolumnie (split, prawa strona macropada),
@@ -29,6 +29,8 @@ export interface Controller {
   /** otwór na wtyk w ściance */
   usbW: number;
   usbH: number;
+  /** środki gniazd USB względem środka płytki (mm); domyślnie jedno gniazdo na środku */
+  ports?: number[];
 }
 
 /** Uproszczone wymiary kontrolerów (zmierzone z modeli, zaokrąglone w górę). */
@@ -38,6 +40,9 @@ export const CONTROLLERS: Record<ControllerId, Controller> = {
   'promicro-micro': { name: 'Pro Micro micro-USB', w: 17.8, h: 29.2, height: 4.3, usbOverhang: 5.4, usbW: 9, usbH: 4.6 },
   kb2040: { name: 'Adafruit KB2040', w: 17.8, h: 33.0, height: 4.8, usbOverhang: 1.2, usbW: 10, usbH: 5.4 },
   s2mini: { name: 'Wemos S2 mini', w: 25.4, h: 34.3, height: 4.1, usbOverhang: 0, usbW: 10, usbH: 5.0 },
+  // ESP32-S3-DevKitC-1: płytka 25,4 × 62,74 mm (z modelu producenta), dwa gniazda USB na krótkim boku
+  // (USB natywne i USB-UART). Rozstaw gniazd to szacunek do sprawdzenia na płytce.
+  esp32s3: { name: 'ESP32-S3-DevKitC-1 (2 × USB)', w: 25.4, h: 62.74, height: 5.0, usbOverhang: 1.0, usbW: 10, usbH: 5.4, ports: [-6.35, 6.35] },
 };
 
 export interface IslandParams {
@@ -135,6 +140,15 @@ const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: num
   z1: Math.max(z0, z1),
 });
 
+/** Otwory w ściance na każde gniazdo USB kontrolera (płytka na środku `cx`, ścianka na `edge`). */
+const usbSlots = (c: Controller, cx: number, nTop: number, edge: number, D: number): Box[] =>
+  (c.ports ?? [0]).map((dx) => box(cx + dx - c.usbW / 2, nTop - 2, -D - 1, cx + dx + c.usbW / 2, edge + 1, -D + c.usbH));
+const usbGhosts = (c: Controller, cx: number, nTop: number, edge: number, D: number): GhostPart[] =>
+  (c.ports ?? [0]).map((dx) => ({
+    kind: 'usb' as const,
+    box: box(cx + dx - 4.5, nTop - 6.5, -D + 1.6, cx + dx + 4.5, edge, -D + Math.min(c.height, c.usbH - 0.4)),
+  }));
+
 const mirrorBox = (b: Box): Box => ({ ...b, x0: -b.x1, x1: -b.x0 });
 
 /**
@@ -154,7 +168,9 @@ export function islandFor(
   const { w: W, h: H } = islandSize(ip, side);
   const D = Math.max(ip.depth, cellHeight, ctrl.height + 1.5);
   const pos = ip.position ?? 'inner';
-  if ((pos === 'top' || pos === 'bottom') && (ip.usbOut ?? 'edge') === 'edge') {
+  // długi kontroler (np. ESP32-S3) nie mieści się w poprzek poziomej wyspy z modułem: USB wtedy z końca
+  const edgeFits = !mod || ctrl.h + ctrl.usbOverhang + CTRL_CLEARANCE + 1 <= ISLAND_W;
+  if ((pos === 'top' || pos === 'bottom') && (ip.usbOut ?? 'edge') === 'edge' && edgeFits) {
     const g = edgeIsland(p, ip, ctrl, mod, D, variant, cellHeight, pos);
     if (side === 'left') return g;
     return {
@@ -195,12 +211,12 @@ export function islandFor(
   const ctrlCuts: Box[] = [
     // kieszeń kontrolera od spodu
     box(cx - cw / 2, nBot - CTRL_CLEARANCE, -D - 1, cx + cw / 2, nTop + CTRL_CLEARANCE, pocketTop),
-    // otwór na gniazdo USB w górnej ściance wyspy
-    box(cx - ctrl.usbW / 2, nTop - 2, -D - 1, cx + ctrl.usbW / 2, y1 + 1, -D + ctrl.usbH),
+    // otwory na gniazda USB w górnej ściance wyspy
+    ...usbSlots(ctrl, cx, nTop, y1, D),
   ];
   const ctrlGhosts: GhostPart[] = [
     { kind: 'nano', box: box(cx - ctrl.w / 2, nBot, -D, cx + ctrl.w / 2, nTop, -D + 1.6) },
-    { kind: 'usb', box: box(cx - 4.5, nTop - 6.5, -D + 1.6, cx + 4.5, y1, -D + Math.min(ctrl.height, ctrl.usbH - 0.4)) },
+    ...usbGhosts(ctrl, cx, nTop, y1, D),
   ];
 
   const cuts: Box[] = [];
@@ -351,11 +367,11 @@ function edgeIsland(
   const pocketTop = -D + ctrl.height + 0.6;
   const cuts: Box[] = [
     box(ccx - cw / 2, nBot - CTRL_CLEARANCE, -D - 1, ccx + cw / 2, nTop + CTRL_CLEARANCE, pocketTop),
-    box(ccx - ctrl.usbW / 2, nTop - 2, -D - 1, ccx + ctrl.usbW / 2, T + 1, -D + ctrl.usbH),
+    ...usbSlots(ctrl, ccx, nTop, T, D),
   ];
   const ghosts: GhostPart[] = [
     { kind: 'nano', box: box(ccx - ctrl.w / 2, nBot, -D, ccx + ctrl.w / 2, nTop, -D + 1.6) },
-    { kind: 'usb', box: box(ccx - 4.5, nTop - 6.5, -D + 1.6, ccx + 4.5, T, -D + Math.min(ctrl.height, ctrl.usbH - 0.4)) },
+    ...usbGhosts(ctrl, ccx, nTop, T, D),
   ];
   if (mod) {
     cuts.push(
