@@ -5,7 +5,7 @@ import { loadCell, buildPlate, buildCase, buildLedge, footprint, screwPilots, is
 import { SPLIT_4x6_4, TEMPLATES, PITCH, splitLeft, mirrorKeys } from '../src/lib/layout';
 import { islandFor, DEFAULT_ISLAND } from '../src/lib/island';
 import { makeBox, type Shape3D } from 'replicad';
-import { caseLayout, DEFAULT_CASE, SCREW_MARGIN, SCREW_SPECS, LEDGE, type ScrewSize } from '../src/lib/case';
+import { caseLayout, chamferSize, DEFAULT_CASE, SCREW_MARGIN, SCREW_SPECS, LEDGE, type ScrewSize } from '../src/lib/case';
 
 beforeAll(initOC, 60000);
 const opts = { fillGaps: 4, margin: SCREW_MARGIN };
@@ -117,4 +117,44 @@ describe('gzyms pod płytą', () => {
       expect(measureVolume(ledge.clone().intersect(box) as never)).toBeGreaterThan(5);
     }
   }, 240000);
+
+  describe('faza górnej krawędzi', () => {
+    const boards = [
+      { name: 'split 4x6+4', p: SPLIT_4x6_4, ip: DEFAULT_ISLAND, o: opts },
+      { name: '60% ANSI', p: TEMPLATES.find((t) => t.id === 'ansi-60')!.params, ip: { ...DEFAULT_ISLAND, position: 'top' as const, align: 'end' as const }, o: { ...opts, stabs: 'cherry' as const } },
+    ];
+    for (const b of boards)
+      test(b.name, async () => {
+        const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
+        const keys = splitLeft(b.p);
+        const island = islandFor(b.p, b.ip, 'left', 'hotswap', cell.height, SCREW_MARGIN);
+        const lay = caseLayout(keys, island, cell.height, DEFAULT_CASE);
+        const c = chamferSize(DEFAULT_CASE);
+        expect(c).toBe(1);
+        const sharp = buildCase(keys, b.o, island, cell.height, { ...DEFAULT_CASE, chamfer: 0 }, lay);
+        const shell = buildCase(keys, b.o, island, cell.height, DEFAULT_CASE, lay);
+        expect(isValidShape(shell)).toBe(true);
+        expect(shell.solids.length).toBe(1);
+        const vol = (a: Shape3D, t: Shape3D) => measureVolume(a.clone().intersect(t) as never);
+        // ubywa tylko klina przy zewnętrznej krawędzi: obwód × c²/2
+        const fp = footprint(keys, b.o, island);
+        const outer = fp.offset(DEFAULT_CASE.gap + DEFAULT_CASE.wall);
+        const perim = measureVolume(outer.sketchOnPlane('XY', -1).extrude(1).cut(outer.offset(-0.1).sketchOnPlane('XY', -2).extrude(3) as Shape3D) as Shape3D) / 0.1;
+        expect(measureVolume(sharp) - measureVolume(shell)).toBeCloseTo((perim * c * c) / 2, -1);
+        // przy samej zewnętrznej krawędzi u góry nie ma materiału, przy płycie zostaje płaska góra
+        const edge = outer.sketchOnPlane('XY', -0.3).extrude(0.3).cut(outer.offset(-0.6).sketchOnPlane('XY', -1).extrude(2) as Shape3D) as Shape3D;
+        expect(vol(shell, edge)).toBeLessThan(0.01);
+        const land = fp.offset(DEFAULT_CASE.gap + 0.8).sketchOnPlane('XY', -0.3).extrude(0.3).cut(fp.offset(DEFAULT_CASE.gap).sketchOnPlane('XY', -1).extrude(2) as Shape3D) as Shape3D;
+        expect(vol(shell, land)).toBeCloseTo(vol(sharp, land), 1);
+        // droga wtyku USB i płyta bez zmian
+        for (const u of lay.usbCuts) expect(vol(shell, makeBox([u.x0, u.y0, u.z0], [u.x1, u.y1, u.z1]) as Shape3D)).toBeLessThan(0.01);
+        const plate = buildPlate(keys, cell, b.o, island);
+        expect(vol(shell, plate)).toBeLessThan(0.01);
+      }, 240000);
+    test('cienka ścianka: zostaje płaska góra', () => {
+      expect(chamferSize({ ...DEFAULT_CASE, wall: 1.6, chamfer: 2 })).toBeCloseTo(0.8, 6);
+      expect(chamferSize({ ...DEFAULT_CASE, chamfer: 0 })).toBe(0);
+      expect(chamferSize({ ...DEFAULT_CASE, chamfer: undefined })).toBe(0);
+    });
+  });
 });
