@@ -22,7 +22,7 @@ import {
   measureVolume,
   type Shape3D,
 } from 'replicad';
-import { PITCH, type Key } from './layout';
+import { PITCH, switchOffsets, switchSpots, type Key } from './layout';
 import type { IslandGeom } from './island';
 import { CASE_SCREW, type CaseLayout, type CaseParams } from './case';
 import { leftRegion, type PrintSplit } from './split';
@@ -33,6 +33,7 @@ import {
   NO_HOTSWAP_HEIGHT,
   PCB_LEVEL,
   PLATE_LIP,
+  STEM_CLEAR,
   stabOffset,
   THIN_PLATE_THICKNESS,
   type CellVariant,
@@ -141,6 +142,9 @@ export function footprint(keys: Key[], opts: PlateOptions, island: IslandGeom | 
   for (const k of keys) {
     const r = drawRectangle(k.w * PITCH, k.h * PITCH).rotate(k.rot).translate(k.x, k.y);
     d = d ? d.fuse(r) : r;
+    // przełączniki w miejscu stabilizatora mogą wystawać poza klawisz (Backspace 2U): obrys je obejmuje
+    for (const [x, y] of switchSpots(k, opts.stabs))
+      if (Math.hypot(x - k.x, y - k.y) > 1e-6) d = d.fuse(drawRectangle(PITCH, PITCH).rotate(k.rot).translate(x, y));
   }
   if (d && island) {
     const r = island.rect;
@@ -192,9 +196,18 @@ export function buildPlate(
     const r = island.rect;
     body = body.fuse(makeBox([r.x0, r.y0, -island.depth], [r.x1, r.y1, 0])) as Shape3D;
   }
-  const negatives = keys.map((k) =>
-    cell.negative.clone().rotate(k.rot, [0, 0, 0], [0, 0, 1]).translate(k.x, k.y, 0),
-  );
+  const stabs = opts.stabs ?? 'cherry';
+  const negatives: Shape3D[] = [];
+  for (const k of keys) {
+    for (const [x, y] of switchSpots(k, stabs))
+      negatives.push(cell.negative.clone().rotate(k.rot, [0, 0, 0], [0, 0, 1]).translate(x, y, 0));
+    // środkowy trzpień nakładki bez przełącznika pod spodem: otwór, w którym się porusza
+    if (!switchOffsets(k, stabs).includes(0)) {
+      const c = STEM_CLEAR.size / 2;
+      const d = Math.min(STEM_CLEAR.depth, cell.height + 1);
+      negatives.push(makeBox([-c, -c, -d], [c, c, 1]).rotate(k.rot, [0, 0, 0], [0, 0, 1]).translate(k.x, k.y, 0) as Shape3D);
+    }
+  }
   if (island)
     for (const b of island.cuts)
       negatives.push(
@@ -202,7 +215,7 @@ export function buildPlate(
           ? (makeCylinder((b.x1 - b.x0) / 2, b.z1 - b.z0, [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, b.z0], [0, 0, 1]) as Shape3D)
           : makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]),
       );
-  if ((opts.stabs ?? 'cherry') !== 'none') for (const k of keys) negatives.push(...stabCuts(k, cell.height));
+  if (stabs === 'cherry') for (const k of keys) negatives.push(...stabCuts(k, cell.height));
   negatives.push(...pilots);
   return cutMany(body, negatives);
 }

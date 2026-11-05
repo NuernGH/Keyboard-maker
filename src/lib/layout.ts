@@ -2,6 +2,8 @@
 // Model układu: lista klawiszy z pozycją środka (mm), obrotem (stopnie) i rozmiarem (U).
 // Oś Y w górę (widok z góry), Z w górę z płyty. Wszystkie wymiary w mm.
 
+import { MX_BODY, stabOffset } from './cell-spec';
+
 export const PITCH = 19.05;
 
 export interface Key {
@@ -317,4 +319,25 @@ export function polysOverlap(pa: [number, number][], pb: [number, number][], tol
     }
   }
   return true;
+}
+
+/**
+ * Gdzie pod klawiszem stoją przełączniki (przesunięcia wzdłuż szerokości klawisza, mm).
+ * Przy opcji „dwa MX zamiast stabilizatora” przełączniki stoją w miejscu trzpieni
+ * stabilizatora; środkowy tylko wtedy, gdy obudowy się nie zderzą.
+ */
+export function switchOffsets(k: Key, stabs: 'cherry' | 'mx' | 'none' | undefined): number[] {
+  if (stabs !== 'mx') return [0];
+  const s = stabOffset(Math.max(k.w, k.h));
+  if (s === null) return [0];
+  return s >= MX_BODY + 0.5 ? [-s, 0, s] : [-s, s];
+}
+
+/** Środki przełączników klawisza w XY (z obrotem i kierunkiem pionowym). */
+export function switchSpots(k: Key, stabs: 'cherry' | 'mx' | 'none' | undefined): [number, number][] {
+  const vertical = k.h > k.w;
+  return switchOffsets(k, stabs).map((d) => {
+    const [dx, dy] = rotPt(vertical ? 0 : d, vertical ? d : 0, k.rot);
+    return [k.x + dx, k.y + dy];
+  });
 }

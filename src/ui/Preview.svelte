@@ -3,7 +3,7 @@
   import { onMount } from 'svelte';
   import * as THREE from 'three';
   import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-  import { PITCH, type Key } from '../lib/layout';
+  import { PITCH, switchOffsets, type Key } from '../lib/layout';
   import type { IslandGeom, GhostPart } from '../lib/island';
 
   export interface PreviewMesh {
@@ -24,8 +24,12 @@
     explode?: number;
   }
 
-  let { halves, cellHeight, holeSize = 14 }: { halves: PreviewHalf[]; cellHeight: number; holeSize?: number } =
-    $props();
+  let {
+    halves,
+    cellHeight,
+    holeSize = 14,
+    stabs = 'cherry',
+  }: { halves: PreviewHalf[]; cellHeight: number; holeSize?: number; stabs?: 'cherry' | 'mx' | 'none' } = $props();
 
   let host: HTMLDivElement;
   let renderer: THREE.WebGLRenderer;
@@ -72,7 +76,7 @@
     return m;
   }
 
-  function cellGeometry(w: number, h: number, height: number): THREE.BufferGeometry {
+  function cellGeometry(w: number, h: number, height: number, offsets: number[] = [0]): THREE.BufferGeometry {
     const W = w * PITCH;
     const H = h * PITCH;
     const s = new THREE.Shape();
@@ -81,14 +85,17 @@
     s.lineTo(W / 2, H / 2);
     s.lineTo(-W / 2, H / 2);
     s.closePath();
-    const hole = new THREE.Path();
     const q = holeSize / 2;
-    hole.moveTo(-q, -q);
-    hole.lineTo(-q, q);
-    hole.lineTo(q, q);
-    hole.lineTo(q, -q);
-    hole.closePath();
-    s.holes.push(hole);
+    for (const d of offsets) {
+      const [ox, oy] = h > w ? [0, d] : [d, 0];
+      const hole = new THREE.Path();
+      hole.moveTo(ox - q, oy - q);
+      hole.lineTo(ox - q, oy + q);
+      hole.lineTo(ox + q, oy + q);
+      hole.lineTo(ox + q, oy - q);
+      hole.closePath();
+      s.holes.push(hole);
+    }
     const g = new THREE.ExtrudeGeometry(s, { depth: height, bevelEnabled: false });
     g.translate(0, 0, -height);
     return g;
@@ -133,10 +140,11 @@
         hg.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 30), plateEdgeMat));
       } else {
         for (const k of half.keys) {
-          const id = `${k.w}x${k.h}`;
+          const offs = switchOffsets(k, stabs);
+          const id = `${k.w}x${k.h}:${offs.join(',')}`;
           let g = geoCache.get(id);
           if (!g) {
-            g = cellGeometry(k.w, k.h, cellHeight);
+            g = cellGeometry(k.w, k.h, cellHeight, offs);
             geoCache.set(id, g);
           }
           const m = new THREE.Mesh(g, quickMat);
@@ -177,6 +185,7 @@
     // zależności: halves, cellHeight
     void halves;
     void cellHeight;
+    void stabs;
     rebuild();
   });
 

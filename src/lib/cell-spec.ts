@@ -15,14 +15,22 @@ export interface PlateOptions {
   fillGaps: number;
   /** margines płyty poza obrysem klawiszy (mm) */
   margin: number;
-  /** wycięcia na stabilizatory przy klawiszach od 2U (Cherry/Costar montowane w płycie) */
-  stabs?: 'cherry' | 'none';
+  /**
+   * Klawisze od 2U: `cherry` = wycięcia na stabilizatory Cherry/Costar montowane w płycie,
+   * `mx` = zamiast stabilizatora przełączniki MX w miejscu jego trzpieni (2–2,75U: dwa, bez
+   * środkowego; dłuższe: trzy), `none` = sam przełącznik na środku.
+   */
+  stabs?: 'cherry' | 'mx' | 'none';
 }
 
 export const DEFAULT_PLATE_OPTIONS: PlateOptions = { fillGaps: 4, margin: 0, stabs: 'cherry' };
 
 /** Grubość górnej warstwy komórki (płyta, w którą wpina się przełącznik i stabilizator). */
 export const PLATE_LIP = 1.27;
+/** Obudowa MX ma 15,6 mm: gdy trzpień stabilizatora jest bliżej środka, środkowy przełącznik się nie zmieści. */
+export const MX_BODY = 15.6;
+/** Otwór na środkowy trzpień nakładki, gdy pod nim nie ma przełącznika (mm, kwadrat, głębokość). */
+export const STEM_CLEAR = { size: 8.5, depth: 4.5 };
 /** Poziom, na którym w zwykłej klawiaturze leży PCB (mm pod wierzchem płyty): pod nim nie ma drutu stabilizatora. */
 export const PCB_LEVEL = 5.08;
 

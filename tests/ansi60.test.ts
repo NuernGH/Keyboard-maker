@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, test } from 'vitest';
 import { measureVolume } from 'replicad';
 import { initOC, cellStep } from './oc';
 import { loadCell, buildPlate, buildCase, screwPilots, isValidShape, stabCuts, platePiece, casePiece } from '../src/lib/geometry';
-import { TEMPLATES, splitLeft, ANSI_60, parseRowLayout, rowLayoutToText, keysOverlap, PITCH } from '../src/lib/layout';
+import { TEMPLATES, splitLeft, switchOffsets, switchSpots, ANSI_60, parseRowLayout, rowLayoutToText, keysOverlap, PITCH } from '../src/lib/layout';
 import { islandFor, DEFAULT_ISLAND, type IslandParams } from '../src/lib/island';
 import { caseLayout, DEFAULT_CASE, SCREW_MARGIN } from '../src/lib/case';
 import { planSplit, plateBounds, pieceOf, seamScrewTargets, DEFAULT_PRINT } from '../src/lib/split';
@@ -37,6 +37,25 @@ describe('układ 60% ANSI', () => {
     // wyspa w prawym górnym rogu, nad klawiszami
     expect(island!.rect.x1).toBeCloseTo(14.5 * PITCH, 3);
     expect(island!.rect.y0).toBeCloseTo(PITCH / 2, 3);
+  });
+});
+
+describe('dwa MX zamiast stabilizatora', () => {
+  test('2–2,75U: dwa przełączniki pod trzpieniami stabilizatora, spacja: trzy', () => {
+    const keys = splitLeft(tpl);
+    const by = (w: number) => keys.find((k) => k.w === w)!;
+    expect(switchOffsets(by(2), 'mx')).toEqual([-11.9, 11.9]);
+    expect(switchOffsets(by(2.75), 'mx')).toEqual([-11.9, 11.9]);
+    expect(switchOffsets(by(6.25), 'mx')).toEqual([-50, 0, 50]);
+    expect(switchOffsets(by(1.75), 'mx')).toEqual([0]);
+    expect(switchOffsets(by(2), 'cherry')).toEqual([0]);
+    // klawisz pionowy: przełączniki wzdłuż osi Y
+    expect(switchSpots({ id: 'v', x: 0, y: 0, rot: 0, w: 1, h: 2 }, 'mx')).toEqual([[0, -11.9], [0, 11.9]]);
+    // obudowy MX (15,6 mm) nie zderzają się w żadnym klawiszu
+    const spots = keys.flatMap((k) => switchSpots(k, 'mx'));
+    for (let i = 0; i < spots.length; i++)
+      for (let j = i + 1; j < spots.length; j++)
+        if (Math.abs(spots[i][1] - spots[j][1]) < 1) expect(Math.abs(spots[i][0] - spots[j][0])).toBeGreaterThanOrEqual(15.6);
   });
 });
 
@@ -87,6 +106,18 @@ describe('bryły 60%', () => {
       expect(withStab.solids.length).toBe(1);
       expect(measureVolume(without) - measureVolume(withStab)).toBeGreaterThan(50);
       expect(stabCuts({ ...k[0], w: 1.75 }, cell.height)).toEqual([]);
+    }, 120000);
+
+  for (const variant of ['hotswap', 'no-hotswap'] as const)
+    test(`dwa MX zamiast stabilizatora, cały rząd z Backspace 2U, ${variant}`, async () => {
+      const cell = await loadCell({ step: cellStep(), up: 'auto' }, variant);
+      const keys = splitLeft({ ...tpl, rowLayout: [ANSI_60[0], ANSI_60[4]] });
+      const o = { fillGaps: 4, margin: 2 };
+      const plate = buildPlate(keys, cell, { ...o, stabs: 'mx' });
+      expect(isValidShape(plate)).toBe(true);
+      expect(plate.solids.length).toBe(1);
+      // więcej materiału ubywa niż przy samym przełączniku na środku
+      expect(measureVolume(buildPlate(keys, cell, { ...o, stabs: 'none' }))).toBeGreaterThan(measureVolume(plate));
     }, 120000);
 
   test('cała płyta i spód hot-swap, podział na części', async () => {

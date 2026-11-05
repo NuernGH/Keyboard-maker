@@ -440,7 +440,13 @@
         <label data-tip={t(lang, 'tipFillGaps')}>{t(lang, 'fillGaps')} <input type="number" min="0" step="0.5" bind:value={plate.fillGaps} /></label>
         <label data-tip={t(lang, 'tipMargin')}>{t(lang, 'margin')} <input type="number" min="0" step="0.5" bind:value={plate.margin} /></label>
       </div>
-      <label class="check" data-tip={t(lang, 'tipStabs')}><input type="checkbox" checked={plate.stabs !== 'none'} onchange={(e) => (plate.stabs = e.currentTarget.checked ? 'cherry' : 'none')} /> {t(lang, 'stabs')}</label>
+      <label data-tip={t(lang, 'tipStabs')}>{t(lang, 'stabs')}
+        <select bind:value={plate.stabs}>
+          <option value="cherry">{t(lang, 'stabCherry')}</option>
+          <option value="mx">{t(lang, 'stabMx')}</option>
+          <option value="none">{t(lang, 'stabNone')}</option>
+        </select>
+      </label>
       {#if !single}
       <label data-tip={t(lang, 'tipHalves')}>
         {t(lang, 'halves')}
@@ -583,7 +589,7 @@
   </aside>
 
   <main>
-    <Preview bind:this={preview} {halves} {cellHeight} />
+    <Preview bind:this={preview} {halves} {cellHeight} stabs={plate.stabs ?? 'cherry'} />
     <div class="hud">
       <span class="badge" class:exact={allExact} data-tip={t(lang, 'tipBadge')}>
         {#if anyBusy}{t(lang, 'computing')}{:else if allExact}{t(lang, 'exact')}{#if lastMs}&nbsp;· {lastMs} ms{/if}{:else}{t(lang, 'quick')}{/if}
