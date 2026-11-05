@@ -23,8 +23,8 @@ import {
   type Shape3D,
 } from 'replicad';
 import { PITCH, switchSpots, type Key } from './layout';
-import type { IslandGeom } from './island';
-import { CASE_SCREW, type CaseLayout, type CaseParams } from './case';
+import { wedgeZ, type Box, type IslandGeom } from './island';
+import { CASE_SCREW, SUPPORT, type CaseLayout, type CaseParams } from './case';
 import { leftRegion, type PrintSplit } from './split';
 
 import {
@@ -201,16 +201,31 @@ export function buildPlate(
     for (const [x, y] of switchSpots(k, stabs))
       negatives.push(cell.negative.clone().rotate(k.rot, [0, 0, 0], [0, 0, 1]).translate(x, y, 0));
   }
-  if (island)
-    for (const b of island.cuts)
-      negatives.push(
-        b.round
-          ? (makeCylinder((b.x1 - b.x0) / 2, b.z1 - b.z0, [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, b.z0], [0, 0, 1]) as Shape3D)
-          : makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]),
-      );
+  if (island?.wedge) body = body.fuse(wedgeSolid(island.wedge)) as Shape3D;
+  if (island) for (const b of island.cuts) negatives.push(boxSolid(b));
   if (stabs === 'cherry') for (const k of keys) negatives.push(...stabCuts(k, cell.height));
   negatives.push(...pilots);
   return cutMany(body, negatives);
+}
+
+/** Pudełko (albo walec) z wyspy jako bryła, z obrotem klina, jeśli jest. */
+export function boxSolid(b: Box): Shape3D {
+  let sh = b.round
+    ? (makeCylinder((b.x1 - b.x0) / 2, b.z1 - b.z0, [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, b.z0], [0, 0, 1]) as Shape3D)
+    : makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]);
+  if (b.tilt) sh = sh.rotate(b.tilt.deg, [0, b.tilt.y, 0], [1, 0, 0]) as Shape3D;
+  return sh;
+}
+
+/** Klin nad wyspą: pryzmat o przekroju trójkąta (krawędź przy klawiszach na wysokości płyty). */
+export function wedgeSolid(w: NonNullable<IslandGeom['wedge']>): Shape3D {
+  const zA = wedgeZ(w, w.y0);
+  const zB = wedgeZ(w, w.y1);
+  // w układzie płaszczyzny YZ: pierwsza współrzędna to y, druga z
+  const pts: [number, number][] = zA > zB ? [[w.y0, 0], [w.y1, 0], [w.y0, zA]] : [[w.y0, 0], [w.y1, 0], [w.y1, zB]];
+  let pen = draw(pts[0]);
+  for (const p of pts.slice(1)) pen = pen.lineTo(p);
+  return pen.close().sketchOnPlane('YZ', w.x0).extrude(w.x1 - w.x0) as Shape3D;
 }
 
 /**
@@ -318,6 +333,11 @@ export function buildCase(
   for (const [x, y] of layout.screws)
     if (standH > 0.01) body = body.fuse(makeCylinder(CASE_SCREW.boss / 2, standH + 0.01, [x, y, floorTop - 0.01], [0, 0, 1]) as Shape3D) as Shape3D;
   for (const b of layout.pads ?? []) body = body.fuse(makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1])) as Shape3D;
+  // podpory pod płytą: od dna do 0,1 mm pod spód płyty
+  const supH = -cellHeight - SUPPORT.gap - floorTop;
+  if (supH > 0.3)
+    for (const [x, y] of layout.supports ?? [])
+      body = body.fuse(makeCylinder(SUPPORT.d / 2, supH + 0.01, [x, y, floorTop - 0.01], [0, 0, 1]) as Shape3D) as Shape3D;
   const tools: Shape3D[] = [];
   for (const [x, y] of layout.screws) {
     tools.push(makeCylinder(CASE_SCREW.clearance / 2, -bottom + 1, [x, y, bottom - 0.5], [0, 0, 1]) as Shape3D);

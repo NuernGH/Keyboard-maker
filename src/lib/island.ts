@@ -63,6 +63,12 @@ export interface IslandParams {
   usbOut?: 'edge' | 'end';
   /** wyrównanie wzdłuż krawędzi siatki (macropad): do początku (lewo/góra), środka albo końca */
   align?: 'start' | 'center' | 'end';
+  /**
+   * Pochylenie modułu OLED z enkoderem (stopnie, 0 = płasko). Wyspa nad lub pod klawiszami
+   * staje się klinem: krawędź przy klawiszach zostaje na wysokości płyty, tył się podnosi,
+   * a ekran i pokrętło patrzą na piszącego.
+   */
+  tilt?: number;
 }
 
 export const DEFAULT_ISLAND: IslandParams = {
@@ -108,6 +114,8 @@ export function islandSize(ip: IslandParams, side: 'left' | 'right'): { w: numbe
 export interface Box {
   /** true: walec wpisany w obrys pudełka (oś Z), np. otwór pod śrubę */
   round?: boolean;
+  /** obrót bryły wokół osi X przechodzącej przez (y, z = 0), w stopniach (klin modułu) */
+  tilt?: { deg: number; y: number };
   x0: number;
   y0: number;
   z0: number;
@@ -129,6 +137,21 @@ export interface IslandGeom {
   cuts: Box[];
   /** uproszczone bryły elektroniki do podglądu (nie trafiają do eksportu) */
   ghosts: GhostPart[];
+  /**
+   * Klin nad wyspą: wierzch to płaszczyzna przez linię y = hingeY, z = 0, pochylona o `deg`
+   * wokół osi X (dodatni kąt podnosi stronę y > hingeY).
+   */
+  wedge?: { x0: number; x1: number; y0: number; y1: number; deg: number; hingeY: number };
+}
+
+/** Wysokość wierzchu klina nad płytą w punkcie y. */
+export const wedgeZ = (w: NonNullable<IslandGeom['wedge']>, y: number) => (y - w.hingeY) * Math.tan((w.deg * Math.PI) / 180);
+
+/** Obrót punktu (y, z) wokół osi X przez (hingeY, 0). */
+export function tiltPoint(y: number, z: number, deg: number, hingeY = 0): [number, number] {
+  const a = (deg * Math.PI) / 180;
+  const dy = y - hingeY;
+  return [hingeY + dy * Math.cos(a) - z * Math.sin(a), dy * Math.sin(a) + z * Math.cos(a)];
 }
 
 const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): Box => ({
@@ -178,6 +201,7 @@ export function islandFor(
       depth: D,
       cuts: g.cuts.map(mirrorBox),
       ghosts: g.ghosts.map((gp) => ({ ...gp, box: mirrorBox(gp.box) })),
+      wedge: g.wedge ? { ...g.wedge, x0: -g.wedge.x1, x1: -g.wedge.x0 } : undefined,
     };
   }
   const inner = p.cols - 1;
@@ -373,7 +397,12 @@ function edgeIsland(
     { kind: 'nano', box: box(ccx - ctrl.w / 2, nBot, -D, ccx + ctrl.w / 2, nTop, -D + 1.6) },
     ...usbGhosts(ctrl, ccx, nTop, T, D),
   ];
+  const tilt = mod ? Math.max(0, Math.min(60, ip.tilt ?? 0)) : 0;
+  // elementy modułu w układzie pochylonym (przy tilt = 0 bez zmian)
+  const T0 = { deg: tilt, y: 0 };
+  const tl = <B extends Box>(b: B): B => (tilt ? { ...b, tilt: T0 } : b);
   if (mod) {
+    const firstModCut = cuts.length;
     cuts.push(
       box(mL, my - mw / 2, -MODULE.pcb, -mL, my + mw / 2, 1),
       box(mL + MODULE_HOLES.boss, my - mw / 2 + 2.5, -MODULE.pcb - MODULE.underClearance, -mL - MODULE_HOLES.boss, my + mw / 2 - 2.5, 0),
@@ -385,32 +414,46 @@ function edgeIsland(
         const r = MODULE_HOLES.pilot / 2;
         cuts.push({ ...box(hx - r, hy - r, -MODULE.pcb - MODULE_HOLES.depth, hx + r, hy + r, 0), round: true });
       }
+    for (let i = firstModCut; i < cuts.length; i++) cuts[i] = tl(cuts[i]);
     for (const sy of [-1, 1]) {
       const py = my + sy * 15.5;
-      cuts.push(box(slotX0, py - 1.6, -D - 1, slotX1, py + 1.6, 1));
+      if (!tilt) cuts.push(box(slotX0, py - 1.6, -D - 1, slotX1, py + 1.6, 1));
+      else {
+        // przepust prostopadły do płytki na głębokość pinów, dalej pionowo w dół do wnętrza
+        const pinDepth = MODULE.pcb + 6;
+        cuts.push(tl(box(slotX0, py - 1.6, -pinDepth, slotX1, py + 1.6, 1)));
+        const [yb, zb] = tiltPoint(py, -pinDepth + 0.5, tilt);
+        cuts.push(box(slotX0, yb - 1.6, -D - 1, slotX1, yb + 1.6, zb));
+      }
     }
     const pL = mL + MODULE.clearance;
+    const firstModGhost = ghosts.length;
     ghosts.push(
       { kind: 'pcb', box: box(pL, my - MODULE.w / 2, -MODULE.pcb, pL + MODULE.h, my + MODULE.w / 2, 0) },
       { kind: 'display', box: box(mL + 26, my - 11.5, 0, mL + 61, my + 11.5, 3.1) },
       { kind: 'encoder', box: box(mL + 4.4, my - 6, 0, mL + 18.9, my + 6, 9.5) },
       { kind: 'knob', box: box(mL + 5.3, my - 6.3, 13.3, mL + 18, my + 6.3, 23.9) },
     );
+    for (let i = firstModGhost; i < ghosts.length; i++) ghosts[i] = { ...ghosts[i], box: tl(ghosts[i].box) };
   }
   if (variant === 'hotswap') cuts.push(box(-L / 2 - 1, -0.01, -cellHeight - 1, L / 2 + 1, 2.5, -cellHeight + 2.4));
 
   // przeniesienie na siatkę: nad nią (y w górę) albo pod nią (y w dół)
   const { kx0, kx1, ky0, ky1 } = gridBounds(p);
   const cx = alongCenter(kx0, kx1, L, ip.align) + ip.offsetX;
+  // oś obrotu klina: krawędź wyspy przy klawiszach; pod siatką y jest odbite, więc kąt zmienia znak
+  const hingeY = (pos === 'top' ? ky1 : ky0) + ip.offsetY;
+  const tiltOut = (b: Box): Box['tilt'] => (b.tilt ? { deg: pos === 'top' ? b.tilt.deg : -b.tilt.deg, y: hingeY } : undefined);
   const tb = <B extends Box>(b: B): B =>
     pos === 'top'
-      ? { ...b, x0: cx + b.x0, x1: cx + b.x1, y0: ky1 + b.y0 + ip.offsetY, y1: ky1 + b.y1 + ip.offsetY }
-      : { ...b, x0: cx + b.x0, x1: cx + b.x1, y0: ky0 - b.y1 + ip.offsetY, y1: ky0 - b.y0 + ip.offsetY };
+      ? { ...b, x0: cx + b.x0, x1: cx + b.x1, y0: ky1 + b.y0 + ip.offsetY, y1: ky1 + b.y1 + ip.offsetY, tilt: tiltOut(b) }
+      : { ...b, x0: cx + b.x0, x1: cx + b.x1, y0: ky0 - b.y1 + ip.offsetY, y1: ky0 - b.y0 + ip.offsetY, tilt: tiltOut(b) };
   const r = tb(box(-L / 2, 0, 0, L / 2, T, 0));
   return {
     rect: { x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1 },
     depth: D,
     cuts: cuts.map(tb),
     ghosts: ghosts.map((gp) => ({ ...gp, box: tb(gp.box) })),
+    wedge: tilt ? { x0: r.x0, x1: r.x1, y0: r.y0, y1: r.y1, deg: pos === 'top' ? tilt : -tilt, hingeY } : undefined,
   };
 }

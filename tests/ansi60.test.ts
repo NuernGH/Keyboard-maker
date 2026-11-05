@@ -120,12 +120,42 @@ describe('bryły 60%', () => {
       expect(measureVolume(buildPlate(keys, cell, { ...o, stabs: 'none' }))).toBeGreaterThan(measureVolume(plate));
     }, 120000);
 
+  test('klin 25° z modułem OLED i enkoderem', async () => {
+    const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
+    const keys = splitLeft(tpl);
+    const flat = islandFor(tpl, ip, 'left', 'hotswap', cell.height)!;
+    const wedge = islandFor(tpl, { ...ip, tilt: 25 }, 'left', 'hotswap', cell.height)!;
+    expect(wedge.wedge?.deg).toBe(25);
+    expect(wedge.rect).toEqual(flat.rect);
+    // tył klina ok. 38 · tg 25° ≈ 17,7 mm nad płytą
+    const plate = buildPlate(keys, cell, opts, wedge);
+    expect(isValidShape(plate)).toBe(true);
+    expect(plate.solids.length).toBe(1);
+    const bb = plate.boundingBox.bounds;
+    expect(bb[1][2]).toBeCloseTo(38 * Math.tan((25 * Math.PI) / 180), 1);
+    // pokrętło pochylone: jego środek jest dalej od klawiszy niż przy płaskiej wyspie i wyżej
+    const knob = (g: typeof flat) => g.ghosts.find((x) => x.kind === 'knob')!.box;
+    expect(knob(wedge).tilt?.deg).toBe(25);
+    // klin pod klawiaturą (wyspa u dołu) pochyla się w drugą stronę
+    const below = islandFor(tpl, { ...ip, position: 'bottom', tilt: 25 }, 'left', 'hotswap', cell.height)!;
+    expect(below.wedge?.deg).toBe(-25);
+    const pb = buildPlate(keys, cell, opts, below);
+    expect(isValidShape(pb)).toBe(true);
+    expect(pb.solids.length).toBe(1);
+  }, 240000);
+
   test('cała płyta i spód hot-swap, podział na części', async () => {
     const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
     const keys = splitLeft(tpl);
     const island = islandFor(tpl, ip, 'left', 'hotswap', cell.height);
     const sp = planSplit(keys, island, SCREW_MARGIN, caseExtra, DEFAULT_PRINT)!;
     const lay = caseLayout(keys, island, cell.height, { ...DEFAULT_CASE, screws: 6 }, sp);
+    // podpory w środku klawiatury, z dala od śrub i szwu spodu
+    expect(lay.supports.length).toBeGreaterThanOrEqual(4);
+    for (const [x, y] of lay.supports) {
+      expect(Math.abs(x - sp.caseX)).toBeGreaterThan(3);
+      expect(lay.screws.every(([a, b]) => Math.hypot(a - x, b - y) >= 15)).toBe(true);
+    }
     let t = performance.now();
     const plate = buildPlate(keys, cell, opts, island, screwPilots(lay.screws, cell.height, lay.pilotDepth));
     console.log('płyta', Math.round(performance.now() - t), 'ms');
@@ -158,5 +188,8 @@ describe('bryły 60%', () => {
     }
     expect(measureVolume(cparts[0]) + measureVolume(cparts[1])).toBeCloseTo(measureVolume(shell), 0);
     expect(measureVolume(plate.clone().intersect(shell.clone()) as never)).toBeLessThan(0.01);
+    // podpory dochodzą pod płytę: podniesiony o 0,2 mm spód zderza się z płytą tylko przez podpory
+    const lifted = measureVolume(plate.clone().intersect(shell.clone().translate(0, 0, 0.2)) as never);
+    expect(lifted).toBeGreaterThan(0);
   }, 600000);
 });

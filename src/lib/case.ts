@@ -4,6 +4,7 @@
 // Tu same liczby (pozycje śrub, wymiary); bryłę buduje geometry.ts.
 
 import { PITCH, type Key } from './layout';
+import { stabOffset } from './cell-spec';
 import type { Box, IslandGeom } from './island';
 import { DOVETAIL, distToSeam, seamScrewTargets, type PrintSplit } from './split';
 
@@ -21,9 +22,11 @@ export interface CaseParams {
   screws: number;
   /** odsunięcie spodu od płyty w podglądzie (mm), żeby było widać oba elementy */
   explode: number;
+  /** podpory od dna do spodu płyty w środku klawiatury, żeby płyta nie uginała się przy nacisku */
+  supports?: boolean;
 }
 
-export const DEFAULT_CASE: CaseParams = { enabled: true, wall: 2.4, gap: 0.3, floor: 3, space: 3, screws: 6, explode: 25 };
+export const DEFAULT_CASE: CaseParams = { enabled: true, wall: 2.4, gap: 0.3, floor: 3, space: 3, screws: 6, explode: 25, supports: true };
 
 /** Śruby M2,5: otwór przelotowy w spodzie, łeb w wybraniu od dołu, w płycie otwór pilotowy. */
 export const CASE_SCREW = { clearance: 2.9, head: 5.0, headDepth: 2.6, pilot: 2.2, boss: 6.5 };
@@ -50,6 +53,8 @@ export interface CaseLayout {
   usbCuts: Box[];
   /** podkładki na dnie, które po przykręceniu dociskają kontroler do kieszeni */
   pads: Box[];
+  /** podpory pod płytą (środki XY), od dna do 0,1 mm pod spód płyty */
+  supports: [number, number][];
 }
 
 /** Luz między podkładką a płytką kontrolera (mm) i pas wolny od pinów przy dłuższych bokach. */
@@ -180,6 +185,7 @@ export function caseLayout(
   cellHeight: number,
   cp: CaseParams,
   split: PrintSplit | null = null,
+  stabs: 'cherry' | 'mx' | 'none' = 'cherry',
 ): CaseLayout {
   const lowest = Math.max(cellHeight, island?.depth ?? 0);
   const floorTop = -lowest - cp.space;
@@ -189,8 +195,10 @@ export function caseLayout(
   const below = cp.floor - CASE_SCREW.headDepth + (-cellHeight - floorTop);
   const fit = STANDARD_LENGTHS.filter((l) => l - below >= 3 && l - below <= pilotDepth);
   const screwLength = fit.length ? fit[fit.length - 1] : Math.ceil(below + Math.min(4, pilotDepth));
+  const screws = screwPositions(keys, island, cp.screws, split);
   return {
-    screws: screwPositions(keys, island, cp.screws, split),
+    screws,
+    supports: cp.supports === false ? [] : supportPositions(keys, island, screws, split, stabs),
     pilotDepth,
     floorTop,
     bottom,
@@ -198,4 +206,67 @@ export function caseLayout(
     usbCuts: usbCaseCuts(island, cp),
     pads: controllerPads(island, floorTop),
   };
+}
+
+/** Podpory: średnica, odstęp od spodu płyty, minimalne odległości (mm). */
+export const SUPPORT = { d: 4, gap: 0.1, spacing: 45, fromScrew: 15, fromEdge: 12 };
+
+/**
+ * Pozycje podpór: na granicach rzędów, w miejscach, gdzie krawędź klawisza dochodzi do
+ * granicy (tam dno komórek jest pełne, a przewody kolumn idą przy pinach, nie przy krawędzi).
+ * Pomija skrajne granice (tam są śruby), okolice kieszeni stabilizatorów, wyspę i szew spodu.
+ * Wybór jak najdalej od siebie i od śrub, co najmniej co `spacing` mm.
+ */
+export function supportPositions(
+  keys: Key[],
+  island: IslandGeom | null,
+  screws: [number, number][],
+  split: PrintSplit | null,
+  stabs: 'cherry' | 'mx' | 'none',
+): [number, number][] {
+  const flat = keys.filter((k) => Math.abs(k.rot) < 1e-6);
+  if (flat.length < 2) return [];
+  const r = SUPPORT.d / 2;
+  const ys = [...new Set(flat.map((k) => Math.round((k.y - (k.h * PITCH) / 2) * 1000) / 1000))];
+  const xs0 = Math.min(...flat.map((k) => k.x - (k.w * PITCH) / 2));
+  const xs1 = Math.max(...flat.map((k) => k.x + (k.w * PITCH) / 2));
+  const cand: [number, number][] = [];
+  for (const yb of ys) {
+    const above = flat.filter((k) => Math.abs(k.y - (k.h * PITCH) / 2 - yb) < 1e-3);
+    const below = flat.filter((k) => Math.abs(k.y + (k.h * PITCH) / 2 - yb) < 1e-3);
+    if (!above.length || !below.length) continue; // granica zewnętrzna
+    for (const k of [...above, ...below])
+      for (const sx of [-1, 1]) {
+        const x = k.x + (sx * k.w * PITCH) / 2;
+        if (x < xs0 + SUPPORT.fromEdge || x > xs1 - SUPPORT.fromEdge) continue;
+        cand.push([x, yb]);
+      }
+  }
+  const nearStab = (x: number, y: number) =>
+    flat.some((k) => {
+      const s = stabOffset(Math.max(k.w, k.h));
+      if (s === null || stabs === 'none') return false;
+      if (Math.abs(y - k.y) > (k.h * PITCH) / 2 + r + 0.01) return false;
+      // kieszeń stabilizatora ±4,5 mm albo dodatkowa komórka MX (jej rogi są pełne, więc tylko kieszeń)
+      return stabs === 'cherry' && [-s, s].some((d) => Math.abs(x - (k.x + d)) < 4.5 + r + 0.5);
+    });
+  const ok = cand.filter(
+    ([x, y]) =>
+      !nearStab(x, y) &&
+      (!island || distToRect(island.rect, x, y) >= r + 3) &&
+      (!split || Math.abs(x - split.caseX) >= r + 2) &&
+      screws.every(([sx, sy]) => Math.hypot(sx - x, sy - y) >= SUPPORT.fromScrew),
+  );
+  const uniq = ok.filter((p, i) => ok.findIndex((q) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 0.5) === i);
+  if (!uniq.length) return [];
+  const cx = (xs0 + xs1) / 2;
+  const cy = uniq.reduce((a, p) => a + p[1], 0) / uniq.length;
+  const picked: [number, number][] = [uniq.reduce((b, p) => (Math.hypot(p[0] - cx, p[1] - cy) < Math.hypot(b[0] - cx, b[1] - cy) ? p : b))];
+  const dist = (p: [number, number]) => Math.min(...picked.map((q) => Math.hypot(p[0] - q[0], p[1] - q[1])));
+  for (;;) {
+    const next = uniq.reduce((b, p) => (dist(p) > dist(b) ? p : b));
+    if (dist(next) < SUPPORT.spacing) break;
+    picked.push(next);
+  }
+  return picked;
 }

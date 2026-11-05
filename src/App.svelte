@@ -40,6 +40,7 @@
     // macropad: wyspa domyślnie nad klawiszami; 60%: nad klawiszami w prawym rogu
     island.position = tpl.params.single ? 'top' : 'inner';
     island.align = tpl.params.rowLayout ? 'end' : 'center';
+    island.tilt = tpl.params.rowLayout ? 25 : 0;
     if (tpl.params.rowLayout) rowText = rowLayoutToText(tpl.params.rowLayout);
   }
   function onRowText() {
@@ -134,14 +135,14 @@
       up,
       island: isl,
       part,
-      case: caseOn ? { params: cp, layout: caseLayout(keysFor(s), isl, cellHeight, cp, s === 'left' ? split : null) } : null,
+      case: caseOn ? { params: cp, layout: caseLayout(keysFor(s), isl, cellHeight, cp, s === 'left' ? split : null, plate.stabs ?? 'cherry') } : null,
       split: s === 'left' && split ? { plan: $state.snapshot(split) as PrintSplit, clearance: print.clearance } : null,
       piece: s === 'left' && split ? piece : undefined,
     };
   }
   const job = (s: Side, part: 'plate' | 'case', piece?: 0 | 1): Job =>
     `${part === 'case' ? `${s}-case` : s}${piece === undefined ? '' : `-p${piece}`}`;
-  let screwInfo = $derived(caseOn ? caseLayout(leftKeys, islandGeom('left'), cellHeight, caseP, split) : null);
+  let screwInfo = $derived(caseOn ? caseLayout(leftKeys, islandGeom('left'), cellHeight, caseP, split, plate.stabs ?? 'cherry') : null);
   const inputKey = (i: BuildInput) => JSON.stringify({ ...i, cellStep: undefined });
 
   let halves = $derived.by<PreviewHalf[]>(() => {
@@ -486,6 +487,9 @@
               <option value="end">{island.position === 'top' || island.position === 'bottom' ? t(lang, 'alignRight') : t(lang, 'alignBottom')}</option>
             </select>
           </label>
+          {#if (island.position === 'top' || island.position === 'bottom') && island.moduleSide !== 'none'}
+          <label data-tip={t(lang, 'tipTilt')}>{t(lang, 'tilt')} <input type="number" min="0" max="60" step="5" bind:value={island.tilt} /></label>
+          {/if}
           {#if island.position === 'top' || island.position === 'bottom'}
           <label data-tip={t(lang, 'tipUsbOut')}>{t(lang, 'usbOut')}
             <select bind:value={island.usbOut}>
@@ -525,9 +529,10 @@
           <label data-tip={t(lang, 'tipCaseSpace')}>{t(lang, 'caseSpace')} <input type="number" min="0" step="0.5" bind:value={caseP.space} /></label>
           <label data-tip={t(lang, 'tipCaseScrews')}>{t(lang, 'caseScrews')} <input type="number" min="3" max="12" step="1" bind:value={caseP.screws} /></label>
           <label data-tip={t(lang, 'tipCaseGap')}>{t(lang, 'caseGap')} <input type="number" min="0" step="0.1" bind:value={caseP.gap} /></label>
+          <label class="check" data-tip={t(lang, 'tipSupports')}><input type="checkbox" bind:checked={caseP.supports} /> {t(lang, 'supports')}</label>
           <label data-tip={t(lang, 'tipExplode')}>{t(lang, 'explode')} <input type="number" min="0" step="5" bind:value={caseP.explode} /></label>
         </div>
-        {#if screwInfo}<p class="muted">{t(lang, 'screwInfo').replace('{n}', String(screwInfo.screws.length)).replace('{l}', String(screwInfo.screwLength))}</p>{/if}
+        {#if screwInfo}<p class="muted">{t(lang, 'screwInfo').replace('{n}', String(screwInfo.screws.length)).replace('{l}', String(screwInfo.screwLength))}{#if screwInfo.supports.length} {t(lang, 'supportInfo').replace('{n}', String(screwInfo.supports.length))}{/if}</p>{/if}
       {/if}
     </section>
 

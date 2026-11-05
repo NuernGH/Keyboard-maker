@@ -62,7 +62,11 @@
     knob: new THREE.MeshStandardMaterial({ color: 0xb5543c, roughness: 0.5 }),
   };
 
-  function boxMesh(b: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number }, mat: THREE.Material, round = false) {
+  function boxMesh(
+    b: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; tilt?: { deg: number; y: number } },
+    mat: THREE.Material,
+    round = false,
+  ): THREE.Object3D {
     const w = b.x1 - b.x0;
     const h = b.y1 - b.y0;
     const d = b.z1 - b.z0;
@@ -73,7 +77,14 @@
     } else g = new THREE.BoxGeometry(w, h, d);
     const m = new THREE.Mesh(g, mat);
     m.position.set((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2);
-    return m;
+    if (!b.tilt) return m;
+    // klin: obrót wokół osi X przez (y, z = 0)
+    const pivot = new THREE.Group();
+    pivot.position.set(0, b.tilt.y, 0);
+    pivot.rotation.x = (b.tilt.deg * Math.PI) / 180;
+    m.position.y -= b.tilt.y;
+    pivot.add(m);
+    return pivot;
   }
 
   function cellGeometry(w: number, h: number, height: number, offsets: number[] = [0]): THREE.BufferGeometry {
