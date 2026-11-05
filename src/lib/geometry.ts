@@ -13,6 +13,7 @@ import {
   cast,
   CompoundBlueprint,
   Drawing,
+  draw,
   drawRectangle,
   getOC,
   importSTEP,
@@ -21,14 +22,18 @@ import {
   measureVolume,
   type Shape3D,
 } from 'replicad';
-import { PITCH, type Key } from './layout';
-import type { IslandGeom } from './island';
-import { CASE_SCREW, type CaseLayout, type CaseParams } from './case';
+import { PITCH, switchSpots, type Key } from './layout';
+import { wedgeZ, type Box, type IslandGeom } from './island';
+import { CASE_SCREW, SUPPORT, type CaseLayout, type CaseParams } from './case';
+import { leftRegion, type PrintSplit } from './split';
 
 import {
   DEFAULT_PLATE_OPTIONS,
   MX_HOLE,
   NO_HOTSWAP_HEIGHT,
+  PCB_LEVEL,
+  PLATE_LIP,
+  stabOffset,
   THIN_PLATE_THICKNESS,
   type CellVariant,
   type PlateOptions,
@@ -136,6 +141,9 @@ export function footprint(keys: Key[], opts: PlateOptions, island: IslandGeom | 
   for (const k of keys) {
     const r = drawRectangle(k.w * PITCH, k.h * PITCH).rotate(k.rot).translate(k.x, k.y);
     d = d ? d.fuse(r) : r;
+    // przełączniki w miejscu stabilizatora mogą wystawać poza klawisz (Backspace 2U): obrys je obejmuje
+    for (const [x, y] of switchSpots(k, opts.stabs))
+      if (Math.hypot(x - k.x, y - k.y) > 1e-6) d = d.fuse(drawRectangle(PITCH, PITCH).rotate(k.rot).translate(x, y));
   }
   if (d && island) {
     const r = island.rect;
@@ -187,18 +195,76 @@ export function buildPlate(
     const r = island.rect;
     body = body.fuse(makeBox([r.x0, r.y0, -island.depth], [r.x1, r.y1, 0])) as Shape3D;
   }
-  const negatives = keys.map((k) =>
-    cell.negative.clone().rotate(k.rot, [0, 0, 0], [0, 0, 1]).translate(k.x, k.y, 0),
-  );
-  if (island)
-    for (const b of island.cuts)
-      negatives.push(
-        b.round
-          ? (makeCylinder((b.x1 - b.x0) / 2, b.z1 - b.z0, [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, b.z0], [0, 0, 1]) as Shape3D)
-          : makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]),
-      );
+  const stabs = opts.stabs ?? 'cherry';
+  const negatives: Shape3D[] = [];
+  for (const k of keys) {
+    for (const [x, y] of switchSpots(k, stabs))
+      negatives.push(cell.negative.clone().rotate(k.rot, [0, 0, 0], [0, 0, 1]).translate(x, y, 0));
+  }
+  if (island) for (const b of island.cuts) negatives.push(boxSolid(b));
+  if (stabs === 'cherry') for (const k of keys) negatives.push(...stabCuts(k, cell.height));
   negatives.push(...pilots);
   return cutMany(body, negatives);
+}
+
+/** Pudełko (albo walec) z wyspy jako bryła, z obrotem klina, jeśli jest. */
+export function boxSolid(b: Box): Shape3D {
+  let sh = b.round
+    ? (makeCylinder((b.x1 - b.x0) / 2, b.z1 - b.z0, [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, b.z0], [0, 0, 1]) as Shape3D)
+    : makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]);
+  if (b.tilt) sh = sh.rotate(b.tilt.deg, [0, b.tilt.y, b.tilt.z], [1, 0, 0]) as Shape3D;
+  return sh;
+}
+
+/**
+ * Klin pod moduł OLED z enkoderem: osobna część stawiana na płaskiej wyspie. Przekrój to
+ * podstawa `base` mm i trójkąt nad nią (krawędź przy klawiszach na wysokości podstawy).
+ * Drukuje się podstawą w dół, bez podpór.
+ */
+export function buildWedge(island: IslandGeom): Shape3D {
+  const w = island.wedge;
+  if (!w) throw new Error('Wyspa nie ma klina');
+  const zA = wedgeZ(w, w.y0);
+  const zB = wedgeZ(w, w.y1);
+  // w układzie płaszczyzny YZ: pierwsza współrzędna to y, druga z
+  const pts: [number, number][] = [[w.y0, 0], [w.y1, 0], [w.y1, zB], [w.y0, zA]];
+  let pen = draw(pts[0]);
+  for (const p of pts.slice(1)) pen = pen.lineTo(p);
+  const body = pen.close().sketchOnPlane('YZ', w.x0).extrude(w.x1 - w.x0) as Shape3D;
+  return cutMany(body, w.cuts.map(boxSolid));
+}
+
+/**
+ * Wycięcia na stabilizator Cherry/Costar montowany w płycie, dla klawisza od 2U.
+ * W warstwie płyty (1,27 mm) otwór wg specyfikacji Cherry (6,75 × 12,3 z wycięciami na zatrzaski
+ * i drut). Pod nią kieszeń na obudowę stabilizatora przez całą wysokość i kanał na drut
+ * łączący obie obudowy, do poziomu PCB (5,08 mm), więc dno komórki z gniazdem zostaje nietknięte.
+ * Drut jest od strony użytkownika (dół klawisza).
+ */
+export function stabCuts(k: Key, cellHeight: number): Shape3D[] {
+  const vertical = k.h > k.w;
+  const s = stabOffset(vertical ? k.h : k.w);
+  if (s === null) return [];
+  const h = cellHeight;
+  const thin = h <= PLATE_LIP + 0.5;
+  const out: Shape3D[] = [];
+  const b = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) => out.push(makeBox([x0, y0, z0], [x1, y1, z1]));
+  const zt = -h - 1;
+  for (const sx of [-1, 1]) {
+    const c = sx * s;
+    // otwór w płycie (w układzie z osią Y w górę: drut na dole)
+    b(c - 3.375, -6.77, zt, c + 3.375, 5.53, 1);
+    b(c - 1.65, -7.97, zt, c + 1.65, -6.7, 1);
+    // wycięcie na zatrzask po zewnętrznej stronie
+    b(sx > 0 ? c + 3.3 : c - 4.2, -0.5, zt, sx > 0 ? c + 4.2 : c - 3.3, 2.3, 1);
+    if (!thin) b(c - 4.5, -8.4, zt, c + 4.5, 6.6, -PLATE_LIP);
+  }
+  if (!thin) {
+    const zb = h <= PCB_LEVEL + 0.01 ? zt : -PCB_LEVEL;
+    b(-s, -8.4, zb, s, -5.2, -PLATE_LIP);
+  }
+  const rot = k.rot + (vertical ? 90 : 0);
+  return out.map((sh) => sh.rotate(rot, [0, 0, 0], [0, 0, 1]).translate(k.x, k.y, 0) as Shape3D);
 }
 
 /**
@@ -273,6 +339,11 @@ export function buildCase(
   for (const [x, y] of layout.screws)
     if (standH > 0.01) body = body.fuse(makeCylinder(CASE_SCREW.boss / 2, standH + 0.01, [x, y, floorTop - 0.01], [0, 0, 1]) as Shape3D) as Shape3D;
   for (const b of layout.pads ?? []) body = body.fuse(makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1])) as Shape3D;
+  // podpory pod płytą: od dna do 0,1 mm pod spód płyty
+  const supH = -cellHeight - SUPPORT.gap - floorTop;
+  if (supH > 0.3)
+    for (const [x, y] of layout.supports ?? [])
+      body = body.fuse(makeCylinder(SUPPORT.d / 2, supH + 0.01, [x, y, floorTop - 0.01], [0, 0, 1]) as Shape3D) as Shape3D;
   const tools: Shape3D[] = [];
   for (const [x, y] of layout.screws) {
     tools.push(makeCylinder(CASE_SCREW.clearance / 2, -bottom + 1, [x, y, bottom - 0.5], [0, 0, 1]) as Shape3D);
@@ -280,4 +351,37 @@ export function buildCase(
   }
   for (const b of layout.usbCuts) tools.push(makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]));
   return tools.length ? cutMany(body, tools) : body;
+}
+
+/** Pryzmat z wielokąta XY, od z0 do z1. */
+function prism(poly: [number, number][], z0: number, z1: number, grow = 0): Shape3D {
+  let pen = draw(poly[0]);
+  for (const p of poly.slice(1)) pen = pen.lineTo(p);
+  let d: Drawing = pen.close();
+  if (grow) d = d.offset(grow);
+  return d.sketchOnPlane('XY', z0).extrude(z1 - z0) as Shape3D;
+}
+
+/**
+ * Część płyty po podziale do druku: 0 = lewa (z wypustami zamków), 1 = prawa (z gniazdami).
+ * Lewa jest zwężona o 1/3 luzu, z prawej wycinamy obszar poszerzony o 2/3 luzu, więc
+ * płaszczyzna cięcia nie pokrywa się ze ściankami komórek.
+ */
+export function platePiece(plate: Shape3D, split: PrintSplit, clearance: number, piece: 0 | 1): Shape3D {
+  const bb = plate.boundingBox.bounds;
+  const z0 = bb[0][2] - 1;
+  const z1 = bb[1][2] + 1;
+  const poly = leftRegion(split);
+  if (piece === 0) return plate.clone().intersect(prism(poly, z0, z1, -clearance / 3)) as Shape3D;
+  return plate.clone().cut(prism(poly, z0, z1, (2 * clearance) / 3)) as Shape3D;
+}
+
+/** Część spodu obudowy po cięciu prostym w x = caseX. */
+export function casePiece(shell: Shape3D, caseX: number, piece: 0 | 1): Shape3D {
+  const bb = shell.boundingBox.bounds;
+  const lo: [number, number, number] = [bb[0][0] - 1, bb[0][1] - 1, bb[0][2] - 1];
+  const hi: [number, number, number] = [bb[1][0] + 1, bb[1][1] + 1, bb[1][2] + 1];
+  if (piece === 0) hi[0] = caseX;
+  else lo[0] = caseX;
+  return shell.clone().intersect(makeBox(lo, hi)) as Shape3D;
 }

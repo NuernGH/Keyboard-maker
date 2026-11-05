@@ -28,3 +28,35 @@ test.skipIf(!OUT)('eksport próbek', async () => {
     }
   }
 }, 600000);
+
+// 60% ANSI z podziałem pod stół 250 × 250: OUT60=/ścieżka npx vitest run tests/export-samples.test.ts
+const OUT60 = process.env.OUT60;
+test.skipIf(!OUT60)('eksport próbek 60%', async () => {
+  const { TEMPLATES } = await import('../src/lib/layout');
+  const { planSplit, DEFAULT_PRINT } = await import('../src/lib/split');
+  const { platePiece, casePiece } = await import('../src/lib/geometry');
+  await initOC();
+  const p = TEMPLATES.find((t) => t.id === 'ansi-60')!.params;
+  const ip = { ...DEFAULT_ISLAND, position: 'top' as const, align: 'end' as const };
+  const opts = { fillGaps: 4, margin: SCREW_MARGIN, stabs: 'cherry' as const };
+  for (const variant of ['hotswap', 'no-hotswap'] as const) {
+    const cell = await loadCell({ step: cellStep(), up: 'auto' }, variant);
+    const keys = splitLeft(p);
+    const island = islandFor(p, ip, 'left', variant, cell.height);
+    const sp = planSplit(keys, island, SCREW_MARGIN, DEFAULT_CASE.gap + DEFAULT_CASE.wall, DEFAULT_PRINT)!;
+    const lay = caseLayout(keys, island, cell.height, DEFAULT_CASE, sp);
+    const plate = buildPlate(keys, cell, opts, island, screwPilots(lay.screws, cell.height, lay.pilotDepth));
+    const shell = buildCase(keys, opts, island, cell.height, DEFAULT_CASE, lay);
+    for (const pc of [0, 1] as const) {
+      const parts = [
+        ['plate', platePiece(plate, sp, DEFAULT_PRINT.clearance, pc)],
+        ['case', casePiece(shell, sp.caseX, pc)],
+      ] as const;
+      for (const [part, shape] of parts) {
+        const name = `${OUT60}/60-${part}-${pc + 1}of2-${variant}`;
+        writeFileSync(`${name}.step`, Buffer.from(await shape.blobSTEP().arrayBuffer()));
+        writeFileSync(`${name}.stl`, Buffer.from(await shape.blobSTL({ binary: true }).arrayBuffer()));
+      }
+    }
+  }
+}, 900000);

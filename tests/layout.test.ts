@@ -47,7 +47,8 @@ describe('szablony', () => {
   for (const tpl of TEMPLATES) {
     test(`${tpl.id}: klawisze nie nachodzą na siebie`, () => {
       const keys = splitLeft(tpl.params);
-      expect(keys.length).toBe(tpl.params.rows * tpl.params.cols + tpl.params.thumbKeys);
+      const rl = tpl.params.rowLayout;
+      expect(keys.length).toBe(rl ? rl.flat().filter((w) => w > 0).length : tpl.params.rows * tpl.params.cols + tpl.params.thumbKeys);
       for (let i = 0; i < keys.length; i++)
         for (let j = i + 1; j < keys.length; j++)
           expect(keysOverlap(keys[i], keys[j]), `${keys[i].id} / ${keys[j].id}`).toBe(false);

@@ -3,7 +3,7 @@
 import opencascade from 'replicad-opencascadejs';
 import wasmUrl from 'replicad-opencascadejs/wasm?url';
 import { setOC, type Shape3D } from 'replicad';
-import { buildPlate, buildCase, screwPilots, loadCell, type Cell } from '../lib/geometry';
+import { buildPlate, buildCase, buildWedge, screwPilots, loadCell, platePiece, casePiece, type Cell } from '../lib/geometry';
 import type { Request, Response, BuildInput } from './protocol';
 
 let ready: Promise<void> | null = null;
@@ -39,7 +39,13 @@ function init(): Promise<void> {
 }
 
 const cellCache = new Map<string, Promise<Cell>>();
-let lastPlate: { key: string; shape: Shape3D } | null = null;
+/** ostatnie bryły (całość płyty i spodu oraz części), żeby części nie liczyły całości od nowa */
+const shapeCache = new Map<string, Shape3D>();
+function remember(key: string, shape: Shape3D) {
+  shapeCache.delete(key);
+  shapeCache.set(key, shape);
+  while (shapeCache.size > 8) shapeCache.delete(shapeCache.keys().next().value!);
+}
 
 function getCell(input: BuildInput): Promise<Cell> {
   const key = `${input.cellId}|${input.variant}|${input.up}`;
@@ -54,7 +60,23 @@ function getCell(input: BuildInput): Promise<Cell> {
 
 async function plateFor(input: BuildInput): Promise<Shape3D> {
   const key = JSON.stringify({ ...input, cellStep: undefined });
-  if (lastPlate?.key === key) return lastPlate.shape;
+  const hit = shapeCache.get(key);
+  if (hit) return hit;
+  if (input.part === 'wedge') {
+    if (!input.island) throw new Error('Brak wyspy');
+    await init();
+    const shape = buildWedge(input.island);
+    remember(key, shape);
+    return shape;
+  }
+  if (input.piece !== undefined && input.split) {
+    const whole = await plateFor({ ...input, piece: undefined });
+    const { plan, clearance } = input.split;
+    const shape =
+      input.part === 'case' ? casePiece(whole, plan.caseX, input.piece) : platePiece(whole, plan, clearance, input.piece);
+    remember(key, shape);
+    return shape;
+  }
   await init();
   const cell = await getCell(input);
   const c = input.case;
@@ -62,7 +84,7 @@ async function plateFor(input: BuildInput): Promise<Shape3D> {
     input.part === 'case' && c
       ? buildCase(input.keys, input.plate, input.island, cell.height, c.params, c.layout)
       : buildPlate(input.keys, cell, input.plate, input.island, c ? screwPilots(c.layout.screws, cell.height, c.layout.pilotDepth) : []);
-  lastPlate = { key, shape };
+  remember(key, shape);
   return shape;
 }
 

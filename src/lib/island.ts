@@ -63,11 +63,17 @@ export interface IslandParams {
   usbOut?: 'edge' | 'end';
   /** wyrównanie wzdłuż krawędzi siatki (macropad): do początku (lewo/góra), środka albo końca */
   align?: 'start' | 'center' | 'end';
+  /**
+   * Pochylenie modułu OLED z enkoderem (stopnie, 0 = płasko). Wyspa nad lub pod klawiszami
+   * staje się klinem: krawędź przy klawiszach zostaje na wysokości płyty, tył się podnosi,
+   * a ekran i pokrętło patrzą na piszącego.
+   */
+  tilt?: number;
 }
 
 export const DEFAULT_ISLAND: IslandParams = {
   enabled: true,
-  depth: 10.5,
+  depth: 0,
   offsetX: 0,
   offsetY: 0,
   controller: 'nicenano',
@@ -108,6 +114,8 @@ export function islandSize(ip: IslandParams, side: 'left' | 'right'): { w: numbe
 export interface Box {
   /** true: walec wpisany w obrys pudełka (oś Z), np. otwór pod śrubę */
   round?: boolean;
+  /** obrót bryły wokół osi X przechodzącej przez (y, z), w stopniach (klin modułu) */
+  tilt?: { deg: number; y: number; z: number };
   x0: number;
   y0: number;
   z0: number;
@@ -129,6 +137,39 @@ export interface IslandGeom {
   cuts: Box[];
   /** uproszczone bryły elektroniki do podglądu (nie trafiają do eksportu) */
   ghosts: GhostPart[];
+  /**
+   * Klin pod modułem: osobna część stawiana na płaskiej wyspie i przykręcana od spodu wyspy.
+   * Podstawa ma `base` mm, wierzch to płaszczyzna przez linię (y = hingeY, z = base),
+   * pochylona o `deg` wokół osi X (dodatni kąt podnosi stronę y > hingeY).
+   */
+  wedge?: {
+    x0: number;
+    x1: number;
+    y0: number;
+    y1: number;
+    deg: number;
+    hingeY: number;
+    base: number;
+    /** bryły do odjęcia z klina (gniazdo modułu, otwory, przepusty, otwory pilotowe śrub) */
+    cuts: Box[];
+    /** śruby mocujące klin (XY), wkręcane od spodu wyspy */
+    screws: [number, number][];
+  };
+}
+
+/** Klin: grubość podstawy (mm) i śruby M2,5 od spodu wyspy (przelot, łeb w wybraniu, pilot w klinie). */
+export const WEDGE = { base: 3, clearance: 2.9, head: 5.0, headDepth: 2.6, pilot: 2.2, pilotDepth: 6 };
+
+/** Wysokość wierzchu klina nad płytą w punkcie y. */
+export const wedgeZ = (w: NonNullable<IslandGeom['wedge']>, y: number) =>
+  w.base + (y - w.hingeY) * Math.tan((w.deg * Math.PI) / 180);
+
+/** Obrót punktu (y, z) wokół osi X przez (hingeY, hingeZ). */
+export function tiltPoint(y: number, z: number, deg: number, hingeY = 0, hingeZ = 0): [number, number] {
+  const a = (deg * Math.PI) / 180;
+  const dy = y - hingeY;
+  const dz = z - hingeZ;
+  return [hingeY + dy * Math.cos(a) - dz * Math.sin(a), hingeZ + dy * Math.sin(a) + dz * Math.cos(a)];
 }
 
 const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): Box => ({
@@ -141,13 +182,23 @@ const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: num
 });
 
 /** Otwory w ściance na każde gniazdo USB kontrolera (płytka na środku `cx`, ścianka na `edge`). */
-const usbSlots = (c: Controller, cx: number, nTop: number, edge: number, D: number): Box[] =>
-  (c.ports ?? [0]).map((dx) => box(cx + dx - c.usbW / 2, nTop - 2, -D - 1, cx + dx + c.usbW / 2, edge + 1, -D + c.usbH));
-const usbGhosts = (c: Controller, cx: number, nTop: number, edge: number, D: number): GhostPart[] =>
+const usbSlots = (c: Controller, cx: number, nTop: number, edge: number, D: number, zN: number): Box[] =>
+  (c.ports ?? [0]).map((dx) => box(cx + dx - c.usbW / 2, nTop - 2, -D - 1, cx + dx + c.usbW / 2, edge + 1, zN + c.usbH));
+const usbGhosts = (c: Controller, cx: number, nTop: number, edge: number, zN: number): GhostPart[] =>
   (c.ports ?? [0]).map((dx) => ({
     kind: 'usb' as const,
-    box: box(cx + dx - 4.5, nTop - 6.5, -D + 1.6, cx + dx + 4.5, edge, -D + Math.min(c.height, c.usbH - 0.4)),
+    box: box(cx + dx - 4.5, nTop - 6.5, zN + 1.6, cx + dx + 4.5, edge, zN + Math.min(c.height, c.usbH - 0.4)),
   }));
+
+/**
+ * Materiał nad kontrolerem (mm od wierzchu płyty). Kontroler siedzi wysoko, tuż pod wierzchem,
+ * żeby gniazdo USB było na wysokości ścianki obudowy i wyspa nie musiała być głębsza niż płyta.
+ * Gdy nad nim leży płasko moduł OLED, schodzi pod gniazdo modułu.
+ */
+export const CTRL_ROOF = 2.5;
+const ctrlRoof = (moduleFlatAbove: boolean) => (moduleFlatAbove ? MODULE.pcb + MODULE.underClearance + 1.4 : CTRL_ROOF);
+/** Spód płytki kontrolera (z) przy danym dachu; luz 0,6 mm nad elementami. */
+const ctrlBottom = (c: Controller, roof: number) => -roof - 0.6 - c.height;
 
 const mirrorBox = (b: Box): Box => ({ ...b, x0: -b.x1, x1: -b.x0 });
 
@@ -161,23 +212,31 @@ export function islandFor(
   side: 'left' | 'right',
   variant: CellVariant,
   cellHeight: number,
+  /** margines płyty wokół obrysu: kontroler przesuwamy o tyle na zewnątrz, żeby USB było przy krawędzi płyty */
+  margin = 0,
 ): IslandGeom | null {
   if (!ip.enabled) return null;
   const ctrl = CONTROLLERS[ip.controller] ?? NANO;
   const mod = hasModule(ip, side);
   const { w: W, h: H } = islandSize(ip, side);
-  const D = Math.max(ip.depth, cellHeight, ctrl.height + 1.5);
+  // moduł płasko nad kontrolerem: przy klinie moduł jest na osobnej części, wyspa zostaje płaska
+  const flatModule = mod && !((ip.position === 'top' || ip.position === 'bottom') && (ip.tilt ?? 0) > 0);
+  // głębokość: tyle co płyta, chyba że kontroler pod płaskim modułem potrzebuje więcej
+  const D = Math.max(ip.depth, cellHeight, -ctrlBottom(ctrl, ctrlRoof(flatModule)));
   const pos = ip.position ?? 'inner';
   // długi kontroler (np. ESP32-S3) nie mieści się w poprzek poziomej wyspy z modułem: USB wtedy z końca
   const edgeFits = !mod || ctrl.h + ctrl.usbOverhang + CTRL_CLEARANCE + 1 <= ISLAND_W;
   if ((pos === 'top' || pos === 'bottom') && (ip.usbOut ?? 'edge') === 'edge' && edgeFits) {
-    const g = edgeIsland(p, ip, ctrl, mod, D, variant, cellHeight, pos);
+    const g = edgeIsland(p, ip, ctrl, mod, D, variant, cellHeight, pos, margin);
     if (side === 'left') return g;
     return {
       rect: { ...g.rect, x0: -g.rect.x1, x1: -g.rect.x0 },
       depth: D,
       cuts: g.cuts.map(mirrorBox),
       ghosts: g.ghosts.map((gp) => ({ ...gp, box: mirrorBox(gp.box) })),
+      wedge: g.wedge
+        ? { ...g.wedge, x0: -g.wedge.x1, x1: -g.wedge.x0, cuts: g.wedge.cuts.map(mirrorBox), screws: g.wedge.screws.map(([x, y]) => [-x, y]) }
+        : undefined,
     };
   }
   const inner = p.cols - 1;
@@ -205,18 +264,21 @@ export function islandFor(
   const cw = ctrl.w + 2 * CTRL_CLEARANCE;
   // kontroler przy samej górnej krawędzi: gniazdo USB kończy się równo ze ścianką wyspy,
   // więc kabel wchodzi od razu, bez kanału
-  const nTop = y1 - ctrl.usbOverhang;
+  // gniazdo USB kończy się równo z krawędzią płyty (wyspa + margines)
+  const edgeY = y1 + margin;
+  const nTop = edgeY - ctrl.usbOverhang;
   const nBot = nTop - ctrl.h;
-  const pocketTop = -D + ctrl.height + 0.6;
+  const zN = Math.max(-D, ctrlBottom(ctrl, ctrlRoof(mod)));
+  const pocketTop = zN + ctrl.height + 0.6;
   const ctrlCuts: Box[] = [
     // kieszeń kontrolera od spodu
     box(cx - cw / 2, nBot - CTRL_CLEARANCE, -D - 1, cx + cw / 2, nTop + CTRL_CLEARANCE, pocketTop),
     // otwory na gniazda USB w górnej ściance wyspy
-    ...usbSlots(ctrl, cx, nTop, y1, D),
+    ...usbSlots(ctrl, cx, nTop, edgeY, D, zN),
   ];
   const ctrlGhosts: GhostPart[] = [
-    { kind: 'nano', box: box(cx - ctrl.w / 2, nBot, -D, cx + ctrl.w / 2, nTop, -D + 1.6) },
-    ...usbGhosts(ctrl, cx, nTop, y1, D),
+    { kind: 'nano', box: box(cx - ctrl.w / 2, nBot, zN, cx + ctrl.w / 2, nTop, zN + 1.6) },
+    ...usbGhosts(ctrl, cx, nTop, edgeY, zN),
   ];
 
   const cuts: Box[] = [];
@@ -258,8 +320,9 @@ export function islandFor(
     cuts.push(...ctrlCuts);
     ghosts.push(...ctrlGhosts);
   }
-  // przy hot-swap kieszenie gniazd wewnętrznej kolumny wychodzą na bok komórki: zostawiamy im miejsce
-  if (variant === 'hotswap') cuts.push(box(x0 - 0.01, y0 - 1, -cellHeight - 1, x0 + 2.5, y1 + 1, -cellHeight + 2.4));
+  // Kanały na przewody rzędu w komórce hot-swap wychodzą na boki komórki, ale są otwarte od spodu:
+  // przy wyspie przewód schodzi w dół, w miejsce na kable pod płytą, więc wyspa nie potrzebuje wnęki.
+  void variant;
 
   let g: IslandGeom = { rect: { x0, y0, x1, y1 }, depth: D, cuts, ghosts };
   if (local) g = place(g, pos, p, ip);
@@ -346,6 +409,7 @@ function edgeIsland(
   variant: CellVariant,
   cellHeight: number,
   pos: 'top' | 'bottom',
+  margin = 0,
 ): IslandGeom {
   const cw = ctrl.w + 2 * CTRL_CLEARANCE;
   const L = mod ? ISLAND_H : cw + 2 * SMALL_WALL;
@@ -362,18 +426,31 @@ function edgeIsland(
     const leftLimit = -MODULE_HOLES.dy / 2 + MODULE_HOLES.pilot / 2 + 1;
     ccx = Math.max(slotX0 - 1 - cw / 2, leftLimit + cw / 2);
   }
-  const nTop = T - ctrl.usbOverhang;
+  const tilt = mod ? Math.max(0, Math.min(60, ip.tilt ?? 0)) : 0;
+  // gniazdo USB równo z krawędzią płyty (wyspa + margines), kontroler wysoko pod wierzchem
+  const edgeY = T + margin;
+  const nTop = edgeY - ctrl.usbOverhang;
   const nBot = nTop - ctrl.h;
-  const pocketTop = -D + ctrl.height + 0.6;
+  const zN = Math.max(-D, ctrlBottom(ctrl, ctrlRoof(mod && !tilt)));
+  const pocketTop = zN + ctrl.height + 0.6;
   const cuts: Box[] = [
     box(ccx - cw / 2, nBot - CTRL_CLEARANCE, -D - 1, ccx + cw / 2, nTop + CTRL_CLEARANCE, pocketTop),
-    ...usbSlots(ctrl, ccx, nTop, T, D),
+    ...usbSlots(ctrl, ccx, nTop, edgeY, D, zN),
   ];
   const ghosts: GhostPart[] = [
-    { kind: 'nano', box: box(ccx - ctrl.w / 2, nBot, -D, ccx + ctrl.w / 2, nTop, -D + 1.6) },
-    ...usbGhosts(ctrl, ccx, nTop, T, D),
+    { kind: 'nano', box: box(ccx - ctrl.w / 2, nBot, zN, ccx + ctrl.w / 2, nTop, zN + 1.6) },
+    ...usbGhosts(ctrl, ccx, nTop, edgeY, zN),
   ];
+  // elementy modułu w układzie pochylonym (przy tilt = 0 bez zmian)
+  // przy klinie moduł leży na nim: wszystko, co dotyczy modułu, wycinamy z klina, nie z wyspy
+  const zb0 = tilt ? WEDGE.base : 0;
+  const T0 = { deg: tilt, y: 0, z: zb0 };
+  const lift = <B extends Box>(b: B): B => ({ ...b, z0: b.z0 + zb0, z1: b.z1 + zb0 });
+  const tl = <B extends Box>(b: B): B => (tilt ? { ...lift(b), tilt: T0 } : b);
+  const wCuts: Box[] = [];
+  const wScrews: [number, number][] = [];
   if (mod) {
+    const firstModCut = cuts.length;
     cuts.push(
       box(mL, my - mw / 2, -MODULE.pcb, -mL, my + mw / 2, 1),
       box(mL + MODULE_HOLES.boss, my - mw / 2 + 2.5, -MODULE.pcb - MODULE.underClearance, -mL - MODULE_HOLES.boss, my + mw / 2 - 2.5, 0),
@@ -385,32 +462,77 @@ function edgeIsland(
         const r = MODULE_HOLES.pilot / 2;
         cuts.push({ ...box(hx - r, hy - r, -MODULE.pcb - MODULE_HOLES.depth, hx + r, hy + r, 0), round: true });
       }
+    if (tilt) wCuts.push(...cuts.splice(firstModCut).map(tl));
     for (const sy of [-1, 1]) {
       const py = my + sy * 15.5;
-      cuts.push(box(slotX0, py - 1.6, -D - 1, slotX1, py + 1.6, 1));
+      if (!tilt) cuts.push(box(slotX0, py - 1.6, -D - 1, slotX1, py + 1.6, 1));
+      else {
+        // przepust prostopadły do płytki na głębokość pinów, dalej pionowo w dół przez klin i wyspę
+        const pinDepth = MODULE.pcb + 6;
+        wCuts.push(tl(box(slotX0, py - 1.6, -pinDepth, slotX1, py + 1.6, 1)));
+        const [yb, zb] = tiltPoint(py, zb0 - pinDepth + 0.5, tilt, 0, zb0);
+        const drop = box(slotX0, yb - 1.6, -D - 1, slotX1, yb + 1.6, zb);
+        cuts.push(drop);
+        wCuts.push(drop);
+      }
+    }
+    if (tilt) {
+      // dwie śruby: w połowie głębokości klina (tam jest najgrubszy pod gniazdem modułu),
+      // jedna za kieszenią kontrolera, druga za przepustami pinów
+      const sy = T / 2;
+      for (const sx of [mL + 4.5, slotX1 + 4.5]) {
+        wScrews.push([sx, sy]);
+        const c = WEDGE.clearance / 2;
+        const h = WEDGE.head / 2;
+        cuts.push({ ...box(sx - c, sy - c, -D - 1, sx + c, sy + c, 1), round: true });
+        cuts.push({ ...box(sx - h, sy - h, -D - 1, sx + h, sy + h, -D + WEDGE.headDepth), round: true });
+        const pr = WEDGE.pilot / 2;
+        wCuts.push({ ...box(sx - pr, sy - pr, -1, sx + pr, sy + pr, WEDGE.pilotDepth), round: true });
+      }
     }
     const pL = mL + MODULE.clearance;
+    const firstModGhost = ghosts.length;
     ghosts.push(
       { kind: 'pcb', box: box(pL, my - MODULE.w / 2, -MODULE.pcb, pL + MODULE.h, my + MODULE.w / 2, 0) },
       { kind: 'display', box: box(mL + 26, my - 11.5, 0, mL + 61, my + 11.5, 3.1) },
       { kind: 'encoder', box: box(mL + 4.4, my - 6, 0, mL + 18.9, my + 6, 9.5) },
       { kind: 'knob', box: box(mL + 5.3, my - 6.3, 13.3, mL + 18, my + 6.3, 23.9) },
     );
+    for (let i = firstModGhost; i < ghosts.length; i++) ghosts[i] = { ...ghosts[i], box: tl(ghosts[i].box) };
   }
-  if (variant === 'hotswap') cuts.push(box(-L / 2 - 1, -0.01, -cellHeight - 1, L / 2 + 1, 2.5, -cellHeight + 2.4));
 
   // przeniesienie na siatkę: nad nią (y w górę) albo pod nią (y w dół)
   const { kx0, kx1, ky0, ky1 } = gridBounds(p);
   const cx = alongCenter(kx0, kx1, L, ip.align) + ip.offsetX;
+  // oś obrotu klina: krawędź wyspy przy klawiszach; pod siatką y jest odbite, więc kąt zmienia znak
+  const hingeY = (pos === 'top' ? ky1 : ky0) + ip.offsetY;
+  const tiltOut = (b: Box): Box['tilt'] =>
+    b.tilt ? { deg: pos === 'top' ? b.tilt.deg : -b.tilt.deg, y: hingeY, z: b.tilt.z } : undefined;
   const tb = <B extends Box>(b: B): B =>
     pos === 'top'
-      ? { ...b, x0: cx + b.x0, x1: cx + b.x1, y0: ky1 + b.y0 + ip.offsetY, y1: ky1 + b.y1 + ip.offsetY }
-      : { ...b, x0: cx + b.x0, x1: cx + b.x1, y0: ky0 - b.y1 + ip.offsetY, y1: ky0 - b.y0 + ip.offsetY };
+      ? { ...b, x0: cx + b.x0, x1: cx + b.x1, y0: ky1 + b.y0 + ip.offsetY, y1: ky1 + b.y1 + ip.offsetY, tilt: tiltOut(b) }
+      : { ...b, x0: cx + b.x0, x1: cx + b.x1, y0: ky0 - b.y1 + ip.offsetY, y1: ky0 - b.y0 + ip.offsetY, tilt: tiltOut(b) };
   const r = tb(box(-L / 2, 0, 0, L / 2, T, 0));
   return {
     rect: { x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1 },
     depth: D,
     cuts: cuts.map(tb),
     ghosts: ghosts.map((gp) => ({ ...gp, box: tb(gp.box) })),
+    wedge: tilt
+      ? {
+          x0: r.x0,
+          x1: r.x1,
+          y0: r.y0,
+          y1: r.y1,
+          deg: pos === 'top' ? tilt : -tilt,
+          hingeY,
+          base: WEDGE.base,
+          cuts: wCuts.map(tb),
+          screws: wScrews.map(([x, y]) => {
+            const b = tb(box(x, y, 0, x, y, 0));
+            return [b.x0, b.y0] as [number, number];
+          }),
+        }
+      : undefined,
   };
 }

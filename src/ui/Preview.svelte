@@ -3,7 +3,7 @@
   import { onMount } from 'svelte';
   import * as THREE from 'three';
   import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-  import { PITCH, type Key } from '../lib/layout';
+  import { PITCH, switchOffsets, type Key } from '../lib/layout';
   import type { IslandGeom, GhostPart } from '../lib/island';
 
   export interface PreviewMesh {
@@ -18,14 +18,20 @@
     mesh: PreviewMesh | null;
     island?: IslandGeom | null;
     showElectronics?: boolean;
+    /** klin pod moduł OLED (osobna część), rysowany wyżej o połowę `explode` */
+    wedgeMesh?: PreviewMesh | null;
     /** spód obudowy (dokładna bryła), rysowany niżej o `explode` mm */
     caseMesh?: PreviewMesh | null;
     caseOn?: boolean;
     explode?: number;
   }
 
-  let { halves, cellHeight, holeSize = 14 }: { halves: PreviewHalf[]; cellHeight: number; holeSize?: number } =
-    $props();
+  let {
+    halves,
+    cellHeight,
+    holeSize = 14,
+    stabs = 'cherry',
+  }: { halves: PreviewHalf[]; cellHeight: number; holeSize?: number; stabs?: 'cherry' | 'mx' | 'none' } = $props();
 
   let host: HTMLDivElement;
   let renderer: THREE.WebGLRenderer;
@@ -37,6 +43,7 @@
   let grid: THREE.GridHelper | undefined;
 
   // Kolory sceny pochodzą z tokenów CSS (app.css), więc nadążają za jasnym/ciemnym motywem.
+  const wedgeMat = new THREE.MeshStandardMaterial({ color: 0x8fa9bf, metalness: 0.05, roughness: 0.6 });
   const caseMat = new THREE.MeshStandardMaterial({ color: 0x3f4b58, metalness: 0.05, roughness: 0.75 });
   const exactMat = new THREE.MeshStandardMaterial({ color: 0xdfe3e8, metalness: 0.05, roughness: 0.55 });
   const plateEdgeMat = new THREE.LineBasicMaterial({ color: 0x5b6875, transparent: true, opacity: 0.55 });
@@ -58,7 +65,11 @@
     knob: new THREE.MeshStandardMaterial({ color: 0xb5543c, roughness: 0.5 }),
   };
 
-  function boxMesh(b: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number }, mat: THREE.Material, round = false) {
+  function boxMesh(
+    b: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; tilt?: { deg: number; y: number; z: number } },
+    mat: THREE.Material,
+    round = false,
+  ): THREE.Object3D {
     const w = b.x1 - b.x0;
     const h = b.y1 - b.y0;
     const d = b.z1 - b.z0;
@@ -69,10 +80,18 @@
     } else g = new THREE.BoxGeometry(w, h, d);
     const m = new THREE.Mesh(g, mat);
     m.position.set((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2);
-    return m;
+    if (!b.tilt) return m;
+    // klin: obrót wokół osi X przez (y, z)
+    const pivot = new THREE.Group();
+    pivot.position.set(0, b.tilt.y, b.tilt.z);
+    pivot.rotation.x = (b.tilt.deg * Math.PI) / 180;
+    m.position.y -= b.tilt.y;
+    m.position.z -= b.tilt.z;
+    pivot.add(m);
+    return pivot;
   }
 
-  function cellGeometry(w: number, h: number, height: number): THREE.BufferGeometry {
+  function cellGeometry(w: number, h: number, height: number, offsets: number[] = [0]): THREE.BufferGeometry {
     const W = w * PITCH;
     const H = h * PITCH;
     const s = new THREE.Shape();
@@ -81,14 +100,17 @@
     s.lineTo(W / 2, H / 2);
     s.lineTo(-W / 2, H / 2);
     s.closePath();
-    const hole = new THREE.Path();
     const q = holeSize / 2;
-    hole.moveTo(-q, -q);
-    hole.lineTo(-q, q);
-    hole.lineTo(q, q);
-    hole.lineTo(q, -q);
-    hole.closePath();
-    s.holes.push(hole);
+    for (const d of offsets) {
+      const [ox, oy] = h > w ? [0, d] : [d, 0];
+      const hole = new THREE.Path();
+      hole.moveTo(ox - q, oy - q);
+      hole.lineTo(ox - q, oy + q);
+      hole.lineTo(ox + q, oy + q);
+      hole.lineTo(ox + q, oy - q);
+      hole.closePath();
+      s.holes.push(hole);
+    }
     const g = new THREE.ExtrudeGeometry(s, { depth: height, bevelEnabled: false });
     g.translate(0, 0, -height);
     return g;
@@ -105,8 +127,27 @@
     for (const half of halves) {
       const hg = new THREE.Group();
       hg.position.x = half.offsetX;
+      // klin i elektronika na nim podniesione o połowę rozsunięcia obudowy, żeby było widać, że to osobna część
+      const lift = half.wedgeMesh ? (half.explode ?? 0) / 2 : 0;
       if (half.island && half.showElectronics !== false) {
-        for (const gp of half.island.ghosts) hg.add(boxMesh(gp.box, ghostMats[gp.kind], gp.kind === 'knob'));
+        // podnosimy tylko moduł na klinie (pochylone elementy); kontroler i USB zostają w wyspie
+        for (const gp of half.island.ghosts) {
+          const o = boxMesh(gp.box, ghostMats[gp.kind], gp.kind === 'knob');
+          if (gp.box.tilt) o.position.z += lift;
+          hg.add(o);
+        }
+      }
+      if (half.wedgeMesh) {
+        const wg = new THREE.BufferGeometry();
+        wg.setAttribute('position', new THREE.BufferAttribute(half.wedgeMesh.vertices, 3));
+        wg.setAttribute('normal', new THREE.BufferAttribute(half.wedgeMesh.normals, 3));
+        wg.setIndex(new THREE.BufferAttribute(half.wedgeMesh.triangles, 1));
+        const wm = new THREE.Mesh(wg, wedgeMat);
+        wm.position.z = lift;
+        hg.add(wm);
+        const we = new THREE.LineSegments(new THREE.EdgesGeometry(wg, 30), caseEdgeMat);
+        we.position.z = lift;
+        hg.add(we);
       }
       if (!half.mesh && half.island) {
         const r = half.island.rect;
@@ -133,10 +174,11 @@
         hg.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 30), plateEdgeMat));
       } else {
         for (const k of half.keys) {
-          const id = `${k.w}x${k.h}`;
+          const offs = switchOffsets(k, stabs);
+          const id = `${k.w}x${k.h}:${offs.join(',')}`;
           let g = geoCache.get(id);
           if (!g) {
-            g = cellGeometry(k.w, k.h, cellHeight);
+            g = cellGeometry(k.w, k.h, cellHeight, offs);
             geoCache.set(id, g);
           }
           const m = new THREE.Mesh(g, quickMat);
@@ -177,6 +219,7 @@
     // zależności: halves, cellHeight
     void halves;
     void cellHeight;
+    void stabs;
     rebuild();
   });
 
