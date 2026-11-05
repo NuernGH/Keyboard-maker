@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { BuildInput, Request, Response } from './protocol';
+import type { UpAxis } from '../lib/cell-spec';
 
 type MeshResponse = Extract<Response, { type: 'mesh' }>;
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
@@ -35,6 +36,11 @@ export class CadClient {
 
   async mesh(input: BuildInput): Promise<MeshResponse> {
     return (await this.call({ type: 'mesh', input })) as MeshResponse;
+  }
+
+  /** siatka przełącznika ustawionego jak komórka (wierzch płyty z = 0, trzpień w (0, 0)) */
+  async switchMesh(step: ArrayBuffer, up: UpAxis): Promise<MeshResponse> {
+    return (await this.call({ type: 'switch', step, up })) as MeshResponse;
   }
 
   async exportFile(input: BuildInput, format: 'stl' | 'step'): Promise<ArrayBuffer> {

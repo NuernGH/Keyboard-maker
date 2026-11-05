@@ -4,6 +4,7 @@ import opencascade from 'replicad-opencascadejs';
 import wasmUrl from 'replicad-opencascadejs/wasm?url';
 import { setOC, type Shape3D } from 'replicad';
 import { buildPlate, buildCase, buildWedge, screwPilots, loadCell, platePiece, casePiece, type Cell } from '../lib/geometry';
+import { loadSwitch } from '../lib/switch-model';
 import type { Request, Response, BuildInput } from './protocol';
 
 let ready: Promise<void> | null = null;
@@ -100,8 +101,11 @@ self.onmessage = async (e: MessageEvent<Request>) => {
       post({ id: req.id, type: 'ready' });
       return;
     }
-    const shape = await plateFor(req.input);
-    if (req.type === 'mesh') {
+    const shape =
+      req.type === 'switch'
+        ? (await init(), await loadSwitch({ step: new Blob([req.step]), up: req.up }))
+        : await plateFor(req.input);
+    if (req.type === 'mesh' || req.type === 'switch') {
       const m = shape.mesh({ tolerance: 0.05, angularTolerance: 0.3 });
       const vertices = new Float32Array(m.vertices);
       const normals = new Float32Array(m.normals);
