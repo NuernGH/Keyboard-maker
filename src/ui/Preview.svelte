@@ -20,6 +20,8 @@
     showElectronics?: boolean;
     /** klin pod moduł OLED (osobna część), rysowany wyżej o połowę `explode` */
     wedgeMesh?: PreviewMesh | null;
+    /** front modułu OLED (osobna część), rysowany razem z klinem */
+    frontMesh?: PreviewMesh | null;
     /** spód obudowy (dokładna bryła), rysowany niżej o `explode` mm */
     caseMesh?: PreviewMesh | null;
     caseOn?: boolean;
@@ -52,6 +54,7 @@
 
   // Kolory sceny pochodzą z tokenów CSS (app.css), więc nadążają za jasnym/ciemnym motywem.
   const wedgeMat = new THREE.MeshStandardMaterial({ color: 0x8fa9bf, metalness: 0.05, roughness: 0.6 });
+  const frontMat = new THREE.MeshStandardMaterial({ color: 0x3d4552, metalness: 0.05, roughness: 0.55 });
   const caseMat = new THREE.MeshStandardMaterial({ color: 0x3f4b58, metalness: 0.05, roughness: 0.75 });
   const exactMat = new THREE.MeshStandardMaterial({ color: 0xdfe3e8, metalness: 0.05, roughness: 0.55 });
   const plateEdgeMat = new THREE.LineBasicMaterial({ color: 0x5b6875, transparent: true, opacity: 0.55 });
@@ -146,6 +149,19 @@
           if (gp.box.tilt) o.position.z += lift;
           hg.add(o);
         }
+      }
+      if (half.frontMesh) {
+        const fg = new THREE.BufferGeometry();
+        fg.setAttribute('position', new THREE.BufferAttribute(half.frontMesh.vertices, 3));
+        fg.setAttribute('normal', new THREE.BufferAttribute(half.frontMesh.normals, 3));
+        fg.setIndex(new THREE.BufferAttribute(half.frontMesh.triangles, 1));
+        const fm = new THREE.Mesh(fg, frontMat);
+        // front na module: podniesiony jak klin i jeszcze trochę, żeby przy rozsunięciu było widać moduł
+        fm.position.z = lift + (half.explode ?? 0) / 2;
+        hg.add(fm);
+        const fe = new THREE.LineSegments(new THREE.EdgesGeometry(fg, 30), caseEdgeMat);
+        fe.position.z = fm.position.z;
+        hg.add(fe);
       }
       if (half.wedgeMesh) {
         const wg = new THREE.BufferGeometry();

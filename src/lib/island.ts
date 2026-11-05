@@ -69,6 +69,12 @@ export interface IslandParams {
    * a ekran i pokrętło patrzą na piszącego.
    */
   tilt?: number;
+  /**
+   * Front na moduł OLED (osobna część): ramka z oknem na ekran, otworem na enkoder i dwoma
+   * przyciskami na zawiasie nad mikrostykami modułu, przykręcana 4 wkrętami M2,5 przez rogi.
+   * Tylko przy wyspie nad lub pod klawiszami z USB w długiej krawędzi.
+   */
+  front?: boolean;
 }
 
 export const DEFAULT_ISLAND: IslandParams = {
@@ -98,6 +104,36 @@ export const MODULE = { w: 35, h: 65, pcb: 1.2, clearance: 0.2, underClearance: 
  */
 export const MODULE_HOLES = { dx: 29, dy: 59, pcbHole: 3.0, pilot: 2.2, depth: 6, boss: 6.5 };
 export const CTRL_CLEARANCE = 0.3;
+
+/**
+ * Front modułu OLED. Własna geometria; pomysł (ramka ze słupkami, otwór na korpus EC11,
+ * przyciski na zawiasie) za projektem „1.3'' OLED EC11 Housing” (Make'n'Modify, MakerWorld,
+ * CC BY-SA 4.0). Położenia elementów modułu zmierzone z modelu referencyjnego (tylko lokalnie).
+ * Układ frontu: środek płytki modułu w (0, 0), enkoder po lewej (u < 0), w = 0 to wierzch płytki.
+ */
+export const FRONT = {
+  wall: 1.6,
+  face: 1.6,
+  /** wysokość słupków nad płytką: szkło OLED ma ok. 3,1 mm, zostaje 0,1 mm luzu */
+  post: 3.2,
+  postD: 6,
+  /** wkręt M2,5 z łbem stożkowym (DIN 965): otwór przelotowy i pogłębienie */
+  hole: 2.7,
+  csk: 5.2,
+  r: 3,
+  /** odstęp narożnika frontu od krawędzi komórek klawiszy (w rzucie z góry) */
+  keyGap: 0.3,
+  /** okno na ekran (środek względem środka płytki) */
+  win: { w: 34, h: 19, u: 10.75, v: -1.8 },
+  /** otwór na korpus enkodera (12 × 12) */
+  enc: { size: 12.6, u: -20.9, v: 0.1 },
+  /** przyciski: krążek, szczelina wokół, język łączący z frontem w stronę +u */
+  btn: { u: -20, v: 11.8, d: 7.6, slot: 0.4, armTo: -12.9, armHalf: 2.3, nub: 3, top: 2.55, nubGap: 0.12 },
+  /** kieszeń od spodu nad taśmą wyświetlacza */
+  flex: { u0: 3.0, u1: 18.6, v0: 7.5, v1: 16.9, depth: 0.8 },
+};
+export const frontHeight = () => FRONT.post + FRONT.face;
+
 /** zgodność wstecz: nice!nano */
 export const NANO = CONTROLLERS.nicenano;
 
@@ -155,6 +191,11 @@ export interface IslandGeom {
     /** śruby mocujące klin (XY), wkręcane od spodu wyspy */
     screws: [number, number][];
   };
+  /**
+   * Front modułu: układ frontu (patrz FRONT) obrócony o `s` (1 albo −1 = 180° wokół Z),
+   * pochylony o `deg` wokół osi X i przesunięty do `origin` (środek wierzchu płytki modułu).
+   */
+  front?: { origin: [number, number, number]; deg: number; s: 1 | -1 };
 }
 
 /** Klin: grubość podstawy (mm) i śruby M2,5 od spodu wyspy (przelot, łeb w wybraniu, pilot w klinie). */
@@ -237,6 +278,9 @@ export function islandFor(
       wedge: g.wedge
         ? { ...g.wedge, x0: -g.wedge.x1, x1: -g.wedge.x0, cuts: g.wedge.cuts.map(mirrorBox), screws: g.wedge.screws.map(([x, y]) => [-x, y]) }
         : undefined,
+      front: g.front
+        ? { ...g.front, origin: [-g.front.origin[0], g.front.origin[1], g.front.origin[2]], s: g.front.s === 1 ? -1 : 1 }
+        : undefined,
     };
   }
   const inner = p.cols - 1;
@@ -304,10 +348,10 @@ export function islandFor(
         const r = MODULE_HOLES.pilot / 2;
         cuts.push({ ...box(hx - r, hy - r, -MODULE.pcb - MODULE_HOLES.depth, hx + r, hy + r, 0), round: true });
       }
-    // przepusty na piny modułu: listwa 9 pinów przy dłuższym boku, 31–53 mm od góry modułu
+    // przepusty na piny modułu: listwa 9 pinów (22,9 mm) przy dłuższym boku, 30,6–54 mm od góry modułu
     for (const s of [-1, 1]) {
       const px = cx + s * 15.5;
-      cuts.push(box(px - 1.6, mTop - 53.5, -D - 1, px + 1.6, mTop - 31, 1));
+      cuts.push(box(px - 1.6, mTop - 54, -D - 1, px + 1.6, mTop - 30.6, 1));
     }
     ghosts.push(
       ...ctrlGhosts,
@@ -412,21 +456,31 @@ function edgeIsland(
   margin = 0,
 ): IslandGeom {
   const cw = ctrl.w + 2 * CTRL_CLEARANCE;
-  const L = mod ? ISLAND_H : cw + 2 * SMALL_WALL;
-  const T = mod ? ISLAND_W : ctrl.h + ctrl.usbOverhang + 2 * CTRL_CLEARANCE + SMALL_WALL + 2;
   const mw = MODULE.w + 2 * MODULE.clearance; // w poprzek (y)
   const mh = MODULE.h + 2 * MODULE.clearance; // wzdłuż (x)
-  const my = T / 2;
+  const tilt = mod ? Math.max(0, Math.min(60, ip.tilt ?? 0)) : 0;
+  const front = mod && !!ip.front;
+  // Front stoi na wierzchu wyspy lub klina wokół gniazda modułu. Pochylony wychyla się w stronę
+  // klawiszy, więc moduł odsuwamy tak, żeby górny narożnik frontu nie wchodził nad komórki.
+  const ta = (tilt * Math.PI) / 180;
+  const fHalf = mw / 2 + FRONT.wall;
+  const myFront = fHalf + (FRONT.keyGap + frontHeight() * Math.sin(ta)) / Math.cos(ta);
+  const L = mod ? (front ? Math.max(ISLAND_H, mh + 2 * FRONT.wall + 0.4) : ISLAND_H) : cw + 2 * SMALL_WALL;
+  const T = mod
+    ? front
+      ? Math.max(ISLAND_W, myFront + fHalf + 0.5)
+      : ISLAND_W
+    : ctrl.h + ctrl.usbOverhang + 2 * CTRL_CLEARANCE + SMALL_WALL + 2;
+  const my = front ? myFront : T / 2;
   const mL = -mh / 2; // lewy koniec gniazda modułu (strona enkodera)
-  const slotX0 = mL + 31;
-  const slotX1 = mL + 53.5;
+  const slotX0 = mL + 30.6;
+  const slotX1 = mL + 54;
   // kontroler: przy samym module tuż przed przepustami, ale nie dalej niż do otworów na śruby
   let ccx = 0;
   if (mod) {
     const leftLimit = -MODULE_HOLES.dy / 2 + MODULE_HOLES.pilot / 2 + 1;
     ccx = Math.max(slotX0 - 1 - cw / 2, leftLimit + cw / 2);
   }
-  const tilt = mod ? Math.max(0, Math.min(60, ip.tilt ?? 0)) : 0;
   // gniazdo USB równo z krawędzią płyty (wyspa + margines), kontroler wysoko pod wierzchem
   const edgeY = T + margin;
   const nTop = edgeY - ctrl.usbOverhang;
@@ -518,6 +572,13 @@ function edgeIsland(
     depth: D,
     cuts: cuts.map(tb),
     ghosts: ghosts.map((gp) => ({ ...gp, box: tb(gp.box) })),
+    front: front
+      ? (() => {
+          const [fy, fz] = tiltPoint(my, zb0, tilt, 0, zb0);
+          const o = tb(box(0, fy, fz, 0, fy, fz));
+          return { origin: [o.x0, o.y0, o.z0] as [number, number, number], deg: pos === 'top' ? tilt : -tilt, s: 1 as const };
+        })()
+      : undefined,
     wedge: tilt
       ? {
           x0: r.x0,
