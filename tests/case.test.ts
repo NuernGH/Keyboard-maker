@@ -41,5 +41,11 @@ describe('spód obudowy', () => {
         const clash = plate.clone().intersect(shell.clone());
         expect(measureVolume(clash as never)).toBeLessThan(0.01);
         expect(lay.screwLength).toBeGreaterThan(0);
+        // podkładka dociska kontroler: kończy się 0,2 mm pod płytką
+        expect(lay.pads.length).toBe(1);
+        const board = island!.ghosts.find((g) => g.kind === 'nano')!.box;
+        expect(board.z0 - lay.pads[0].z1).toBeCloseTo(0.2, 6);
+        expect(lay.pads[0].x0).toBeGreaterThan(board.x0);
+        expect(lay.pads[0].x1).toBeLessThan(board.x1);
       }, 240000);
 });

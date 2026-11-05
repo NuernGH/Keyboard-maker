@@ -47,6 +47,28 @@ export interface CaseLayout {
   screwLength: number;
   /** wycięcia w ściance na gniazda USB */
   usbCuts: Box[];
+  /** podkładki na dnie, które po przykręceniu dociskają kontroler do kieszeni */
+  pads: Box[];
+}
+
+/** Luz między podkładką a płytką kontrolera (mm) i pas wolny od pinów przy dłuższych bokach. */
+export const PAD = { gap: 0.2, pinBand: 4, end: 4 };
+
+/**
+ * Podkładka pod kontrolerem: od dna do 0,2 mm pod płytką, węższa o pasy z pinami i lutami
+ * na dłuższych bokach, krótsza o 4 mm z każdego końca.
+ */
+export function controllerPads(island: IslandGeom | null, floorTop: number): Box[] {
+  if (!island) return [];
+  return island.ghosts
+    .filter((g) => g.kind === 'nano')
+    .map(({ box: b }) => {
+      const along = b.y1 - b.y0 >= b.x1 - b.x0 ? 'y' : 'x';
+      const ix = along === 'y' ? PAD.pinBand : PAD.end;
+      const iy = along === 'y' ? PAD.end : PAD.pinBand;
+      return { x0: b.x0 + ix, x1: b.x1 - ix, y0: b.y0 + iy, y1: b.y1 - iy, z0: floorTop - 0.01, z1: b.z0 - PAD.gap };
+    })
+    .filter((b) => b.z1 > b.z0 + 0.3 && b.x1 > b.x0 && b.y1 > b.y0);
 }
 
 /** Odległość punktu od prostokąta klawisza (0 w środku). */
@@ -144,5 +166,6 @@ export function caseLayout(keys: Key[], island: IslandGeom | null, cellHeight: n
     bottom,
     screwLength,
     usbCuts: usbCaseCuts(island, cp),
+    pads: controllerPads(island, floorTop),
   };
 }
