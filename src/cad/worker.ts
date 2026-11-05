@@ -75,7 +75,7 @@ async function dactylFor(input: DactylInput): Promise<Shape3D> {
   }
   await init();
   const cell = await getCell({ cellId: input.cellId, cellStep: input.cellStep, variant: input.variant, up: input.up } as BuildInput);
-  const model = buildDactyl(input.params, { cellHeight: cell.height });
+  const model = buildDactyl(input.params, { cellHeight: cell.height, screwSize: input.screwSize });
   const controller = input.controller ? controllerHolder(model, input.controller) : null;
   const b = { floor: input.floor, bossHeight: 7, controller };
   const shape = input.part === 'shell' ? buildDactylShell(model, cell, b) : buildDactylBottom(model, b);
@@ -108,7 +108,7 @@ async function plateFor(input: BuildInput): Promise<Shape3D> {
   const shape =
     input.part === 'case' && c
       ? buildCase(input.keys, input.plate, input.island, cell.height, c.params, c.layout)
-      : buildPlate(input.keys, cell, input.plate, input.island, c ? screwPilots(c.layout.screws, cell.height, c.layout.pilotDepth) : []);
+      : buildPlate(input.keys, cell, input.plate, input.island, c ? screwPilots(c.layout.screws, cell.height, c.layout.pilotDepth, c.layout.screw) : []);
   remember(key, shape);
   return shape;
 }

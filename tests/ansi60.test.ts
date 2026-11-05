@@ -1,10 +1,10 @@
 import { beforeAll, describe, expect, test } from 'vitest';
-import { measureVolume, makeBox, type Shape3D } from 'replicad';
+import { measureVolume, makeBox, makeCylinder, type Shape3D } from 'replicad';
 import { initOC, cellStep } from './oc';
 import { loadCell, buildPlate, buildCase, buildWedge, screwPilots, isValidShape, stabCuts, platePiece, casePiece } from '../src/lib/geometry';
 import { TEMPLATES, splitLeft, switchOffsets, switchSpots, ANSI_60, parseRowLayout, rowLayoutToText, keysOverlap, PITCH } from '../src/lib/layout';
 import { islandFor, DEFAULT_ISLAND, type IslandParams } from '../src/lib/island';
-import { caseLayout, DEFAULT_CASE, SCREW_MARGIN } from '../src/lib/case';
+import { caseLayout, DEFAULT_CASE, SCREW_MARGIN, SCREW_SPECS, type ScrewSize } from '../src/lib/case';
 import { planSplit, plateBounds, pieceOf, seamScrewTargets, DEFAULT_PRINT } from '../src/lib/split';
 
 const tpl = TEMPLATES.find((t) => t.id === 'ansi-60')!.params;
@@ -265,4 +265,38 @@ describe('bryły 60%', () => {
     const lifted = measureVolume(plate.clone().intersect(shell.clone().translate(0, 0, 0.2)) as never);
     expect(lifted).toBeGreaterThan(0);
   }, 600000);
+
+  for (const size of ['M3', 'M2.5'] as ScrewSize[])
+    test(`śruby ${size}: słupki bez kolizji z płytą, kontrolerem, USB i modułem, łeb schowany w dnie`, async () => {
+      const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
+      const keys = splitLeft(tpl);
+      const island = islandFor(tpl, ip, 'left', 'hotswap', cell.height);
+      const sp = planSplit(keys, island, SCREW_MARGIN, caseExtra, DEFAULT_PRINT)!;
+      const cp = { ...DEFAULT_CASE, screwSize: size };
+      const lay = caseLayout(keys, island, cell.height, cp, sp);
+      expect(lay.screw).toEqual(SCREW_SPECS[size]);
+      expect(lay.screws.length).toBeGreaterThanOrEqual(6);
+      // słupek z dala od szwu spodu i od podpór
+      for (const [x, y] of lay.screws) {
+        expect(Math.abs(x - sp.caseX)).toBeGreaterThanOrEqual(lay.screw.boss / 2 + 1.5 - 1e-6);
+        for (const [a, b] of lay.supports) expect(Math.hypot(a - x, b - y)).toBeGreaterThanOrEqual(15);
+      }
+      const plate = buildPlate(keys, cell, opts, island, screwPilots(lay.screws, cell.height, lay.pilotDepth, lay.screw));
+      const shell = buildCase(keys, opts, island, cell.height, cp, lay);
+      expect(isValidShape(shell)).toBe(true);
+      expect(measureVolume(plate.clone().intersect(shell.clone()) as never)).toBeLessThan(0.01);
+      for (const g of island!.ghosts) {
+        const b = g.box;
+        expect(measureVolume(shell.clone().intersect(makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1])) as never), g.kind).toBeLessThan(0.01);
+      }
+      // wokół wybrania na łeb jest pełny pierścień materiału 1,2 mm (łeb nie przebija ścianki)
+      const h = Math.min(lay.screw.headDepth, cp.floor);
+      for (const [x, y] of lay.screws) {
+        const r = lay.screw.head / 2;
+        const ring = makeCylinder(r + 1.2, h, [x, y, lay.bottom], [0, 0, 1]).cut(makeCylinder(r + 0.01, h, [x, y, lay.bottom], [0, 0, 1]));
+        const full = measureVolume(ring as never);
+        expect(measureVolume(shell.clone().intersect(ring) as never) / full).toBeGreaterThan(0.999);
+      }
+      console.log(size, 'śruby', lay.screws.length, 'długość', lay.screwLength, 'podpory', lay.supports.length);
+    }, 240000);
 });

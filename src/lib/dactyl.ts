@@ -15,6 +15,7 @@
 // schodziłaby pod dno, i pomijamy wewnętrzny kawałek ściany pod szerokim małym palcem.
 
 import { PITCH } from './layout';
+import { screwSpec, type ScrewSize, type ScrewSpec } from './case';
 
 export type V3 = [number, number, number];
 
@@ -139,8 +140,7 @@ const CAP_TOP = PLATE_T + 12.7;
 const WALL_XY = 5;
 const WALL_Z = -15;
 const POST_ADJ = 0.05;
-/** promień tulei pod śrubę (jak w spodzie płaskiej obudowy, Ø6,5) i jej zakładka na ścianę */
-const BOSS_R = 3.25;
+/** zakładka tulei pod śrubę na ścianę (mm); średnica tulei z rozmiaru śruby (M3 Ø7,5, M2,5 Ø6,5) */
 const SCREW_BITE = 1.2;
 /** pół szerokości klawisza 1,5U (szeroki mały palec, dwa górne klawisze kciuka) */
 const HALF_15U = (1.5 * PITCH) / 2;
@@ -196,6 +196,8 @@ export interface DactylModel {
   hulls: V3[][];
   /** śruby: środki XY tulei pod wkręty od spodu */
   screws: [number, number][];
+  /** wymiary śrub (otwory, łeb, tuleja) */
+  screw: ScrewSpec;
   /**
    * ślady ścian przy podłodze: 8 punktów XY na kawałek ściany, w kolejności
    * [a wewn. ×2, a zewn. ×2, b wewn. ×2, b zewn. ×2] (góra i dół słupka)
@@ -212,6 +214,8 @@ export interface DactylOptions {
   cellHeight: number;
   /** minimalny odstęp spodu komórki od podłogi (mm) */
   floorClear?: number;
+  /** rozmiar śrub dna; brak = M3 */
+  screwSize?: ScrewSize;
 }
 
 /** Słupki klawisza: rogi 1U (lub bloku 1,5U dla kciuka tl/tr) z wcięciem jak w oryginale. */
@@ -427,10 +431,11 @@ export function buildDactyl(p: DactylParams, o: DactylOptions): DactylModel {
     screwAt(lastCol + (p.widePinky ? 0.5 : 0.1), 1),
   ];
 
-  const model: DactylModel = { params: p, keys, hulls, screws, floorQuads, web: H, lift };
+  const screw = screwSpec(o.screwSize);
+  const model: DactylModel = { params: p, keys, hulls, screws, screw, floorQuads, web: H, lift };
   // tuleja ma wchodzić w ścianę na SCREW_BITE mm, a resztą stać w środku obudowy
   const loop = floorLoop(model);
-  model.screws = screws.map((s) => settleInside(s, loop, BOSS_R - SCREW_BITE));
+  model.screws = screws.map((s) => settleInside(s, loop, screw.boss / 2 - SCREW_BITE));
   return model;
 }
 

@@ -6,6 +6,7 @@ import type { CaseLayout, CaseParams } from '../lib/case';
 import type { PrintSplit } from '../lib/split';
 import type { DactylParams } from '../lib/dactyl';
 import type { ControllerParams } from '../lib/dactyl-parts';
+import type { ScrewSize } from '../lib/case';
 
 /** Dactyl: skorupa albo dno jednej połówki. Model liczymy dla prawej, lewa to lustro. */
 export interface DactylInput {
@@ -19,6 +20,8 @@ export interface DactylInput {
   controller: ControllerParams | null;
   /** grubość dna (mm) */
   floor: number;
+  /** rozmiar śrub dna; brak = M3 */
+  screwSize?: ScrewSize;
 }
 
 export interface BuildInput {

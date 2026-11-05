@@ -24,21 +24,67 @@ export interface CaseParams {
   explode: number;
   /** podpory od dna do spodu płyty w środku klawiatury, żeby płyta nie uginała się przy nacisku */
   supports?: boolean;
+  /** rozmiar śrub spodu; brak = M3 */
+  screwSize?: ScrewSize;
 }
 
-export const DEFAULT_CASE: CaseParams = { enabled: true, wall: 2.4, gap: 0.3, floor: 3, space: 3, screws: 6, explode: 25, supports: true };
+export const DEFAULT_CASE: CaseParams = {
+  enabled: true,
+  wall: 2.4,
+  gap: 0.3,
+  floor: 3,
+  space: 3,
+  screws: 6,
+  explode: 25,
+  supports: true,
+  screwSize: 'M3',
+};
 
-/** Śruby M2,5: otwór przelotowy w spodzie, łeb w wybraniu od dołu, w płycie otwór pilotowy. */
-export const CASE_SCREW = { clearance: 2.9, head: 5.0, headDepth: 2.6, pilot: 2.2, boss: 6.5 };
+export type ScrewSize = 'M3' | 'M2.5';
+
+/**
+ * Wymiary pod śrubę spodu (mm): otwór przelotowy w spodzie, wybranie na łeb od dołu
+ * (łeb walcowy z gniazdem, ISO 4762: M3 Ø5,5 × 3, M2,5 Ø4,5 × 2,5, plus luz), otwór pilotowy
+ * w płycie do wkręcenia w plastik, średnica słupka pod płytą.
+ */
+export interface ScrewSpec {
+  size: ScrewSize;
+  clearance: number;
+  head: number;
+  headDepth: number;
+  pilot: number;
+  boss: number;
+}
+
+export const SCREW_SPECS: Record<ScrewSize, ScrewSpec> = {
+  M3: { size: 'M3', clearance: 3.4, head: 6.0, headDepth: 3.2, pilot: 2.5, boss: 7.5 },
+  'M2.5': { size: 'M2.5', clearance: 2.9, head: 5.0, headDepth: 2.6, pilot: 2.2, boss: 6.5 },
+};
+
+export const DEFAULT_SCREW: ScrewSize = 'M3';
+
+export function screwSpec(size: ScrewSize | undefined = DEFAULT_SCREW): ScrewSpec {
+  return SCREW_SPECS[size] ?? SCREW_SPECS[DEFAULT_SCREW];
+}
+
+/** Dactyl: głębokość wybrania na łeb w dnie; nad łbem zostaje co najmniej 1 mm dna (dociska je tuleja skorupy). */
+export function dactylHeadDepth(sp: ScrewSpec, floor: number): number {
+  return Math.max(Math.min(sp.headDepth, floor - 1), 0);
+}
+
+/** @deprecated wymiary M2,5; nowy kod bierze screwSpec(rozmiar). */
+export const CASE_SCREW = SCREW_SPECS['M2.5'];
 /** Pas płyty wokół klawiszy, w którym są śruby (mm). Płyta dostaje co najmniej taki margines. */
 export const SCREW_MARGIN = 6;
 /** Odległość osi śruby od krawędzi klawisza (mm). */
 const SCREW_INSET = SCREW_MARGIN / 2;
-/** Minimalna odległość osi śruby od komórek i wyspy (otwór Ø2,2 plus ścianka). */
-const SCREW_CLEAR = 2.9;
+/** Minimalna odległość osi śruby od komórek: promień otworu pilotowego plus ścianka ok. 1,65 mm. */
+const screwClear = (sp: ScrewSpec) => Math.max(2.9, sp.pilot / 2 + 1.65);
 const STANDARD_LENGTHS = [6, 8, 10, 12, 14, 16, 20];
 
 export interface CaseLayout {
+  /** wymiary śruby (otwory, łeb, słupek) */
+  screw: ScrewSpec;
   /** pozycje śrub w XY */
   screws: [number, number][];
   /** głębokość otworu pilotowego w płycie (mm) */
@@ -105,8 +151,10 @@ export function screwPositions(
   island: IslandGeom | null,
   count: number,
   split: PrintSplit | null = null,
+  sp: ScrewSpec = screwSpec(),
 ): [number, number][] {
   const s = SCREW_INSET;
+  const clear = screwClear(sp);
   const cand: [number, number][] = [];
   for (const k of keys) {
     const hw = (k.w * PITCH) / 2;
@@ -124,12 +172,13 @@ export function screwPositions(
   }
   const ok = cand.filter(
     ([x, y]) =>
-      keys.every((k) => distToKey(k, x, y) >= SCREW_CLEAR - 1e-6) &&
-      (!island || distToRect(island.rect, x, y) >= SCREW_CLEAR + 1) &&
+      keys.every((k) => distToKey(k, x, y) >= clear - 1e-6) &&
+      // słupek pod płytą nie może dotykać ścianek wyspy (schodzą niżej niż płyta)
+      (!island || distToRect(island.rect, x, y) >= Math.max(clear + 1, sp.boss / 2 + 0.5)) &&
       // przy podziale: z dala od szwu płyty i zamków (otwór pilotowy) i od szwu spodu (słupek)
       (!split ||
         (distToSeam(split, x, y) >= 3 + DOVETAIL.depth &&
-          Math.abs(x - split.caseX) >= CASE_SCREW.boss / 2 + 1.5)),
+          Math.abs(x - split.caseX) >= sp.boss / 2 + 1.5)),
   );
   if (!ok.length || count <= 0) return [];
   const picked: [number, number][] = [];
@@ -193,13 +242,15 @@ export function caseLayout(
   const lowest = Math.max(cellHeight, island?.depth ?? 0);
   const floorTop = -lowest - cp.space;
   const bottom = floorTop - cp.floor;
+  const sp = screwSpec(cp.screwSize);
   const pilotDepth = Math.max(Math.min(6, cellHeight - 1.5), 2);
   // śruba od spodu: reszta dna pod łbem + słupek do płyty + wkręcenie w płytę
-  const below = cp.floor - CASE_SCREW.headDepth + (-cellHeight - floorTop);
+  const below = cp.floor - sp.headDepth + (-cellHeight - floorTop);
   const fit = STANDARD_LENGTHS.filter((l) => l - below >= 3 && l - below <= pilotDepth);
   const screwLength = fit.length ? fit[fit.length - 1] : Math.ceil(below + Math.min(4, pilotDepth));
-  const screws = screwPositions(keys, island, cp.screws, split);
+  const screws = screwPositions(keys, island, cp.screws, split, sp);
   return {
+    screw: sp,
     screws,
     supports: cp.supports === false ? [] : supportPositions(keys, island, screws, split, stabs),
     pilotDepth,

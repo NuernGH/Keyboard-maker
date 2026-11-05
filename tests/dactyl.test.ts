@@ -2,6 +2,7 @@
 // z model.stl Dactyl Configuratora), kolizje nakładek i komórek, obrys podłogi i śruby.
 import { describe, expect, test } from 'vitest';
 import * as THREE from 'three';
+import { SCREW_SPECS } from '../src/lib/case';
 import {
   apply,
   boxesOverlap,
@@ -78,9 +79,12 @@ describe('Dactyl: rozmieszczenie', () => {
     }
   });
 
-  test('pętla podłogi zamknięta, śruby w środku przy ścianie', () => {
+  for (const size of ['M3', 'M2.5'] as const)
+  test(`pętla podłogi zamknięta, śruby ${size} w środku przy ścianie`, () => {
+    const sp = SCREW_SPECS[size];
     for (const p of [DACTYL_DEFAULT, { ...DACTYL_DEFAULT, rows: 4 }, { ...DACTYL_DEFAULT, cols: 5, widePinky: false }]) {
-      const m = buildDactyl(p, { cellHeight: 8.58 });
+      const m = buildDactyl(p, { cellHeight: 8.58, screwSize: size });
+      expect(m.screw).toEqual(sp);
       const loop = floorLoop(m);
       expect(loop.length).toBeGreaterThan(20);
       // kolejne punkty pętli blisko siebie (bez dużych przeskoków między kawałkami ścian)
@@ -89,13 +93,13 @@ describe('Dactyl: rozmieszczenie', () => {
         expect(Math.hypot(a[0] - b[0], a[1] - b[1])).toBeLessThan(40);
       }
       expect(m.screws.length).toBe(5);
-      // tuleja (Ø6,5 × 7 mm) nie wchodzi w żaden blok klawisza
+      // tuleja (Ø7,5 albo Ø6,5 × 7 mm) nie wchodzi w żaden blok klawisza
       for (const [x, y] of m.screws)
         for (const k of m.keys)
-          expect(boxesOverlap({ m: T(x, y, 0), h: [3.25, 3.25, 3.5], c: [0, 0, 3.5] }, { m: k.frame, h: [k.hw, k.hh, 4.29], c: [0, 0, -4.29] })).toBe(false);
+          expect(boxesOverlap({ m: T(x, y, 0), h: [sp.boss / 2, sp.boss / 2, 3.5], c: [0, 0, 3.5] }, { m: k.frame, h: [k.hw, k.hh, 4.29], c: [0, 0, -4.29] })).toBe(false);
       for (const s of m.screws) {
         expect(insidePoly(s, loop)).toBe(true);
-        expect(polyDist(s, loop).d).toBeCloseTo(2.05, 1);
+        expect(polyDist(s, loop).d).toBeCloseTo(sp.boss / 2 - 1.2, 1);
       }
     }
   });

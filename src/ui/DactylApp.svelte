@@ -26,6 +26,7 @@
   import { controllerHolder, DEFAULT_DACTYL_CONTROLLER, type ControllerParams } from '../lib/dactyl-parts';
   import { CONTROLLERS, type ControllerId } from '../lib/island';
   import { NO_HOTSWAP_HEIGHT } from '../lib/cell-spec';
+  import { dactylHeadDepth, screwSpec, type ScrewSize } from '../lib/case';
   import { CadClient } from '../cad/client';
   import type { DactylInput } from '../cad/protocol';
   import { zipStore } from '../lib/zip';
@@ -109,7 +110,8 @@
   let show = $state<'left' | 'right' | 'both'>('both');
   let ctrlOn = $state(true);
   let ctrl = $state<ControllerParams>({ ...DEFAULT_DACTYL_CONTROLLER });
-  let floor = $state(3);
+  let floor = $state(4);
+  let screwSize = $state<ScrewSize>('M3');
   let explode = $state(20);
   let showCaps = $state(true);
   let cellStep = $state<ArrayBuffer | null>(null);
@@ -119,9 +121,12 @@
   /** wysokość komórki z key socket.STEP (8,58 mm) albo bez hot-swap */
   const cellHeight = $derived(variant === 'hotswap' ? 8.58 : NO_HOTSWAP_HEIGHT);
   const snap = () => $state.snapshot(p) as DactylParams;
+  /** o ile łeb wystaje spod dna i jakie dno go chowa (wybranie zostawia 1 mm dna) */
+  const headOut = $derived(screwSpec(screwSize).headDepth - 0.2 - dactylHeadDepth(screwSpec(screwSize), floor));
+  const headFloor = $derived(Math.ceil((screwSpec(screwSize).headDepth + 1) * 2) / 2);
   const model = $derived.by<DactylModel | null>(() => {
     try {
-      return buildDactyl(snap(), { cellHeight });
+      return buildDactyl(snap(), { cellHeight, screwSize });
     } catch (e) {
       return null;
     }
@@ -143,6 +148,7 @@
       side,
       controller: ctrlOn ? ($state.snapshot(ctrl) as ControllerParams) : null,
       floor,
+      screwSize,
     };
   }
   const keyOf = (i: DactylInput) => JSON.stringify({ ...i, cellStep: undefined, side: undefined });
@@ -547,9 +553,16 @@
       <h2>{t(lang, 'caseBottom')}</h2>
       <div class="grid2">
         <label>{tx('floor')} <input type="number" min="2" max="6" step="0.5" bind:value={floor} /></label>
+        <label>{t(lang, 'screwSize')}
+          <select bind:value={screwSize}>
+            <option value="M3">M3</option>
+            <option value="M2.5">{lang === 'pl' ? 'M2,5' : 'M2.5'}</option>
+          </select>
+        </label>
         <label>{tx('explode')} <input type="number" min="0" max="80" step="5" bind:value={explode} /></label>
       </div>
-      <p class="muted">M2,5 × 8–10, 5 ×</p>
+      <p class="muted">{lang === 'pl' ? screwSize.replace('.', ',') : screwSize} × 8–10, 5 ×</p>
+      {#if headOut > 0.05}<p class="warn">{t(lang, 'dactylHeadOut').replace('{h}', headOut.toFixed(1).replace('.', lang === 'pl' ? ',' : '.')).replace('{f}', String(headFloor).replace('.', lang === 'pl' ? ',' : '.'))}</p>{/if}
     </section>
 
     <section>
