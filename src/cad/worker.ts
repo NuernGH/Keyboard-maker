@@ -108,7 +108,7 @@ async function plateFor(input: BuildInput): Promise<Shape3D> {
   const shape =
     input.part === 'case' && c
       ? buildCase(input.keys, input.plate, input.island, cell.height, c.params, c.layout)
-      : buildPlate(input.keys, cell, input.plate, input.island, c ? screwPilots(c.layout.screws, cell.height, c.layout.pilotDepth) : []);
+      : buildPlate(input.keys, cell, input.plate, input.island, c ? screwPilots(c.layout.screws, cell.height, c.layout.pilotDepth, c.layout.screw) : []);
   remember(key, shape);
   return shape;
 }
