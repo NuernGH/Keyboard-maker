@@ -5,6 +5,7 @@
   import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
   import { PITCH, switchOffsets, switchSpots, type Key } from '../lib/layout';
   import type { IslandGeom, GhostPart } from '../lib/island';
+  import { loadControllerModel, placeOnBoard } from './controllerModel';
 
   export interface PreviewMesh {
     vertices: Float32Array;
@@ -141,7 +142,18 @@
       const lift = half.wedgeMesh ? (half.explode ?? 0) / 2 : 0;
       if (half.island && half.showElectronics !== false) {
         // podnosimy tylko moduł na klinie (pochylone elementy); kontroler i USB zostają w wyspie
+        // kontroler z modelem (np. nice!nano): model zamiast pudełek płytki i gniazda USB
+        const board = half.island.ghosts.find((g) => g.kind === 'nano' && g.model && ctrlGeo.get(g.model));
+        if (board) {
+          const geo = ctrlGeo.get(board.model!)!;
+          const usb = half.island.ghosts.find((g) => g.kind === 'usb');
+          const cm = new THREE.Mesh(geo, ghostMats.nano);
+          cm.matrixAutoUpdate = false;
+          cm.matrix.copy(placeOnBoard(geo, board.box, usb?.box));
+          hg.add(cm);
+        }
         for (const gp of half.island.ghosts) {
+          if (board && (gp.kind === 'nano' || gp.kind === 'usb')) continue;
           const o = boxMesh(gp.box, ghostMats[gp.kind], gp.kind === 'knob');
           if (gp.box.tilt) o.position.z += lift;
           hg.add(o);
@@ -238,8 +250,20 @@
     controls.update();
   }
 
+  // modele kontrolerów wczytane do podglądu (ścieżka -> geometria)
+  let ctrlGeo = $state(new Map<string, THREE.BufferGeometry>());
+  $effect(() => {
+    const paths = new Set(halves.flatMap((h) => h.island?.ghosts.map((g) => g.model).filter((m): m is string => !!m) ?? []));
+    for (const path of paths)
+      if (!ctrlGeo.has(path))
+        void loadControllerModel(path).then((g) => {
+          if (g && !ctrlGeo.has(path)) ctrlGeo = new Map(ctrlGeo).set(path, g);
+        });
+  });
+
   $effect(() => {
     // zależności: halves, cellHeight
+    void ctrlGeo;
     void halves;
     void cellHeight;
     void stabs;
