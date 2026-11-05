@@ -60,3 +60,29 @@ test.skipIf(!OUT60)('eksport próbek 60%', async () => {
     }
   }
 }, 900000);
+
+// Dactyl 5×6 + 6 kciuk (domyślny z Dactyl Configuratora): OUTD=/ścieżka npx vitest run tests/export-samples.test.ts
+const OUTD = process.env.OUTD;
+test.skipIf(!OUTD)('eksport próbek Dactyl', async () => {
+  const { buildDactyl, DACTYL_DEFAULT } = await import('../src/lib/dactyl');
+  const { buildDactylShell, buildDactylBottom } = await import('../src/lib/dactyl-geometry');
+  const { controllerHolder, DEFAULT_DACTYL_CONTROLLER } = await import('../src/lib/dactyl-parts');
+  await initOC();
+  const write = async (name: string, shape: import('replicad').Shape3D) => {
+    writeFileSync(`${OUTD}/${name}.step`, Buffer.from(await shape.blobSTEP().arrayBuffer()));
+    writeFileSync(`${OUTD}/${name}.stl`, Buffer.from(await shape.blobSTL({ binary: true }).arrayBuffer()));
+  };
+  for (const variant of ['hotswap', 'no-hotswap'] as const) {
+    const cell = await loadCell({ step: cellStep(), up: 'auto' }, variant);
+    const m = buildDactyl(DACTYL_DEFAULT, { cellHeight: cell.height });
+    const b = { floor: 3, bossHeight: 7, controller: controllerHolder(m, DEFAULT_DACTYL_CONTROLLER) };
+    const shell = buildDactylShell(m, cell, b);
+    await write(`dactyl-5x6-right-shell-${variant}`, shell);
+    await write(`dactyl-5x6-left-shell-${variant}`, shell.clone().mirror('YZ', [0, 0, 0]) as import('replicad').Shape3D);
+    if (variant === 'hotswap') {
+      const bottom = buildDactylBottom(m, b);
+      await write('dactyl-5x6-right-bottom', bottom);
+      await write('dactyl-5x6-left-bottom', bottom.clone().mirror('YZ', [0, 0, 0]) as import('replicad').Shape3D);
+    }
+  }
+}, 900000);
