@@ -130,10 +130,12 @@
       // klin i elektronika na nim podniesione o połowę rozsunięcia obudowy, żeby było widać, że to osobna część
       const lift = half.wedgeMesh ? (half.explode ?? 0) / 2 : 0;
       if (half.island && half.showElectronics !== false) {
-        const eg = new THREE.Group();
-        eg.position.z = lift;
-        for (const gp of half.island.ghosts) eg.add(boxMesh(gp.box, ghostMats[gp.kind], gp.kind === 'knob'));
-        hg.add(eg);
+        // podnosimy tylko moduł na klinie (pochylone elementy); kontroler i USB zostają w wyspie
+        for (const gp of half.island.ghosts) {
+          const o = boxMesh(gp.box, ghostMats[gp.kind], gp.kind === 'knob');
+          if (gp.box.tilt) o.position.z += lift;
+          hg.add(o);
+        }
       }
       if (half.wedgeMesh) {
         const wg = new THREE.BufferGeometry();
