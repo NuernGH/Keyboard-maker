@@ -3,6 +3,7 @@ import type { UpAxis, CellVariant, PlateOptions } from '../lib/cell-spec';
 import type { Key } from '../lib/layout';
 import type { IslandGeom } from '../lib/island';
 import type { CaseLayout, CaseParams } from '../lib/case';
+import type { PrintSplit } from '../lib/split';
 
 export interface BuildInput {
   keys: Key[];
@@ -17,6 +18,9 @@ export interface BuildInput {
   part?: 'plate' | 'case';
   /** obudowa: parametry i wyliczone pozycje śrub; przy płycie dodaje otwory pilotowe */
   case?: { params: CaseParams; layout: CaseLayout } | null;
+  /** podział do druku; z `piece` zwraca jedną część (0 = lewa, 1 = prawa) zamiast całości */
+  split?: { plan: PrintSplit; clearance: number } | null;
+  piece?: 0 | 1;
 }
 
 export type Request =

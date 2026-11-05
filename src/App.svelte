@@ -3,7 +3,7 @@
   import { onMount } from 'svelte';
   import Preview, { type PreviewHalf, type PreviewMesh } from './ui/Preview.svelte';
   import { t, type Lang } from './ui/i18n';
-  import { SPLIT_4x6_4, TEMPLATES, splitLeft, mirrorKeys, keysOverlap, keyCorners, polysOverlap, PITCH, type SplitParams } from './lib/layout';
+  import { SPLIT_4x6_4, TEMPLATES, parseRowLayout, rowLayoutToText, splitLeft, mirrorKeys, keysOverlap, keyCorners, polysOverlap, PITCH, type SplitParams } from './lib/layout';
   import {
     DEFAULT_PLATE_OPTIONS,
     NO_HOTSWAP_HEIGHT,
@@ -18,6 +18,7 @@
   import Tooltip from './ui/Tooltip.svelte';
   import { CONTROLLERS, DEFAULT_ISLAND, islandFor, type IslandParams } from './lib/island';
   import { DEFAULT_CASE, SCREW_MARGIN, caseLayout, type CaseParams } from './lib/case';
+  import { DEFAULT_PRINT, planSplit, pieceOf, type PrintParams, type PrintSplit } from './lib/split';
 
   type Side = 'left' | 'right';
 
@@ -29,12 +30,23 @@
   let caseP = $state<CaseParams>({ ...DEFAULT_CASE });
   /** obudowa ma sens tylko dla pełnych komórek (cienka płyta nie utrzyma śrub) */
   const caseOn = $derived(caseP.enabled && variant !== 'thin-plate');
+  let print = $state<PrintParams>({ ...DEFAULT_PRINT });
+  /** układ rzędami jako tekst (60% itp.) */
+  let rowText = $state('');
   function applyTemplate(id: string) {
     const tpl = TEMPLATES.find((x) => x.id === id);
-    if (tpl) params = structuredClone(tpl.params);
-    // macropad: wyspa domyślnie nad klawiszami
-    if (tpl) island.position = tpl.params.single ? 'top' : 'inner';
+    if (!tpl) return;
+    params = structuredClone(tpl.params);
+    // macropad: wyspa domyślnie nad klawiszami; 60%: nad klawiszami w prawym rogu
+    island.position = tpl.params.single ? 'top' : 'inner';
+    island.align = tpl.params.rowLayout ? 'end' : 'center';
+    if (tpl.params.rowLayout) rowText = rowLayoutToText(tpl.params.rowLayout);
   }
+  function onRowText() {
+    const rows = parseRowLayout(rowText);
+    if (rows.length) params.rowLayout = rows;
+  }
+  const rowMode = $derived(!!params.rowLayout?.length);
   let variant = $state<CellVariant>('hotswap');
   let plate = $state<PlateOptions>({ ...DEFAULT_PLATE_OPTIONS });
   let show = $state<'left' | 'right' | 'both'>('both');
@@ -46,7 +58,7 @@
 
   let status = $state<string>('');
   let error = $state<string>('');
-  type Job = Side | 'left-case' | 'right-case';
+  type Job = string;
   let meshes = $state<Partial<Record<Job, { key: string; mesh: PreviewMesh } | null>>>({});
   let busy = $state<Partial<Record<Job, boolean>>>({});
   let lastMs = $state<number | null>(null);
@@ -96,9 +108,16 @@
   };
   const keysFor = (s: Side) => (s === 'left' ? leftKeys : rightKeys);
   const single = $derived(!!params.single);
+  const plateMargin = $derived(caseOn ? Math.max(plate.margin, SCREW_MARGIN) : plate.margin);
+  /** podział do druku (na razie dla jednej płyty: macropad, 60%) */
+  let split = $derived<PrintSplit | null>(
+    single ? planSplit(leftKeys, islandGeom('left'), plateMargin, caseOn ? caseP.gap + caseP.wall : null, $state.snapshot(print) as PrintParams) : null,
+  );
+  /** czy cała płyta i spód mieszczą się na stole bez cięcia */
+  const pieces = $derived<(0 | 1 | undefined)[]>(split ? [0, 1] : [undefined]);
   const sides = $derived<Side[]>(single ? ['left'] : show === 'both' ? ['left', 'right'] : [show]);
 
-  function inputFor(s: Side, part: 'plate' | 'case' = 'plate'): BuildInput | null {
+  function inputFor(s: Side, part: 'plate' | 'case' = 'plate', piece?: 0 | 1): BuildInput | null {
     if (!cellStep) return null;
     if (part === 'case' && !caseOn) return null;
     const po = $state.snapshot(plate) as PlateOptions;
@@ -115,11 +134,14 @@
       up,
       island: isl,
       part,
-      case: caseOn ? { params: cp, layout: caseLayout(keysFor(s), isl, cellHeight, cp) } : null,
+      case: caseOn ? { params: cp, layout: caseLayout(keysFor(s), isl, cellHeight, cp, s === 'left' ? split : null) } : null,
+      split: s === 'left' && split ? { plan: $state.snapshot(split) as PrintSplit, clearance: print.clearance } : null,
+      piece: s === 'left' && split ? piece : undefined,
     };
   }
-  const job = (s: Side, part: 'plate' | 'case'): Job => (part === 'case' ? `${s}-case` : s);
-  let screwInfo = $derived(caseOn ? caseLayout(leftKeys, islandGeom('left'), cellHeight, caseP) : null);
+  const job = (s: Side, part: 'plate' | 'case', piece?: 0 | 1): Job =>
+    `${part === 'case' ? `${s}-case` : s}${piece === undefined ? '' : `-p${piece}`}`;
+  let screwInfo = $derived(caseOn ? caseLayout(leftKeys, islandGeom('left'), cellHeight, caseP, split) : null);
   const inputKey = (i: BuildInput) => JSON.stringify({ ...i, cellStep: undefined });
 
   let halves = $derived.by<PreviewHalf[]>(() => {
@@ -132,6 +154,29 @@
     const reachR = Math.max(kb, ir ? -ir.rect.x0 : -Infinity);
     const gap = 2 * PITCH;
     const pad = caseOn ? SCREW_MARGIN + caseP.gap + caseP.wall : 0;
+    if (split) {
+      // podział do druku: dwie części rozsunięte o kilka mm, żeby było widać szwy płyty i spodu
+      const sp = split;
+      const isl = islandGeom('left');
+      const islPiece = isl ? pieceOf(sp, (isl.rect.x0 + isl.rect.x1) / 2, (isl.rect.y0 + isl.rect.y1) / 2) : null;
+      return ([0, 1] as const).map((pc) => {
+        const mesh = (part: 'plate' | 'case') => {
+          const inp = inputFor('left', part, pc);
+          const m = meshes[job('left', part, pc)];
+          return inp && m && m.key === inputKey(inp) ? m.mesh : null;
+        };
+        return {
+          keys: leftKeys.filter((k) => pieceOf(sp, k.x, k.y) === pc),
+          offsetX: pc * splitGap,
+          mesh: mesh('plate'),
+          island: islPiece === pc ? isl : null,
+          showElectronics,
+          caseMesh: mesh('case'),
+          caseOn,
+          explode: caseP.explode,
+        };
+      });
+    }
     return sides.map((s) => {
       const inp = inputFor(s);
       const m = meshes[s];
@@ -148,20 +193,24 @@
   const client = (s: Side) => (clients[s] ??= new CadClient());
 
   let timer: ReturnType<typeof setTimeout> | undefined;
+  /** odstęp między częściami w podglądzie (mm) */
+  const splitGap = 14;
   $effect(() => {
     // przelicz dokładną bryłę po krótkiej przerwie od ostatniej zmiany
-    const jobs = sides.flatMap((s) => [[s, 'plate', inputFor(s)] as const, [s, 'case', inputFor(s, 'case')] as const]);
+    const jobs = sides.flatMap((s) =>
+      pieces.flatMap((pc) => [[s, 'plate', inputFor(s, 'plate', pc), pc] as const, [s, 'case', inputFor(s, 'case', pc), pc] as const]),
+    );
     clearTimeout(timer);
     timer = setTimeout(async () => {
       // płyta przed obudową na tym samym wątku: najpierw widać płytę
-      for (const [s, part, inp] of jobs) if (inp && part === 'plate') void computeMesh(s, part, inp);
-      for (const [s, part, inp] of jobs) if (inp && part === 'case') void computeMesh(s, part, inp);
+      for (const [s, part, inp, pc] of jobs) if (inp && part === 'plate') void computeMesh(s, part, inp, pc);
+      for (const [s, part, inp, pc] of jobs) if (inp && part === 'case') void computeMesh(s, part, inp, pc);
     }, 500);
   });
 
   const running: Partial<Record<Job, string>> = {};
-  async function computeMesh(s: Side, part: 'plate' | 'case', inp: BuildInput) {
-    const j = job(s, part);
+  async function computeMesh(s: Side, part: 'plate' | 'case', inp: BuildInput, piece?: 0 | 1) {
+    const j = job(s, part, piece);
     const key = inputKey(inp);
     if (meshes[j]?.key === key || running[j] === key) return;
     running[j] = key;
@@ -182,15 +231,20 @@
     }
   }
 
-  async function exportFile(s: Side, format: 'stl' | 'step', part: 'plate' | 'case' = 'plate') {
-    const inp = inputFor(s, part);
+  async function exportFile(s: Side, format: 'stl' | 'step', part: 'plate' | 'case' = 'plate', piece?: 0 | 1) {
+    const inp = inputFor(s, part, piece);
     if (!inp) return;
     status = t(lang, 'computing');
     error = '';
     try {
       const data = await client(s).exportFile(inp, format);
-      const base = params.single ? `macropad-${params.rows}x${params.cols}` : `${s}`;
-      const name = `${base}-${part === 'case' ? 'case' : 'plate'}-${variant}.${format}`;
+      const base = params.rowLayout?.length
+        ? `keyboard-${leftKeys.length}`
+        : params.single
+          ? `macropad-${params.rows}x${params.cols}`
+          : `${s}`;
+      const pc = piece === undefined ? '' : `-${piece + 1}of2`;
+      const name = `${base}-${part === 'case' ? 'case' : 'plate'}${pc}-${variant}.${format}`;
       await saveFile(name, data);
     } catch (e) {
       error = (e as Error).message;
@@ -248,7 +302,8 @@
       .catch((e) => (error = String(e)));
   });
 
-  const anyBusy = $derived(sides.some((s) => busy[s] || busy[job(s, 'case')]));
+  const anyBusy = $derived(sides.some((s) => pieces.some((pc) => busy[job(s, 'plate', pc)] || busy[job(s, 'case', pc)])));
+  const mm = (v: number) => Math.round(v);
   const allExact = $derived(halves.every((h) => h.mesh && (!h.caseOn || h.caseMesh)));
 </script>
 
@@ -313,6 +368,13 @@
 
     <section>
       <h2>{t(lang, 'layout')}</h2>
+      {#if rowMode}
+      <label data-tip={t(lang, 'tipRowLayout')}>
+        {t(lang, 'rowLayout')}
+        <textarea rows="6" spellcheck="false" bind:value={rowText} oninput={onRowText}></textarea>
+      </label>
+      {#if overlap}<p class="warn">{t(lang, 'overlap')}</p>{/if}
+      {:else}
       <div class="grid2">
         <label data-tip={t(lang, 'tipRows')}>{t(lang, 'rows')} <input type="number" min="1" max="8" bind:value={params.rows} /></label>
         <label data-tip={t(lang, 'tipCols')}>{t(lang, 'cols')} <input type="number" min="1" max="10" bind:value={params.cols} /></label>
@@ -323,6 +385,7 @@
           <input type="number" step="0.5" bind:value={params.stagger[i]} aria-label="stagger {i + 1}" />
         {/each}
       </div>
+      {/if}
     </section>
 
     {#if !single}
@@ -353,7 +416,7 @@
     </section>
     {/if}
 
-    {#if single}
+    {#if single && !rowMode}
     <section>
       <h2>{t(lang, 'extraKeys')}</h2>
       {#each params.extra ?? [] as e, i (i)}
@@ -377,6 +440,7 @@
         <label data-tip={t(lang, 'tipFillGaps')}>{t(lang, 'fillGaps')} <input type="number" min="0" step="0.5" bind:value={plate.fillGaps} /></label>
         <label data-tip={t(lang, 'tipMargin')}>{t(lang, 'margin')} <input type="number" min="0" step="0.5" bind:value={plate.margin} /></label>
       </div>
+      <label class="check" data-tip={t(lang, 'tipStabs')}><input type="checkbox" checked={plate.stabs !== 'none'} onchange={(e) => (plate.stabs = e.currentTarget.checked ? 'cherry' : 'none')} /> {t(lang, 'stabs')}</label>
       {#if !single}
       <label data-tip={t(lang, 'tipHalves')}>
         {t(lang, 'halves')}
@@ -460,20 +524,54 @@
       {/if}
     </section>
 
+    {#if single}
+    <section>
+      <h2>{t(lang, 'print')}</h2>
+      <div class="grid2">
+        <label data-tip={t(lang, 'tipBed')}>{t(lang, 'bedX')} <input type="number" min="100" step="5" bind:value={print.bedX} /></label>
+        <label data-tip={t(lang, 'tipBed')}>{t(lang, 'bedY')} <input type="number" min="100" step="5" bind:value={print.bedY} /></label>
+        <label data-tip={t(lang, 'tipSplitMode')}>{t(lang, 'splitMode')}
+          <select bind:value={print.mode}>
+            <option value="auto">{t(lang, 'splitAuto')}</option>
+            <option value="off">{t(lang, 'splitOff')}</option>
+          </select>
+        </label>
+        <label data-tip={t(lang, 'tipSeamGap')}>{t(lang, 'seamGap')} <input type="number" min="0" max="0.6" step="0.05" bind:value={print.clearance} /></label>
+      </div>
+      {#if split}
+        <p class={split.fits ? 'muted' : 'warn'}>
+          {t(lang, split.fits ? 'splitInfo' : 'splitNoFit')
+            .replace('{p1}', `${mm(split.plateParts[0][0])} × ${mm(split.plateParts[0][1])}`)
+            .replace('{p2}', `${mm(split.plateParts[1][0])} × ${mm(split.plateParts[1][1])}`)
+            .replace('{c1}', `${mm(split.caseParts[0][0])} × ${mm(split.caseParts[0][1])}`)
+            .replace('{c2}', `${mm(split.caseParts[1][0])} × ${mm(split.caseParts[1][1])}`)}
+        </p>
+      {:else}
+        <p class="muted">{t(lang, print.mode === 'off' ? 'splitDisabled' : 'fitsBed')}</p>
+      {/if}
+    </section>
+    {/if}
+
     <section>
       <h2>{t(lang, 'export')}</h2>
       {#each sides.length === 1 && single ? (['left'] as const) : (['left', 'right'] as const) as s (s)}
+        {#each pieces as pc (pc ?? -1)}
+        {@const pcName = pc === undefined ? '' : ` ${pc + 1}/2`}
         <div class="row">
-          <span class="side">{single ? t(lang, 'plate') : t(lang, s)}</span>
-          <button onclick={() => exportFile(s, 'stl')} disabled={!cellStep} data-tip={t(lang, 'tipStl')}>STL</button>
-          <button onclick={() => exportFile(s, 'step')} disabled={!cellStep} data-tip={t(lang, 'tipStep')}>STEP</button>
+          <span class="side">{single ? t(lang, 'plate') : t(lang, s)}{pcName}</span>
+          <button onclick={() => exportFile(s, 'stl', 'plate', pc)} disabled={!cellStep} data-tip={t(lang, 'tipStl')}>STL</button>
+          <button onclick={() => exportFile(s, 'step', 'plate', pc)} disabled={!cellStep} data-tip={t(lang, 'tipStep')}>STEP</button>
         </div>
+        {/each}
         {#if caseOn}
+          {#each pieces as pc (pc ?? -1)}
+          {@const pcName = pc === undefined ? '' : ` ${pc + 1}/2`}
           <div class="row">
-            <span class="side">{single ? t(lang, 'caseBottom') : `${t(lang, 'caseBottom')}: ${t(lang, s).toLowerCase()}`}</span>
-            <button onclick={() => exportFile(s, 'stl', 'case')} disabled={!cellStep} data-tip={t(lang, 'tipStl')}>STL</button>
-            <button onclick={() => exportFile(s, 'step', 'case')} disabled={!cellStep} data-tip={t(lang, 'tipStep')}>STEP</button>
+            <span class="side">{single ? t(lang, 'caseBottom') : `${t(lang, 'caseBottom')}: ${t(lang, s).toLowerCase()}`}{pcName}</span>
+            <button onclick={() => exportFile(s, 'stl', 'case', pc)} disabled={!cellStep} data-tip={t(lang, 'tipStl')}>STL</button>
+            <button onclick={() => exportFile(s, 'step', 'case', pc)} disabled={!cellStep} data-tip={t(lang, 'tipStep')}>STEP</button>
           </div>
+          {/each}
         {/if}
       {/each}
     </section>
@@ -562,6 +660,13 @@
   .stagger input {
     padding: 4px 2px;
     font-size: 12px;
+  }
+  textarea {
+    width: 100%;
+    font: 12px/1.4 ui-monospace, monospace;
+    padding: 4px 6px;
+    resize: vertical;
+    box-sizing: border-box;
   }
   input[type='number'],
   select {

@@ -5,6 +5,7 @@
 
 import { PITCH, type Key } from './layout';
 import type { Box, IslandGeom } from './island';
+import { DOVETAIL, distToSeam, seamScrewTargets, type PrintSplit } from './split';
 
 export interface CaseParams {
   enabled: boolean;
@@ -94,7 +95,12 @@ function distToRect(r: { x0: number; y0: number; x1: number; y1: number }, x: nu
  * każdego klawisza, odsunięci o SCREW_INSET na zewnątrz. Zostają tylko ci, którzy nie trafiają
  * w żadną komórkę ani w wyspę; z nich wybieramy `count` jak najdalej od siebie.
  */
-export function screwPositions(keys: Key[], island: IslandGeom | null, count: number): [number, number][] {
+export function screwPositions(
+  keys: Key[],
+  island: IslandGeom | null,
+  count: number,
+  split: PrintSplit | null = null,
+): [number, number][] {
   const s = SCREW_INSET;
   const cand: [number, number][] = [];
   for (const k of keys) {
@@ -104,20 +110,38 @@ export function screwPositions(keys: Key[], island: IslandGeom | null, count: nu
     const local: [number, number][] = [];
     for (const sx of [-1, 0, 1])
       for (const sy of [-1, 0, 1]) if (sx || sy) local.push([sx * (hw + s), sy * (hh + s)]);
+    // wzdłuż długich klawiszy (spacja, Shift) co pół U, żeby śruby mogły stać blisko szwów
+    for (let lx = -hw + PITCH / 2; lx < hw - 1e-6; lx += PITCH / 2)
+      for (const sy of [-1, 1]) local.push([lx, sy * (hh + s)]);
+    for (let ly = -hh + PITCH / 2; ly < hh - 1e-6; ly += PITCH / 2)
+      for (const sx of [-1, 1]) local.push([sx * (hw + s), ly]);
     for (const [lx, ly] of local) cand.push([k.x + lx * Math.cos(a) - ly * Math.sin(a), k.y + lx * Math.sin(a) + ly * Math.cos(a)]);
   }
   const ok = cand.filter(
     ([x, y]) =>
       keys.every((k) => distToKey(k, x, y) >= SCREW_CLEAR - 1e-6) &&
-      (!island || distToRect(island.rect, x, y) >= SCREW_CLEAR + 1),
+      (!island || distToRect(island.rect, x, y) >= SCREW_CLEAR + 1) &&
+      // przy podziale: z dala od szwu płyty i zamków (otwór pilotowy) i od szwu spodu (słupek)
+      (!split ||
+        (distToSeam(split, x, y) >= 3 + DOVETAIL.depth &&
+          Math.abs(x - split.caseX) >= CASE_SCREW.boss / 2 + 1.5)),
   );
   if (!ok.length || count <= 0) return [];
+  const picked: [number, number][] = [];
+  const far = (p: [number, number], set: [number, number][]) => Math.min(...set.map((q) => Math.hypot(p[0] - q[0], p[1] - q[1])));
+  if (split) {
+    // najpierw śruby po obu stronach obu szwów: łączą części płyty przez spód i części spodu przez płytę
+    for (const t of seamScrewTargets(split, keys, SCREW_MARGIN)) {
+      const near = ok.reduce((b, p) => (Math.hypot(p[0] - t[0], p[1] - t[1]) < Math.hypot(b[0] - t[0], b[1] - t[1]) ? p : b));
+      if (Math.hypot(near[0] - t[0], near[1] - t[1]) < 25 && (!picked.length || far(near, picked) >= 10)) picked.push(near);
+    }
+  }
   // pierwsza śruba: najdalej od środka, kolejne: najdalej od już wybranych
   const cx = ok.reduce((a, p) => a + p[0], 0) / ok.length;
   const cy = ok.reduce((a, p) => a + p[1], 0) / ok.length;
-  const far = (p: [number, number], set: [number, number][]) => Math.min(...set.map((q) => Math.hypot(p[0] - q[0], p[1] - q[1])));
-  const picked: [number, number][] = [ok.reduce((b, p) => (far(p, [[cx, cy]]) > far(b, [[cx, cy]]) ? p : b))];
-  while (picked.length < Math.min(count, ok.length)) {
+  if (!picked.length) picked.push(ok.reduce((b, p) => (far(p, [[cx, cy]]) > far(b, [[cx, cy]]) ? p : b)));
+  const total = split ? count + picked.length : count;
+  while (picked.length < Math.min(total, ok.length)) {
     const next = ok.reduce((b, p) => (far(p, picked) > far(b, picked) ? p : b));
     if (far(next, picked) < 15) break;
     picked.push(next);
@@ -150,7 +174,13 @@ export function usbCaseCuts(island: IslandGeom | null, cp: CaseParams): Box[] {
   return out;
 }
 
-export function caseLayout(keys: Key[], island: IslandGeom | null, cellHeight: number, cp: CaseParams): CaseLayout {
+export function caseLayout(
+  keys: Key[],
+  island: IslandGeom | null,
+  cellHeight: number,
+  cp: CaseParams,
+  split: PrintSplit | null = null,
+): CaseLayout {
   const lowest = Math.max(cellHeight, island?.depth ?? 0);
   const floorTop = -lowest - cp.space;
   const bottom = floorTop - cp.floor;
@@ -160,7 +190,7 @@ export function caseLayout(keys: Key[], island: IslandGeom | null, cellHeight: n
   const fit = STANDARD_LENGTHS.filter((l) => l - below >= 3 && l - below <= pilotDepth);
   const screwLength = fit.length ? fit[fit.length - 1] : Math.ceil(below + Math.min(4, pilotDepth));
   return {
-    screws: screwPositions(keys, island, cp.screws),
+    screws: screwPositions(keys, island, cp.screws, split),
     pilotDepth,
     floorTop,
     bottom,

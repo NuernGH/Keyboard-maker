@@ -42,6 +42,55 @@ export interface SplitParams {
   single?: boolean;
   /** dodatkowe klawisze poza siatką (np. obok wyspy) */
   extra?: ExtraKey[];
+  /**
+   * Układ rzędami (klawiatura 60% itp.): każdy rząd to lista szerokości klawiszy w U, od lewej.
+   * Liczba ujemna to przerwa o tej szerokości. Gdy jest podany, zastępuje siatkę kolumn,
+   * stagger i klaster kciuka (`rows`/`cols` są wtedy tylko informacyjne).
+   */
+  rowLayout?: number[][];
+}
+
+/** 60% ANSI: 61 klawiszy, 15U szerokości, 5 rzędów. */
+export const ANSI_60: number[][] = [
+  [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2],
+  [1.5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1.5],
+  [1.75, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2.25],
+  [2.25, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2.75],
+  [1.25, 1.25, 1.25, 6.25, 1.25, 1.25, 1.25, 1.25],
+];
+
+/** Rzędy jako tekst: jeden rząd na linię, szerokości oddzielone spacjami (przecinek dziesiętny dozwolony). */
+export function rowLayoutToText(rows: number[][]): string {
+  return rows.map((r) => r.map((w) => String(w).replace('.', ',')).join(' ')).join('\n');
+}
+
+export function parseRowLayout(text: string): number[][] {
+  return text
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .trim()
+        .split(/[\s;]+/)
+        .filter(Boolean)
+        .map((t) => Number(t.replace(',', '.')))
+        .filter((w) => Number.isFinite(w) && w !== 0 && Math.abs(w) <= 12),
+    )
+    .filter((r) => r.length > 0);
+}
+
+/** Klawisze układu rzędami: środek pierwszego klawisza 1U w (0, 0), rzędy w dół co 1U. */
+export function rowKeys(rows: number[][]): Key[] {
+  const keys: Key[] = [];
+  rows.forEach((row, r) => {
+    let cursor = 0;
+    let c = 0;
+    for (const v of row) {
+      const w = Math.abs(v);
+      if (v > 0) keys.push({ id: `k-${r}-${c++}`, x: (cursor + w / 2 - 0.5) * PITCH, y: -r * PITCH, rot: 0, w, h: 1 });
+      cursor += w;
+    }
+  });
+  return keys;
 }
 
 /**
@@ -146,6 +195,11 @@ export const TEMPLATES: Template[] = [
       thumbLastVertical: false,
     },
   },
+  {
+    id: 'ansi-60',
+    name: { pl: 'Klawiatura 60% ANSI (61)', en: '60% ANSI keyboard (61)' },
+    params: { ...SPLIT_4x6_4, rows: 5, cols: 15, stagger: Array(15).fill(0), thumbKeys: 0, single: true, rowLayout: ANSI_60 },
+  },
   { id: 'macropad-3x3', name: { pl: 'Macropad 3×3 (9)', en: 'Macropad 3×3 (9)' }, params: macropad(3, 3) },
   { id: 'macropad-3x4', name: { pl: 'Macropad 3×4 (12)', en: 'Macropad 3×4 (12)' }, params: macropad(3, 4) },
   { id: 'macropad-4x4', name: { pl: 'Macropad 4×4 (16)', en: 'Macropad 4×4 (16)' }, params: macropad(4, 4) },
@@ -162,6 +216,7 @@ const rotPt = (x: number, y: number, deg: number): [number, number] => {
  * Rząd 0 to górny rząd (cyfry). Klaster kciuka idzie od kolumny `thumbAnchorCol` w prawo.
  */
 export function splitLeft(p: SplitParams): Key[] {
+  if (p.rowLayout?.length) return [...rowKeys(p.rowLayout), ...extraKeys(p)];
   const keys: Key[] = [];
   for (let c = 0; c < p.cols; c++) {
     const st = p.stagger[c] ?? 0;
@@ -208,11 +263,15 @@ export function splitLeft(p: SplitParams): Key[] {
     cy += ny;
     angle += p.thumbSplay;
   }
-  (p.extra ?? []).forEach((e, i) => {
-    const w = Math.max(1, e.w || 1);
-    keys.push({ id: `e-${i}`, x: e.col * PITCH + ((w - 1) * PITCH) / 2, y: -e.row * PITCH, rot: e.rot || 0, w, h: 1 });
-  });
+  keys.push(...extraKeys(p));
   return keys;
+}
+
+function extraKeys(p: SplitParams): Key[] {
+  return (p.extra ?? []).map((e, i) => {
+    const w = Math.max(1, e.w || 1);
+    return { id: `e-${i}`, x: e.col * PITCH + ((w - 1) * PITCH) / 2, y: -e.row * PITCH, rot: e.rot || 0, w, h: 1 };
+  });
 }
 
 /** Prawa połówka: lustro pozycji lewej. Komórki NIE są lustrzane (gniazda hot-swap zostają w tej samej orientacji). */

@@ -13,6 +13,7 @@ import {
   cast,
   CompoundBlueprint,
   Drawing,
+  draw,
   drawRectangle,
   getOC,
   importSTEP,
@@ -24,11 +25,15 @@ import {
 import { PITCH, type Key } from './layout';
 import type { IslandGeom } from './island';
 import { CASE_SCREW, type CaseLayout, type CaseParams } from './case';
+import { leftRegion, type PrintSplit } from './split';
 
 import {
   DEFAULT_PLATE_OPTIONS,
   MX_HOLE,
   NO_HOTSWAP_HEIGHT,
+  PCB_LEVEL,
+  PLATE_LIP,
+  stabOffset,
   THIN_PLATE_THICKNESS,
   type CellVariant,
   type PlateOptions,
@@ -197,8 +202,42 @@ export function buildPlate(
           ? (makeCylinder((b.x1 - b.x0) / 2, b.z1 - b.z0, [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, b.z0], [0, 0, 1]) as Shape3D)
           : makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]),
       );
+  if ((opts.stabs ?? 'cherry') !== 'none') for (const k of keys) negatives.push(...stabCuts(k, cell.height));
   negatives.push(...pilots);
   return cutMany(body, negatives);
+}
+
+/**
+ * Wycięcia na stabilizator Cherry/Costar montowany w płycie, dla klawisza od 2U.
+ * W warstwie płyty (1,27 mm) otwór wg specyfikacji Cherry (6,75 × 12,3 z wycięciami na zatrzaski
+ * i drut). Pod nią kieszeń na obudowę stabilizatora przez całą wysokość i kanał na drut
+ * łączący obie obudowy, do poziomu PCB (5,08 mm), więc dno komórki z gniazdem zostaje nietknięte.
+ * Drut jest od strony użytkownika (dół klawisza).
+ */
+export function stabCuts(k: Key, cellHeight: number): Shape3D[] {
+  const vertical = k.h > k.w;
+  const s = stabOffset(vertical ? k.h : k.w);
+  if (s === null) return [];
+  const h = cellHeight;
+  const thin = h <= PLATE_LIP + 0.5;
+  const out: Shape3D[] = [];
+  const b = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) => out.push(makeBox([x0, y0, z0], [x1, y1, z1]));
+  const zt = -h - 1;
+  for (const sx of [-1, 1]) {
+    const c = sx * s;
+    // otwór w płycie (w układzie z osią Y w górę: drut na dole)
+    b(c - 3.375, -6.77, zt, c + 3.375, 5.53, 1);
+    b(c - 1.65, -7.97, zt, c + 1.65, -6.7, 1);
+    // wycięcie na zatrzask po zewnętrznej stronie
+    b(sx > 0 ? c + 3.3 : c - 4.2, -0.5, zt, sx > 0 ? c + 4.2 : c - 3.3, 2.3, 1);
+    if (!thin) b(c - 4.5, -8.4, zt, c + 4.5, 6.6, -PLATE_LIP);
+  }
+  if (!thin) {
+    const zb = h <= PCB_LEVEL + 0.01 ? zt : -PCB_LEVEL;
+    b(-s, -8.4, zb, s, -5.2, -PLATE_LIP);
+  }
+  const rot = k.rot + (vertical ? 90 : 0);
+  return out.map((sh) => sh.rotate(rot, [0, 0, 0], [0, 0, 1]).translate(k.x, k.y, 0) as Shape3D);
 }
 
 /**
@@ -280,4 +319,37 @@ export function buildCase(
   }
   for (const b of layout.usbCuts) tools.push(makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]));
   return tools.length ? cutMany(body, tools) : body;
+}
+
+/** Pryzmat z wielokąta XY, od z0 do z1. */
+function prism(poly: [number, number][], z0: number, z1: number, grow = 0): Shape3D {
+  let pen = draw(poly[0]);
+  for (const p of poly.slice(1)) pen = pen.lineTo(p);
+  let d: Drawing = pen.close();
+  if (grow) d = d.offset(grow);
+  return d.sketchOnPlane('XY', z0).extrude(z1 - z0) as Shape3D;
+}
+
+/**
+ * Część płyty po podziale do druku: 0 = lewa (z wypustami zamków), 1 = prawa (z gniazdami).
+ * Lewa jest zwężona o 1/3 luzu, z prawej wycinamy obszar poszerzony o 2/3 luzu, więc
+ * płaszczyzna cięcia nie pokrywa się ze ściankami komórek.
+ */
+export function platePiece(plate: Shape3D, split: PrintSplit, clearance: number, piece: 0 | 1): Shape3D {
+  const bb = plate.boundingBox.bounds;
+  const z0 = bb[0][2] - 1;
+  const z1 = bb[1][2] + 1;
+  const poly = leftRegion(split);
+  if (piece === 0) return plate.clone().intersect(prism(poly, z0, z1, -clearance / 3)) as Shape3D;
+  return plate.clone().cut(prism(poly, z0, z1, (2 * clearance) / 3)) as Shape3D;
+}
+
+/** Część spodu obudowy po cięciu prostym w x = caseX. */
+export function casePiece(shell: Shape3D, caseX: number, piece: 0 | 1): Shape3D {
+  const bb = shell.boundingBox.bounds;
+  const lo: [number, number, number] = [bb[0][0] - 1, bb[0][1] - 1, bb[0][2] - 1];
+  const hi: [number, number, number] = [bb[1][0] + 1, bb[1][1] + 1, bb[1][2] + 1];
+  if (piece === 0) hi[0] = caseX;
+  else lo[0] = caseX;
+  return shell.clone().intersect(makeBox(lo, hi)) as Shape3D;
 }
