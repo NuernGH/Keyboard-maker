@@ -352,6 +352,14 @@
               <option value="bottom">{t(lang, 'posBottom')}</option>
             </select>
           </label>
+          {#if island.position === 'top' || island.position === 'bottom'}
+          <label data-tip={t(lang, 'tipUsbOut')}>{t(lang, 'usbOut')}
+            <select bind:value={island.usbOut}>
+              <option value="edge">{t(lang, 'usbEdge')}</option>
+              <option value="end">{t(lang, 'usbEnd')}</option>
+            </select>
+          </label>
+          {/if}
           <label class="check" data-tip={t(lang, 'tipModuleSingle')}><input type="checkbox" checked={island.moduleSide !== 'none'} onchange={(e) => (island.moduleSide = e.currentTarget.checked ? 'left' : 'none')} /> {t(lang, 'moduleSingle')}</label>
           {:else}
           <label data-tip={t(lang, 'tipModuleSide')}>{t(lang, 'moduleSide')}

@@ -51,6 +51,11 @@ export interface IslandParams {
   /** na której połówce jest moduł OLED z enkoderem; druga dostaje małą wyspę na sam kontroler */
   moduleSide: ModuleSide;
   position?: IslandPosition;
+  /**
+   * Przy wyspie nad lub pod klawiszami: `edge` = USB wychodzi długą, zewnętrzną krawędzią wyspy
+   * (od góry przy położeniu „góra”), `end` = USB wychodzi z krótkiego końca wyspy.
+   */
+  usbOut?: 'edge' | 'end';
 }
 
 export const DEFAULT_ISLAND: IslandParams = {
@@ -60,6 +65,8 @@ export const DEFAULT_ISLAND: IslandParams = {
   offsetY: 0,
   controller: 'nicenano',
   moduleSide: 'left',
+  position: 'inner',
+  usbOut: 'edge',
 };
 
 export const ISLAND_W = 38;
@@ -144,6 +151,16 @@ export function islandFor(
   const { w: W, h: H } = islandSize(ip, side);
   const D = Math.max(ip.depth, cellHeight, ctrl.height + 1.5);
   const pos = ip.position ?? 'inner';
+  if ((pos === 'top' || pos === 'bottom') && (ip.usbOut ?? 'edge') === 'edge') {
+    const g = edgeIsland(p, ip, ctrl, mod, D, variant, cellHeight, pos);
+    if (side === 'left') return g;
+    return {
+      rect: { ...g.rect, x0: -g.rect.x1, x1: -g.rect.x0 },
+      depth: D,
+      cuts: g.cuts.map(mirrorBox),
+      ghosts: g.ghosts.map((gp) => ({ ...gp, box: mirrorBox(gp.box) })),
+    };
+  }
   const inner = p.cols - 1;
   // przy innych położeniach liczymy wyspę w układzie lokalnym (lewy górny róg w 0,0), potem obracamy
   const local = pos !== 'inner';
@@ -273,5 +290,93 @@ function place(g: IslandGeom, pos: IslandPosition, p: SplitParams, ip: IslandPar
     depth: g.depth,
     cuts: g.cuts.map(tb),
     ghosts: g.ghosts.map((gp) => ({ ...gp, box: tb(gp.box) })),
+  };
+}
+
+/**
+ * Wyspa leżąca poziomo nad (lub pod) siatką, z USB w długiej, zewnętrznej krawędzi.
+ * Układ lokalny: x wzdłuż wyspy (0 = środek siatki), y od boku przy klawiszach (0) na zewnątrz.
+ * Moduł leży poziomo, enkoder z lewej; kontroler pod modułem, w lewej części, między
+ * śrubami a przepustami na piny.
+ */
+function edgeIsland(
+  p: SplitParams,
+  ip: IslandParams,
+  ctrl: Controller,
+  mod: boolean,
+  D: number,
+  variant: CellVariant,
+  cellHeight: number,
+  pos: 'top' | 'bottom',
+): IslandGeom {
+  const cw = ctrl.w + 2 * CTRL_CLEARANCE;
+  const L = mod ? ISLAND_H : cw + 2 * SMALL_WALL;
+  const T = mod ? ISLAND_W : ctrl.h + ctrl.usbOverhang + 2 * CTRL_CLEARANCE + SMALL_WALL + 2;
+  const mw = MODULE.w + 2 * MODULE.clearance; // w poprzek (y)
+  const mh = MODULE.h + 2 * MODULE.clearance; // wzdłuż (x)
+  const my = T / 2;
+  const mL = -mh / 2; // lewy koniec gniazda modułu (strona enkodera)
+  const slotX0 = mL + 31;
+  const slotX1 = mL + 53.5;
+  // kontroler: przy samym module tuż przed przepustami, ale nie dalej niż do otworów na śruby
+  let ccx = 0;
+  if (mod) {
+    const leftLimit = -MODULE_HOLES.dy / 2 + MODULE_HOLES.pilot / 2 + 1;
+    ccx = Math.max(slotX0 - 1 - cw / 2, leftLimit + cw / 2);
+  }
+  const nTop = T - ctrl.usbOverhang;
+  const nBot = nTop - ctrl.h;
+  const pocketTop = -D + ctrl.height + 0.6;
+  const cuts: Box[] = [
+    box(ccx - cw / 2, nBot - CTRL_CLEARANCE, -D - 1, ccx + cw / 2, nTop + CTRL_CLEARANCE, pocketTop),
+    box(ccx - ctrl.usbW / 2, nTop - 2, -D - 1, ccx + ctrl.usbW / 2, T + 1, -D + ctrl.usbH),
+  ];
+  const ghosts: GhostPart[] = [
+    { kind: 'nano', box: box(ccx - ctrl.w / 2, nBot, -D, ccx + ctrl.w / 2, nTop, -D + 1.6) },
+    { kind: 'usb', box: box(ccx - 4.5, nTop - 6.5, -D + 1.6, ccx + 4.5, T, -D + Math.min(ctrl.height, ctrl.usbH - 0.4)) },
+  ];
+  if (mod) {
+    cuts.push(
+      box(mL, my - mw / 2, -MODULE.pcb, -mL, my + mw / 2, 1),
+      box(mL + MODULE_HOLES.boss, my - mw / 2 + 2.5, -MODULE.pcb - MODULE.underClearance, -mL - MODULE_HOLES.boss, my + mw / 2 - 2.5, 0),
+    );
+    for (const sx of [-1, 1])
+      for (const sy of [-1, 1]) {
+        const hx = (sx * MODULE_HOLES.dy) / 2;
+        const hy = my + (sy * MODULE_HOLES.dx) / 2;
+        const r = MODULE_HOLES.pilot / 2;
+        cuts.push({ ...box(hx - r, hy - r, -MODULE.pcb - MODULE_HOLES.depth, hx + r, hy + r, 0), round: true });
+      }
+    for (const sy of [-1, 1]) {
+      const py = my + sy * 15.5;
+      cuts.push(box(slotX0, py - 1.6, -D - 1, slotX1, py + 1.6, 1));
+    }
+    const pL = mL + MODULE.clearance;
+    ghosts.push(
+      { kind: 'pcb', box: box(pL, my - MODULE.w / 2, -MODULE.pcb, pL + MODULE.h, my + MODULE.w / 2, 0) },
+      { kind: 'display', box: box(mL + 26, my - 11.5, 0, mL + 61, my + 11.5, 3.1) },
+      { kind: 'encoder', box: box(mL + 4.4, my - 6, 0, mL + 18.9, my + 6, 9.5) },
+      { kind: 'knob', box: box(mL + 5.3, my - 6.3, 13.3, mL + 18, my + 6.3, 23.9) },
+    );
+  }
+  if (variant === 'hotswap') cuts.push(box(-L / 2 - 1, -0.01, -cellHeight - 1, L / 2 + 1, 2.5, -cellHeight + 2.4));
+
+  // przeniesienie na siatkę: nad nią (y w górę) albo pod nią (y w dół)
+  const pts = splitLeft(p).flatMap(keyCorners);
+  const kx0 = Math.min(...pts.map((q) => q[0]));
+  const kx1 = Math.max(...pts.map((q) => q[0]));
+  const ky0 = Math.min(...pts.map((q) => q[1]));
+  const ky1 = Math.max(...pts.map((q) => q[1]));
+  const cx = (kx0 + kx1) / 2 + ip.offsetX;
+  const tb = <B extends Box>(b: B): B =>
+    pos === 'top'
+      ? { ...b, x0: cx + b.x0, x1: cx + b.x1, y0: ky1 + b.y0 + ip.offsetY, y1: ky1 + b.y1 + ip.offsetY }
+      : { ...b, x0: cx + b.x0, x1: cx + b.x1, y0: ky0 - b.y1 + ip.offsetY, y1: ky0 - b.y0 + ip.offsetY };
+  const r = tb(box(-L / 2, 0, 0, L / 2, T, 0));
+  return {
+    rect: { x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1 },
+    depth: D,
+    cuts: cuts.map(tb),
+    ghosts: ghosts.map((gp) => ({ ...gp, box: tb(gp.box) })),
   };
 }

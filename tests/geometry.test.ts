@@ -197,3 +197,26 @@ describe('macropad: położenie wyspy', () => {
         expect(plate.solids.length).toBe(1);
       }, 180000);
 });
+
+describe('macropad: USB długą krawędzią', () => {
+  const mp = TEMPLATES.find((t) => t.id === 'macropad-3x3')!.params;
+  for (const position of ['top', 'bottom'] as const)
+    for (const controller of Object.keys(CONTROLLERS) as ControllerId[])
+      test(`${position}, ${controller}`, async () => {
+        const g = islandFor(mp, { ...DEFAULT_ISLAND, position, controller, usbOut: 'edge' }, 'left', 'hotswap', 8.58)!;
+        const usb = g.ghosts.find((p) => p.kind === 'usb')!.box;
+        if (position === 'top') expect(usb.y1).toBeCloseTo(g.rect.y1, 6);
+        else expect(usb.y0).toBeCloseTo(g.rect.y0, 6);
+        const pocket = g.cuts[0];
+        // kieszeń kontrolera nie rusza otworów pod śruby
+        for (const h of g.cuts.filter((c) => c.round))
+          expect(h.x1 <= pocket.x0 || h.x0 >= pocket.x1 || h.y1 <= pocket.y0 || h.y0 >= pocket.y1).toBe(true);
+        // od strony klawiszy zostaje ścianka
+        if (position === 'top') expect(pocket.y0).toBeGreaterThan(g.rect.y0);
+        else expect(pocket.y1).toBeLessThan(g.rect.y1);
+        const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
+        const plate = buildPlate(splitLeft(mp), cell, undefined, g);
+        expect(isValidShape(plate)).toBe(true);
+        expect(plate.solids.length).toBe(1);
+      }, 180000);
+});
