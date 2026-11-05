@@ -1,0 +1,17 @@
+:root {
+  --bg: #ffffff;
+  --panel: #fafbfc;
+  --line: #dde2e7;
+  --text: #1c2229;
+  --muted: #66717d;
+  --tip-bg: #1f2a36;
+  --tip-fg: #f3f6f9;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+a { color: inherit; }
+html, body, #app { height: 100%; }
+body { background: var(--bg); }
