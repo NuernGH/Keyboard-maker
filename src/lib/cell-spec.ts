@@ -29,8 +29,6 @@ export const DEFAULT_PLATE_OPTIONS: PlateOptions = { fillGaps: 4, margin: 0, sta
 export const PLATE_LIP = 1.27;
 /** Obudowa MX ma 15,6 mm: gdy trzpień stabilizatora jest bliżej środka, środkowy przełącznik się nie zmieści. */
 export const MX_BODY = 15.6;
-/** Otwór na środkowy trzpień nakładki, gdy pod nim nie ma przełącznika (mm, kwadrat, głębokość). */
-export const STEM_CLEAR = { size: 8.5, depth: 4.5 };
 /** Poziom, na którym w zwykłej klawiaturze leży PCB (mm pod wierzchem płyty): pod nim nie ma drutu stabilizatora. */
 export const PCB_LEVEL = 5.08;
 

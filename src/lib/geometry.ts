@@ -22,7 +22,7 @@ import {
   measureVolume,
   type Shape3D,
 } from 'replicad';
-import { PITCH, switchOffsets, switchSpots, type Key } from './layout';
+import { PITCH, switchSpots, type Key } from './layout';
 import type { IslandGeom } from './island';
 import { CASE_SCREW, type CaseLayout, type CaseParams } from './case';
 import { leftRegion, type PrintSplit } from './split';
@@ -33,7 +33,6 @@ import {
   NO_HOTSWAP_HEIGHT,
   PCB_LEVEL,
   PLATE_LIP,
-  STEM_CLEAR,
   stabOffset,
   THIN_PLATE_THICKNESS,
   type CellVariant,
@@ -201,12 +200,6 @@ export function buildPlate(
   for (const k of keys) {
     for (const [x, y] of switchSpots(k, stabs))
       negatives.push(cell.negative.clone().rotate(k.rot, [0, 0, 0], [0, 0, 1]).translate(x, y, 0));
-    // środkowy trzpień nakładki bez przełącznika pod spodem: otwór, w którym się porusza
-    if (!switchOffsets(k, stabs).includes(0)) {
-      const c = STEM_CLEAR.size / 2;
-      const d = Math.min(STEM_CLEAR.depth, cell.height + 1);
-      negatives.push(makeBox([-c, -c, -d], [c, c, 1]).rotate(k.rot, [0, 0, 0], [0, 0, 1]).translate(k.x, k.y, 0) as Shape3D);
-    }
   }
   if (island)
     for (const b of island.cuts)
