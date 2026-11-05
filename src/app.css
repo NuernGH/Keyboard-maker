@@ -1,17 +1,86 @@
+/* Paleta: jasna i ciemna. Ciemna działa przy ustawieniu systemu i przy data-theme="dark"
+   (podgląd w Claude ustawia ten atrybut). Kolory sceny 3D też są tutaj, Preview je czyta. */
 :root {
-  --bg: #ffffff;
-  --panel: #fafbfc;
-  --line: #dde2e7;
-  --text: #1c2229;
-  --muted: #66717d;
-  --tip-bg: #1f2a36;
+  --bg: #eef1f4;
+  --panel: #ffffff;
+  --field: #ffffff;
+  --line: #d5dce3;
+  --text: #17202a;
+  --muted: #5b6875;
+  --accent: #2563c9;
+  --accent-fg: #ffffff;
+  --warn: #9a5800;
+  --ok: #1f6d45;
+  --err: #b42318;
+  --tip-bg: #1d2731;
   --tip-fg: #f3f6f9;
+  --scene: #e9edf1;
+  --grid-major: #cfd6dd;
+  --grid-minor: #dfe4e9;
+  --plate: #dfe3e8;
+  --plate-edge: #5b6875;
+  --case: #3f4b58;
+  --case-edge: #1b232b;
+  color-scheme: light;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color: var(--text);
   background: var(--bg);
 }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #11161b;
+    --panel: #171e25;
+    --field: #1d252d;
+    --line: #2b3640;
+    --text: #e4e9ee;
+    --muted: #93a1ad;
+    --accent: #6ea0ff;
+    --accent-fg: #0d1520;
+    --warn: #f0b358;
+    --ok: #6fcf97;
+    --err: #ff8a80;
+    --tip-bg: #e4e9ee;
+    --tip-fg: #11161b;
+    --scene: #161d24;
+    --grid-major: #2c3843;
+    --grid-minor: #212a33;
+    --plate: #c9d0d8;
+    --plate-edge: #3a4652;
+    --case: #56636f;
+    --case-edge: #0e1318;
+    color-scheme: dark;
+  }
+}
+:root[data-theme='dark'] {
+  --bg: #11161b;
+  --panel: #171e25;
+  --field: #1d252d;
+  --line: #2b3640;
+  --text: #e4e9ee;
+  --muted: #93a1ad;
+  --accent: #6ea0ff;
+  --accent-fg: #0d1520;
+  --warn: #f0b358;
+  --ok: #6fcf97;
+  --err: #ff8a80;
+  --tip-bg: #e4e9ee;
+  --tip-fg: #11161b;
+  --scene: #161d24;
+  --grid-major: #2c3843;
+  --grid-minor: #212a33;
+  --plate: #c9d0d8;
+  --plate-edge: #3a4652;
+  --case: #56636f;
+  --case-edge: #0e1318;
+  color-scheme: dark;
+}
 * { box-sizing: border-box; }
 body { margin: 0; }
-a { color: inherit; }
+a { color: var(--accent); }
 html, body, #app { height: 100%; }
-body { background: var(--bg); }
+body { background: var(--bg); color: var(--text); }
+input, select, button { color: var(--text); background: var(--field); }
+input:focus-visible, select:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

@@ -567,9 +567,12 @@
   select {
     width: 100%;
     min-width: 0;
-    padding: 4px 6px;
+    padding: 5px 7px;
     font: inherit;
     font-size: 13px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--field);
   }
   .row {
     display: flex;
@@ -591,17 +594,20 @@
     border: 1px solid var(--line);
     border-radius: 6px;
     cursor: pointer;
-    background: var(--bg);
+    background: var(--field);
     margin: 0;
   }
   button {
     padding: 4px 12px;
     border: 1px solid var(--line);
     border-radius: 6px;
-    background: var(--bg);
+    background: var(--field);
     font: inherit;
     font-size: 13px;
     cursor: pointer;
+  }
+  button:hover:not(:disabled) {
+    border-color: var(--accent);
   }
   button:disabled {
     opacity: 0.5;
@@ -611,7 +617,7 @@
     font-size: 12px;
   }
   .warn {
-    color: #b45309;
+    color: var(--warn);
     font-size: 12px;
   }
   main {
@@ -635,12 +641,12 @@
     font-size: 12px;
   }
   .badge.exact {
-    border-color: #4c8a5b;
-    color: #2f6b3e;
+    border-color: var(--ok);
+    color: var(--ok);
   }
   .badge.err {
-    border-color: #b91c1c;
-    color: #b91c1c;
+    border-color: var(--err);
+    color: var(--err);
   }
   footer {
     padding-top: 10px;
