@@ -22,6 +22,7 @@
     "vitest": "^5.1.0"
   },
   "dependencies": {
+    "quickhull3d": "^3.1.2",
     "replicad": "^1.2.0",
     "replicad-opencascadejs": "^1.1.0",
     "three": "^0.187.0"

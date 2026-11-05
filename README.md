@@ -29,6 +29,7 @@ python3 tools/build-artifact.py <katalog>   # wersja do podglądu w Claude (WASM
 - Własna komórka: wczytaj dowolny plik STEP komórki 1U. Oś płyty wykrywa się automatycznie albo ustawiasz ją ręcznie.
 - Lewa i prawa połówka. Prawa to lustro pozycji klawiszy, ale komórki nie są lustrzane, więc gniazda hot-swap mają tę samą orientację.
 - Wyspa na elektronikę (wariant A): pole 38 × 68 mm przy wewnętrznej kolumnie z gniazdem na moduł OLED 1,3" z enkoderem EC11, kieszenią od spodu na nice!nano v2, wyjściem USB-C i przepustami na piny. W podglądzie widać uproszczone bryły elektroniki (nie trafiają do eksportu).
+- Szablon **Dactyl (zakrzywiona)**: domyślny model z [Dactyl Configurator](https://github.com/rianadon/dactyl-configurator) (5×6, mały palec 1,5U, kciuk 6 klawiszy, α 15°, β 5°, tenting 12°). Skorupa z otoczek wypukłych między słupkami w rogach komórek i ścianami do podłogi, nasza komórka (hot-swap albo bez), płaskie dno na 5 śrub M2,5, nice!nano w korytku na dnie z USB-C w tylnej ścianie. Krzywizny, tenting, wiersze, kolumny i przesunięcie kciuka do zmiany; ostrzeżenia o kolizjach nakładek i komórek.
 - Podgląd 3D: najpierw szybki podgląd komórek, potem dokładna bryła z CAD (liczona w Web Workerze).
 - Interfejs po polsku i angielsku.
 
@@ -37,6 +38,8 @@ python3 tools/build-artifact.py <katalog>   # wersja do podglądu w Claude (WASM
 1. Komórkę z pliku STEP obracamy tak, by płyta była na górze (z = 0), i liczymy jej „negatyw”: prostopadłościan obrysu minus komórka.
 2. Obrys płyty to suma prostokątów klawiszy, domknięta offsetem (+r, −r), żeby wypełnić szczeliny przy obróconych klawiszach kciuka.
 3. Płyta = obrys wyciągnięty na wysokość komórki minus negatywy w pozycjach klawiszy. Negatywy idą jako osobne narzędzia jednej operacji odejmowania (`cutMany` w `src/lib/geometry.ts`), bo jako jeden compound OpenCascade psuł ściany dna w wariancie hot-swap.
+
+Dactyl: rozmieszczenie klawiszy (`apply-key-geometry`, 6 pozycji kciuka), mostki i ściany to port z Dactyl Configuratora (`src/lib/dactyl.ts`). Każda otoczka to bryła z trójkątów (quickhull), wszystkie łączone jedną operacją `BRepAlgoAPI_Fuse`, potem przycięcie do podłogi i odjęcie negatywów komórek (`src/lib/dactyl-geometry.ts`). Lewa połówka to lustro prawej.
 
 Testy sprawdzają, że siatka 2×2 ma dokładnie objętość czterech komórek (wymiary 1:1), że bryła przechodzi `BRepCheck_Analyzer` i że STEP po ponownym wczytaniu ma tę samą objętość.
 
@@ -48,6 +51,8 @@ Testy sprawdzają, że siatka 2×2 ma dokładnie objętość czterech komórek (
 | `src/lib/cell-spec.ts` | stałe i typy komórki (bez zależności od CAD) |
 | `src/lib/island.ts` | wymiary i wycięcia wyspy na elektronikę (bez CAD) |
 | `src/lib/geometry.ts` | geometria w replicad / OpenCascade: komórka, obrys, płyta |
+| `src/lib/dactyl.ts` | Dactyl: rozmieszczenie, słupki, mostki, ściany, śruby, kolizje (bez CAD) |
+| `src/lib/dactyl-geometry.ts`, `src/lib/dactyl-parts.ts` | Dactyl w OpenCascade: skorupa, dno, uchwyt kontrolera |
 | `src/cad/` | Web Worker z jądrem CAD i klient do niego |
 | `src/ui/` | podgląd Three.js, teksty PL/EN |
 | `public/cells/mx-hotswap.step` | wzorcowa komórka 1U MX z hot-swap (`key socket.STEP` od Marcina, poprawiony Part1.STEP bez wycięć na diodę) |
@@ -55,5 +60,5 @@ Testy sprawdzają, że siatka 2×2 ma dokładnie objętość czterech komórek (
 
 ## Licencja
 
-AGPL-3.0-or-later, patrz [LICENSE](LICENSE). Biblioteki: replicad (AGPL-3.0), OpenCascade przez replicad-opencascadejs (LGPL-2.1), Three.js (MIT), Svelte (MIT).
+AGPL-3.0-or-later, patrz [LICENSE](LICENSE). Kod Dactyla to port z [rianadon/dactyl-configurator](https://github.com/rianadon/dactyl-configurator) (AGPL-3.0; wcześniej dactyl-keyboard Matthew Aderetha i dactyl-manuform Toma Shorta). Biblioteki: quickhull3d (MIT), replicad (AGPL-3.0), OpenCascade przez replicad-opencascadejs (LGPL-2.1), Three.js (MIT), Svelte (MIT).
 Modele z GrabCAD nie trafiają do tego repozytorium.

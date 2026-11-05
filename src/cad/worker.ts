@@ -4,7 +4,10 @@ import opencascade from 'replicad-opencascadejs';
 import wasmUrl from 'replicad-opencascadejs/wasm?url';
 import { setOC, type Shape3D } from 'replicad';
 import { buildPlate, buildCase, buildWedge, screwPilots, loadCell, platePiece, casePiece, type Cell } from '../lib/geometry';
-import type { Request, Response, BuildInput } from './protocol';
+import type { Request, Response, BuildInput, DactylInput } from './protocol';
+import { buildDactyl } from '../lib/dactyl';
+import { buildDactylShell, buildDactylBottom } from '../lib/dactyl-geometry';
+import { controllerHolder } from '../lib/dactyl-parts';
 
 let ready: Promise<void> | null = null;
 
@@ -58,6 +61,27 @@ function getCell(input: BuildInput): Promise<Cell> {
   return c;
 }
 
+/** Dactyl: bryła prawej połówki z cache, lewa to jej lustro (płaszczyzna YZ). */
+async function dactylFor(input: DactylInput): Promise<Shape3D> {
+  const key = 'dactyl:' + JSON.stringify({ ...input, cellStep: undefined });
+  const hit = shapeCache.get(key);
+  if (hit) return hit;
+  if (input.side === 'left') {
+    const right = await dactylFor({ ...input, side: 'right' });
+    const shape = right.clone().mirror('YZ', [0, 0, 0]) as Shape3D;
+    remember(key, shape);
+    return shape;
+  }
+  await init();
+  const cell = await getCell({ cellId: input.cellId, cellStep: input.cellStep, variant: input.variant, up: input.up } as BuildInput);
+  const model = buildDactyl(input.params, { cellHeight: cell.height });
+  const controller = input.controller ? controllerHolder(model, input.controller) : null;
+  const b = { floor: input.floor, bossHeight: 7, controller };
+  const shape = input.part === 'shell' ? buildDactylShell(model, cell, b) : buildDactylBottom(model, b);
+  remember(key, shape);
+  return shape;
+}
+
 async function plateFor(input: BuildInput): Promise<Shape3D> {
   const key = JSON.stringify({ ...input, cellStep: undefined });
   const hit = shapeCache.get(key);
@@ -100,8 +124,8 @@ self.onmessage = async (e: MessageEvent<Request>) => {
       post({ id: req.id, type: 'ready' });
       return;
     }
-    const shape = await plateFor(req.input);
-    if (req.type === 'mesh') {
+    const shape = req.type === 'dactyl-mesh' || req.type === 'dactyl-export' ? await dactylFor(req.input) : await plateFor(req.input);
+    if (req.type === 'mesh' || req.type === 'dactyl-mesh') {
       const m = shape.mesh({ tolerance: 0.05, angularTolerance: 0.3 });
       const vertices = new Float32Array(m.vertices);
       const normals = new Float32Array(m.normals);
@@ -111,7 +135,7 @@ self.onmessage = async (e: MessageEvent<Request>) => {
         { id: req.id, type: 'mesh', vertices, normals, triangles, bounds: bb, ms: performance.now() - t0 },
         [vertices.buffer, normals.buffer, triangles.buffer],
       );
-    } else if (req.type === 'export') {
+    } else if (req.type === 'export' || req.type === 'dactyl-export') {
       const blob =
         req.format === 'stl'
           ? shape.blobSTL({ binary: true, tolerance: 0.02, angularTolerance: 0.2 })

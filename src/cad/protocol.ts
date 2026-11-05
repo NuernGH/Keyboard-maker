@@ -4,6 +4,22 @@ import type { Key } from '../lib/layout';
 import type { IslandGeom } from '../lib/island';
 import type { CaseLayout, CaseParams } from '../lib/case';
 import type { PrintSplit } from '../lib/split';
+import type { DactylParams } from '../lib/dactyl';
+import type { ControllerParams } from '../lib/dactyl-parts';
+
+/** Dactyl: skorupa albo dno jednej połówki. Model liczymy dla prawej, lewa to lustro. */
+export interface DactylInput {
+  params: DactylParams;
+  variant: 'hotswap' | 'no-hotswap';
+  cellId: string;
+  cellStep: ArrayBuffer;
+  up: UpAxis | 'auto';
+  part: 'shell' | 'bottom';
+  side: 'left' | 'right';
+  controller: ControllerParams | null;
+  /** grubość dna (mm) */
+  floor: number;
+}
 
 export interface BuildInput {
   keys: Key[];
@@ -26,7 +42,9 @@ export interface BuildInput {
 export type Request =
   | { id: number; type: 'init' }
   | { id: number; type: 'mesh'; input: BuildInput }
-  | { id: number; type: 'export'; format: 'stl' | 'step'; input: BuildInput };
+  | { id: number; type: 'export'; format: 'stl' | 'step'; input: BuildInput }
+  | { id: number; type: 'dactyl-mesh'; input: DactylInput }
+  | { id: number; type: 'dactyl-export'; format: 'stl' | 'step'; input: DactylInput };
 
 export type Response =
   | { id: number; type: 'ready' }

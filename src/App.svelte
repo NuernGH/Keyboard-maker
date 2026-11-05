@@ -16,6 +16,7 @@
   import type { BuildInput } from './cad/protocol';
   import { zipStore } from './lib/zip';
   import Tooltip from './ui/Tooltip.svelte';
+  import DactylApp from './ui/DactylApp.svelte';
   import { CONTROLLERS, DEFAULT_ISLAND, islandFor, type IslandParams } from './lib/island';
   import { DEFAULT_CASE, SCREW_MARGIN, caseLayout, type CaseParams } from './lib/case';
   import { DEFAULT_PRINT, planSplit, pieceOf, type PrintParams, type PrintSplit } from './lib/split';
@@ -34,6 +35,7 @@
   /** układ rzędami jako tekst (60% itp.) */
   let rowText = $state('');
   function applyTemplate(id: string) {
+    templateId = id;
     const tpl = TEMPLATES.find((x) => x.id === id);
     if (!tpl) return;
     params = structuredClone(tpl.params);
@@ -322,6 +324,9 @@
   const allExact = $derived(halves.every((h) => h.mesh && (!h.caseOn || h.caseMesh)));
 </script>
 
+{#if templateId === 'dactyl'}
+<DactylApp bind:lang onTemplate={applyTemplate} />
+{:else}
 <Tooltip />
 <div class="app">
   <aside>
@@ -344,6 +349,7 @@
         {#each TEMPLATES as tpl (tpl.id)}
           <option value={tpl.id}>{tpl.name[lang]}</option>
         {/each}
+        <option value="dactyl">{lang === 'pl' ? 'Dactyl (zakrzywiona)' : 'Dactyl (curved)'}</option>
       </select>
       <p class="muted">{leftKeys.length * (single ? 1 : 2)} {t(lang, 'keys')}</p>
     </section>
@@ -628,6 +634,8 @@
     </div>
   </main>
 </div>
+
+{/if}
 
 <style>
   .app {
