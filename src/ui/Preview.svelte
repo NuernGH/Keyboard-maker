@@ -36,10 +36,13 @@
   let framed = false;
   let grid: THREE.GridHelper | undefined;
 
-  const caseMat = new THREE.MeshStandardMaterial({ color: 0x5f7a8a, metalness: 0.05, roughness: 0.7 });
-  const exactMat = new THREE.MeshStandardMaterial({ color: 0x8fa3b8, metalness: 0.1, roughness: 0.6 });
+  // Kolory sceny pochodzą z tokenów CSS (app.css), więc nadążają za jasnym/ciemnym motywem.
+  const caseMat = new THREE.MeshStandardMaterial({ color: 0x3f4b58, metalness: 0.05, roughness: 0.75 });
+  const exactMat = new THREE.MeshStandardMaterial({ color: 0xdfe3e8, metalness: 0.05, roughness: 0.55 });
+  const plateEdgeMat = new THREE.LineBasicMaterial({ color: 0x5b6875, transparent: true, opacity: 0.55 });
+  const caseEdgeMat = new THREE.LineBasicMaterial({ color: 0x1b232b, transparent: true, opacity: 0.6 });
   const quickMat = new THREE.MeshStandardMaterial({
-    color: 0xb9c4cf,
+    color: 0xdfe3e8,
     metalness: 0,
     roughness: 0.9,
     transparent: true,
@@ -95,7 +98,7 @@
     if (!scene) return;
     scene.remove(group);
     group.traverse((o) => {
-      if (o instanceof THREE.Mesh) o.geometry.dispose();
+      if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) o.geometry.dispose();
     });
     group = new THREE.Group();
     const geoCache = new Map<string, THREE.BufferGeometry>();
@@ -117,6 +120,9 @@
         const cm = new THREE.Mesh(cg, caseMat);
         cm.position.z = -(half.explode ?? 0);
         hg.add(cm);
+        const ce = new THREE.LineSegments(new THREE.EdgesGeometry(cg, 30), caseEdgeMat);
+        ce.position.z = cm.position.z;
+        hg.add(ce);
       }
       if (half.mesh) {
         const g = new THREE.BufferGeometry();
@@ -124,6 +130,7 @@
         g.setAttribute('normal', new THREE.BufferAttribute(half.mesh.normals, 3));
         g.setIndex(new THREE.BufferAttribute(half.mesh.triangles, 1));
         hg.add(new THREE.Mesh(g, exactMat));
+        hg.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 30), plateEdgeMat));
       } else {
         for (const k of half.keys) {
           const id = `${k.w}x${k.h}`;
@@ -178,7 +185,7 @@
     renderer.setPixelRatio(window.devicePixelRatio);
     host.appendChild(renderer.domElement);
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf3f5f7);
+    scene.background = new THREE.Color();
     camera = new THREE.PerspectiveCamera(40, 1, 1, 5000);
     camera.up.set(0, 0, 1);
     controls = new OrbitControls(camera, renderer.domElement);
@@ -187,10 +194,11 @@
     const dir = new THREE.DirectionalLight(0xffffff, 1.6);
     dir.position.set(-150, -200, 300);
     scene.add(dir);
-    grid = new THREE.GridHelper(600, 600 / PITCH, 0xd0d6dc, 0xe3e7eb);
-    grid.rotation.x = Math.PI / 2;
-    grid.position.z = -60;
-    scene.add(grid);
+    applyTheme();
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    media.addEventListener('change', applyTheme);
+    const mo = new MutationObserver(applyTheme);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class', 'style'] });
 
     const resize = () => {
       const { clientWidth: w, clientHeight: h } = host;
@@ -213,9 +221,37 @@
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      media.removeEventListener('change', applyTheme);
+      mo.disconnect();
       renderer.dispose();
     };
   });
+
+  function token(css: CSSStyleDeclaration, name: string, fallback: string) {
+    return css.getPropertyValue(name).trim() || fallback;
+  }
+
+  function applyTheme() {
+    if (!scene) return;
+    const css = getComputedStyle(document.documentElement);
+    (scene.background as THREE.Color).set(token(css, '--scene', '#e9edf1'));
+    exactMat.color.set(token(css, '--plate', '#dfe3e8'));
+    quickMat.color.set(token(css, '--plate', '#dfe3e8'));
+    plateEdgeMat.color.set(token(css, '--plate-edge', '#5b6875'));
+    caseMat.color.set(token(css, '--case', '#3f4b58'));
+    caseEdgeMat.color.set(token(css, '--case-edge', '#1b232b'));
+    const visible = grid ? grid.visible : true;
+    if (grid) {
+      scene.remove(grid);
+      grid.geometry.dispose();
+      (grid.material as THREE.Material).dispose();
+    }
+    grid = new THREE.GridHelper(600, 600 / PITCH, token(css, '--grid-major', '#cfd6dd'), token(css, '--grid-minor', '#dfe4e9'));
+    grid.rotation.x = Math.PI / 2;
+    grid.position.z = -60;
+    grid.visible = visible;
+    scene.add(grid);
+  }
 
   export function resetView() {
     frame();
