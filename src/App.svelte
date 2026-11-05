@@ -16,6 +16,7 @@
   import type { BuildInput } from './cad/protocol';
   import { zipStore } from './lib/zip';
   import Tooltip from './ui/Tooltip.svelte';
+  import DactylApp from './ui/DactylApp.svelte';
   import { CONTROLLERS, DEFAULT_ISLAND, islandFor, type IslandParams } from './lib/island';
   import { DEFAULT_CASE, SCREW_MARGIN, caseLayout, type CaseParams } from './lib/case';
   import { DEFAULT_PRINT, planSplit, pieceOf, type PrintParams, type PrintSplit } from './lib/split';
@@ -37,6 +38,7 @@
   /** układ rzędami jako tekst (60% itp.) */
   let rowText = $state('');
   function applyTemplate(id: string) {
+    templateId = id;
     const tpl = TEMPLATES.find((x) => x.id === id);
     if (!tpl) return;
     params = structuredClone(tpl.params);
@@ -336,6 +338,9 @@
   const allExact = $derived(halves.every((h) => h.mesh && (!h.caseOn || h.caseMesh)));
 </script>
 
+{#if templateId === 'dactyl'}
+<DactylApp bind:lang onTemplate={applyTemplate} />
+{:else}
 <Tooltip />
 <div class="app">
   <aside>
@@ -358,6 +363,7 @@
         {#each TEMPLATES as tpl (tpl.id)}
           <option value={tpl.id}>{tpl.name[lang]}</option>
         {/each}
+        <option value="dactyl">{lang === 'pl' ? 'Dactyl (zakrzywiona)' : 'Dactyl (curved)'}</option>
       </select>
       <p class="muted">{leftKeys.length * (single ? 1 : 2)} {t(lang, 'keys')}</p>
     </section>
@@ -557,12 +563,18 @@
           <label data-tip={t(lang, 'tipCaseFloor')}>{t(lang, 'caseFloor')} <input type="number" min="2.6" step="0.2" bind:value={caseP.floor} /></label>
           <label data-tip={t(lang, 'tipCaseSpace')}>{t(lang, 'caseSpace')} <input type="number" min="0" step="0.5" bind:value={caseP.space} /></label>
           <label data-tip={t(lang, 'tipCaseScrews')}>{t(lang, 'caseScrews')} <input type="number" min="3" max="12" step="1" bind:value={caseP.screws} /></label>
+          <label data-tip={t(lang, 'tipScrewSize')}>{t(lang, 'screwSize')}
+            <select bind:value={caseP.screwSize}>
+              <option value="M3">M3</option>
+              <option value="M2.5">M2,5</option>
+            </select>
+          </label>
           <label data-tip={t(lang, 'tipCaseGap')}>{t(lang, 'caseGap')} <input type="number" min="0" step="0.1" bind:value={caseP.gap} /></label>
           <label data-tip={t(lang, 'tipLedge')}>{t(lang, 'ledge')} <input type="number" min="0" max="5.5" step="0.5" bind:value={caseP.ledge} /></label>
           <label class="check" data-tip={t(lang, 'tipSupports')}><input type="checkbox" bind:checked={caseP.supports} /> {t(lang, 'supports')}</label>
           <label data-tip={t(lang, 'tipExplode')}>{t(lang, 'explode')} <input type="number" min="0" step="5" bind:value={caseP.explode} /></label>
         </div>
-        {#if screwInfo}<p class="muted">{t(lang, 'screwInfo').replace('{n}', String(screwInfo.screws.length)).replace('{l}', String(screwInfo.screwLength))}{#if screwInfo.supports.length} {t(lang, 'supportInfo').replace('{n}', String(screwInfo.supports.length))}{/if}</p>{/if}
+        {#if screwInfo}<p class="muted">{t(lang, 'screwInfo').replace('{n}', String(screwInfo.screws.length)).replace('{s}', lang === 'pl' ? screwInfo.screw.size.replace('.', ',') : screwInfo.screw.size).replace('{l}', String(screwInfo.screwLength))}{#if screwInfo.supports.length} {t(lang, 'supportInfo').replace('{n}', String(screwInfo.supports.length))}{/if}</p>{/if}
       {/if}
     </section>
 
@@ -644,6 +656,8 @@
     </div>
   </main>
 </div>
+
+{/if}
 
 <style>
   .app {

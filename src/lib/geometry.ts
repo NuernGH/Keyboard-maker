@@ -24,7 +24,7 @@ import {
 } from 'replicad';
 import { PITCH, switchSpots, type Key } from './layout';
 import { wedgeZ, type Box, type IslandGeom } from './island';
-import { CASE_SCREW, LEDGE, SUPPORT, ledgeKeepouts, ledgeWidth, type CaseLayout, type CaseParams } from './case';
+import { LEDGE, SUPPORT, ledgeKeepouts, ledgeWidth, screwSpec, type ScrewSpec, type CaseLayout, type CaseParams } from './case';
 import { leftRegion, type PrintSplit } from './split';
 
 import {
@@ -309,9 +309,14 @@ export function isValidShape(s: Shape3D): boolean {
 }
 
 /** Otwory pilotowe pod śruby obudowy, od spodu płyty. */
-export function screwPilots(screws: [number, number][], cellHeight: number, depth: number): Shape3D[] {
+export function screwPilots(
+  screws: [number, number][],
+  cellHeight: number,
+  depth: number,
+  sp: ScrewSpec = screwSpec(),
+): Shape3D[] {
   return screws.map(
-    ([x, y]) => makeCylinder(CASE_SCREW.pilot / 2, depth + 0.5, [x, y, -cellHeight - 0.5], [0, 0, 1]) as Shape3D,
+    ([x, y]) => makeCylinder(sp.pilot / 2, depth + 0.5, [x, y, -cellHeight - 0.5], [0, 0, 1]) as Shape3D,
   );
 }
 
@@ -335,9 +340,10 @@ export function buildCase(
   let body = outer.sketchOnPlane('XY', bottom).extrude(-bottom) as Shape3D;
   const cavity = inner.sketchOnPlane('XY', floorTop).extrude(-floorTop + 1) as Shape3D;
   body = body.cut(cavity) as Shape3D;
+  const sp = layout.screw ?? screwSpec(cp.screwSize);
   const standH = -cellHeight - floorTop;
   for (const [x, y] of layout.screws)
-    if (standH > 0.01) body = body.fuse(makeCylinder(CASE_SCREW.boss / 2, standH + 0.01, [x, y, floorTop - 0.01], [0, 0, 1]) as Shape3D) as Shape3D;
+    if (standH > 0.01) body = body.fuse(makeCylinder(sp.boss / 2, standH + 0.01, [x, y, floorTop - 0.01], [0, 0, 1]) as Shape3D) as Shape3D;
   for (const b of layout.pads ?? []) body = body.fuse(makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1])) as Shape3D;
   // podpory pod płytą: od dna do 0,1 mm pod spód płyty
   const supH = -cellHeight - SUPPORT.gap - floorTop;
@@ -347,9 +353,11 @@ export function buildCase(
   const ledge = buildLedge(outline, island, cellHeight, cp, opts.margin, floorTop);
   if (ledge) body = body.fuse(ledge) as Shape3D;
   const tools: Shape3D[] = [];
+  // łeb M3 (3,2 mm) bywa głębszy niż dno, wtedy wybranie wchodzi w słupek; bez słupka zostaw 0,6 mm dna
+  const headDepth = Math.min(sp.headDepth, cp.floor - 0.6 + Math.max(standH, 0));
   for (const [x, y] of layout.screws) {
-    tools.push(makeCylinder(CASE_SCREW.clearance / 2, -bottom + 1, [x, y, bottom - 0.5], [0, 0, 1]) as Shape3D);
-    tools.push(makeCylinder(CASE_SCREW.head / 2, CASE_SCREW.headDepth + 0.5, [x, y, bottom - 0.5], [0, 0, 1]) as Shape3D);
+    tools.push(makeCylinder(sp.clearance / 2, -bottom + 1, [x, y, bottom - 0.5], [0, 0, 1]) as Shape3D);
+    tools.push(makeCylinder(sp.head / 2, headDepth + 0.5, [x, y, bottom - 0.5], [0, 0, 1]) as Shape3D);
   }
   for (const b of layout.usbCuts) tools.push(makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]));
   return tools.length ? cutMany(body, tools) : body;

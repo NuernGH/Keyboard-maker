@@ -1,0 +1,777 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!--
+  Klawiatura typu Dactyl: panel parametrów, szybki podgląd z otoczek (liczony od razu w przeglądarce)
+  i dokładna bryła z OpenCascade (po chwili), eksport skorupy i dna do STL/STEP.
+  Rozmieszczenie i skorupa: port z Dactyl Configurator (rianadon, AGPL-3.0), patrz src/lib/dactyl.ts.
+-->
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import * as THREE from 'three';
+  import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+  import qh from 'quickhull3d/dist/quickhull3d.js';
+  import { t, type Lang } from './i18n';
+  import Tooltip from './Tooltip.svelte';
+  import { TEMPLATES } from '../lib/layout';
+  import {
+    apply,
+    buildDactyl,
+    capCollisions,
+    cellCollisions,
+    CAP,
+    DACTYL_DEFAULT,
+    modelSize,
+    type DactylModel,
+    type DactylParams,
+  } from '../lib/dactyl';
+  import { controllerHolder, DEFAULT_DACTYL_CONTROLLER, type ControllerParams } from '../lib/dactyl-parts';
+  import { CONTROLLERS, type ControllerId } from '../lib/island';
+  import { NO_HOTSWAP_HEIGHT } from '../lib/cell-spec';
+  import { dactylHeadDepth, screwSpec, type ScrewSize } from '../lib/case';
+  import { CadClient } from '../cad/client';
+  import type { DactylInput } from '../cad/protocol';
+  import { zipStore } from '../lib/zip';
+
+  let { lang = $bindable(), onTemplate }: { lang: Lang; onTemplate: (id: string) => void } = $props();
+
+  const L = {
+    pl: {
+      kind: 'Dactyl (zakrzywiona)',
+      curve: 'Krzywizna',
+      alpha: 'Kolumna α (°)',
+      pinkyAlpha: 'Mały palec α (°)',
+      beta: 'Rząd β (°)',
+      tent: 'Tenting (°)',
+      height: 'Podniesienie (mm)',
+      widePinky: 'Mały palec 1,5U',
+      thumbShift: 'Przesunięcie kciuka X / Y / Z (mm)',
+      wall: 'Ściana (mm)',
+      floor: 'Dno (mm)',
+      controller: 'Kontroler przy tylnej ścianie',
+      ctrlCol: 'Nad kolumną',
+      noCtrl: 'bez kontrolera',
+      side: 'Połówki',
+      both: 'obie',
+      showCaps: 'Pokaż nakładki',
+      explode: 'Odsunięcie dna (mm)',
+      shell: 'Skorupa',
+      bottom: 'Dno',
+      size: 'Połówka: {x} × {y} mm, wysokość {z} mm',
+      bed: 'Mieści się na stole 250 × 250 mm.',
+      bedNo: 'Nie mieści się na stole 250 × 250 mm.',
+      capHit: 'Nakładki zahaczają o siebie: {l}',
+      cellHit: 'Komórki wchodzą w siebie: {l}',
+      lift: 'Model podniesiony o {v} mm, żeby komórki nie schodziły pod dno.',
+      credit: 'Rozmieszczenie i skorupa: port Dactyl Configurator (rianadon, AGPL-3.0).',
+      slow: 'Dokładna bryła liczy się około minuty.',
+      tipCurve: 'Kąt między sąsiednimi klawiszami w kolumnie (α) i w rzędzie (β). Większy = mocniej wklęsła miska.',
+      tipTent: 'Pochylenie całej połówki na zewnątrz, jak dach namiotu. Dłoń leży bardziej na boku.',
+      tipThumb: 'Przesuwa cały klaster kciuka (6 klawiszy jak w Dactyl Configurator).',
+      tipCtrl: 'nice!nano leży płasko w korytku na dnie, gniazdem USB-C w otworze tylnej ściany.',
+    },
+    en: {
+      kind: 'Dactyl (curved)',
+      curve: 'Curvature',
+      alpha: 'Column α (°)',
+      pinkyAlpha: 'Pinky α (°)',
+      beta: 'Row β (°)',
+      tent: 'Tenting (°)',
+      height: 'Height offset (mm)',
+      widePinky: 'Pinky 1.5U',
+      thumbShift: 'Thumb shift X / Y / Z (mm)',
+      wall: 'Wall (mm)',
+      floor: 'Bottom (mm)',
+      controller: 'Controller at the back wall',
+      ctrlCol: 'Above column',
+      noCtrl: 'no controller',
+      side: 'Halves',
+      both: 'both',
+      showCaps: 'Show keycaps',
+      explode: 'Bottom offset (mm)',
+      shell: 'Shell',
+      bottom: 'Bottom',
+      size: 'Half: {x} × {y} mm, height {z} mm',
+      bed: 'Fits a 250 × 250 mm bed.',
+      bedNo: 'Does not fit a 250 × 250 mm bed.',
+      capHit: 'Keycaps collide: {l}',
+      cellHit: 'Cells cut into each other: {l}',
+      lift: 'Model raised by {v} mm so the cells stay above the bottom.',
+      credit: 'Key placement and shell: port of Dactyl Configurator (rianadon, AGPL-3.0).',
+      slow: 'The exact solid takes about a minute.',
+      tipCurve: 'Angle between neighbouring keys in a column (α) and in a row (β). Larger = deeper bowl.',
+      tipTent: 'Tilts the whole half outwards like a tent roof. The hand rests more on its side.',
+      tipThumb: 'Moves the whole thumb cluster (6 keys as in Dactyl Configurator).',
+      tipCtrl: 'The nice!nano lies flat in a tray on the bottom, USB-C in an opening in the back wall.',
+    },
+  } as const;
+  const tx = (k: keyof (typeof L)['pl']) => L[lang][k];
+
+  let p = $state<DactylParams>(structuredClone(DACTYL_DEFAULT));
+  let variant = $state<'hotswap' | 'no-hotswap'>('hotswap');
+  let show = $state<'left' | 'right' | 'both'>('both');
+  let ctrlOn = $state(true);
+  let ctrl = $state<ControllerParams>({ ...DEFAULT_DACTYL_CONTROLLER });
+  let floor = $state(4);
+  let screwSize = $state<ScrewSize>('M3');
+  let explode = $state(20);
+  let showCaps = $state(true);
+  let cellStep = $state<ArrayBuffer | null>(null);
+  let status = $state('');
+  let error = $state('');
+
+  /** wysokość komórki z key socket.STEP (8,58 mm) albo bez hot-swap */
+  const cellHeight = $derived(variant === 'hotswap' ? 8.58 : NO_HOTSWAP_HEIGHT);
+  const snap = () => $state.snapshot(p) as DactylParams;
+  /** o ile łeb wystaje spod dna i jakie dno go chowa (wybranie zostawia 1 mm dna) */
+  const headOut = $derived(screwSpec(screwSize).headDepth - 0.2 - dactylHeadDepth(screwSpec(screwSize), floor));
+  const headFloor = $derived(Math.ceil((screwSpec(screwSize).headDepth + 1) * 2) / 2);
+  const model = $derived.by<DactylModel | null>(() => {
+    try {
+      return buildDactyl(snap(), { cellHeight, screwSize });
+    } catch (e) {
+      return null;
+    }
+  });
+  const holder = $derived(model && ctrlOn ? controllerHolder(model, $state.snapshot(ctrl) as ControllerParams) : null);
+  const size = $derived(model ? modelSize(model) : null);
+  const caps = $derived(model ? capCollisions(model) : []);
+  const cells = $derived(model ? cellCollisions(model) : []);
+
+  function inputFor(part: 'shell' | 'bottom', side: 'left' | 'right'): DactylInput | null {
+    if (!cellStep) return null;
+    return {
+      params: snap(),
+      variant,
+      cellId: 'default',
+      cellStep,
+      up: 'auto',
+      part,
+      side,
+      controller: ctrlOn ? ($state.snapshot(ctrl) as ControllerParams) : null,
+      floor,
+      screwSize,
+    };
+  }
+  const keyOf = (i: DactylInput) => JSON.stringify({ ...i, cellStep: undefined, side: undefined });
+
+  // ---------- CAD ----------
+  const client = new CadClient();
+  type Mesh = { vertices: Float32Array; normals: Float32Array; triangles: Uint32Array };
+  let exact = $state<{ shell?: { key: string; mesh: Mesh }; bottom?: { key: string; mesh: Mesh } }>({});
+  let busy = $state(false);
+  let lastMs = $state<number | null>(null);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let want = '';
+  $effect(() => {
+    const si = inputFor('shell', 'right');
+    const bi = inputFor('bottom', 'right');
+    if (!si || !bi) return;
+    clearTimeout(timer);
+    timer = setTimeout(() => void compute(si, bi), 900);
+  });
+  async function compute(si: DactylInput, bi: DactylInput) {
+    const k = keyOf(si);
+    want = k;
+    busy = true;
+    error = '';
+    try {
+      // dno jest szybkie, więc najpierw
+      const b = await client.dactylMesh(bi);
+      if (want !== k) return;
+      exact.bottom = { key: k, mesh: b };
+      const s = await client.dactylMesh(si);
+      if (want !== k) return;
+      exact.shell = { key: k, mesh: s };
+      lastMs = Math.round(s.ms);
+    } catch (e) {
+      if (want === k) error = (e as Error).message;
+    } finally {
+      if (want === k) busy = false;
+    }
+  }
+
+  async function exportPart(part: 'shell' | 'bottom', side: 'left' | 'right', format: 'stl' | 'step') {
+    const inp = inputFor(part, side);
+    if (!inp) return;
+    status = t(lang, 'computing');
+    error = '';
+    try {
+      const data = await client.dactylExport(inp, format);
+      const name = `dactyl-${p.rows}x${p.cols}-${side}-${part}${part === 'shell' ? `-${variant}` : ''}.${format}`;
+      await saveFile(name, data);
+    } catch (e) {
+      error = (e as Error).message;
+    } finally {
+      status = '';
+    }
+  }
+
+  async function saveFile(name: string, data: ArrayBuffer) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const claude = (window as any).claude;
+    const downloads = claude?.use ? await claude.use('downloads') : null;
+    if (downloads) {
+      const zip = zipStore([{ name, data: new Uint8Array(data) }]);
+      try {
+        await downloads.save({ filename: name.replace(/\.[^.]+$/, '') + '.zip', data: zip });
+      } catch (e) {
+        const code = (e as { code?: string }).code;
+        if (code !== 'declined') throw new Error((e as Error).message ?? String(code));
+      }
+      return;
+    }
+    const blob = new Blob([data], { type: name.endsWith('.stl') ? 'model/stl' : 'model/step' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  }
+
+  // ---------- podgląd 3D ----------
+  let host: HTMLDivElement;
+  let renderer: THREE.WebGLRenderer;
+  let scene: THREE.Scene;
+  let camera: THREE.PerspectiveCamera;
+  let controls: OrbitControls;
+  let group = new THREE.Group();
+  let framed = false;
+  const mats = {
+    shell: new THREE.MeshStandardMaterial({ color: 0xdfe3e8, roughness: 0.6, side: THREE.DoubleSide }),
+    quick: new THREE.MeshStandardMaterial({ color: 0xdfe3e8, roughness: 0.9, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
+    bottom: new THREE.MeshStandardMaterial({ color: 0x3f4b58, roughness: 0.75, side: THREE.DoubleSide }),
+    cap: new THREE.MeshStandardMaterial({ color: 0xf2efe6, roughness: 0.5, transparent: true, opacity: 0.75 }),
+    capHit: new THREE.MeshStandardMaterial({ color: 0xd9534f, roughness: 0.5 }),
+    sw: new THREE.MeshStandardMaterial({ color: 0x30363c, roughness: 0.6 }),
+    board: new THREE.MeshStandardMaterial({ color: 0x2a6f97, roughness: 0.6 }),
+    usb: new THREE.MeshStandardMaterial({ color: 0xc0c6ca, roughness: 0.3, metalness: 0.7 }),
+    edge: new THREE.LineBasicMaterial({ color: 0x5b6875, transparent: true, opacity: 0.5 }),
+  };
+
+  function meshGeom(m: Mesh): THREE.BufferGeometry {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(m.vertices, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(m.normals, 3));
+    g.setIndex(new THREE.BufferAttribute(m.triangles, 1));
+    return g;
+  }
+
+  /** Szybki podgląd: wszystkie otoczki jako jedna siatka (bez wycięć), przycięta wizualnie do podłogi. */
+  function quickGeom(m: DactylModel): THREE.BufferGeometry {
+    const pos: number[] = [];
+    for (const h of m.hulls) {
+      const pts = h.map((q) => [q[0], q[1], Math.max(0, q[2])] as [number, number, number]);
+      let faces: number[][];
+      try {
+        faces = qh(pts);
+      } catch {
+        continue;
+      }
+      for (const f of faces) for (const i of f) pos.push(...pts[i]);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.computeVertexNormals();
+    return g;
+  }
+
+  function toMatrix(m: { r: number[]; t: number[] }): THREE.Matrix4 {
+    const r = m.r;
+    return new THREE.Matrix4().set(r[0], r[1], r[2], m.t[0], r[3], r[4], r[5], m.t[1], r[6], r[7], r[8], m.t[2], 0, 0, 0, 1);
+  }
+
+  function boxAt(b: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; m?: { r: number[]; t: number[] } }, mat: THREE.Material) {
+    const g = new THREE.BoxGeometry(b.x1 - b.x0, b.y1 - b.y0, b.z1 - b.z0);
+    g.translate((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2);
+    const o = new THREE.Mesh(g, mat);
+    if (b.m) {
+      o.matrixAutoUpdate = false;
+      o.matrix.copy(toMatrix(b.m));
+    }
+    return o;
+  }
+
+  function halfGroup(m: DactylModel): THREE.Group {
+    const g = new THREE.Group();
+    const k = keyOf(inputFor('shell', 'right') ?? ({} as DactylInput));
+    const sh = exact.shell?.key === k ? exact.shell.mesh : null;
+    const bt = exact.bottom?.key === k ? exact.bottom.mesh : null;
+    if (sh) {
+      const sg = meshGeom(sh);
+      g.add(new THREE.Mesh(sg, mats.shell));
+      g.add(new THREE.LineSegments(new THREE.EdgesGeometry(sg, 30), mats.edge));
+    } else g.add(new THREE.Mesh(quickGeom(m), mats.quick));
+    if (bt) {
+      const bm = new THREE.Mesh(meshGeom(bt), mats.bottom);
+      bm.position.z = -explode;
+      g.add(bm);
+    }
+    if (holder) {
+      const eg = new THREE.Group();
+      eg.position.z = bt ? -explode : 0;
+      for (const gh of holder.ghosts) eg.add(boxAt(gh.box, gh.kind === 'board' ? mats.board : mats.usb));
+      g.add(eg);
+    }
+    if (showCaps) {
+      const hit = new Set(caps.flat());
+      for (const key of m.keys) {
+        const mx = toMatrix(key.frame);
+        const sw = boxAt({ x0: -7.8, y0: -7.8, z0: 0, x1: 7.8, y1: 7.8, z1: CAP.z0 - 0.4 }, mats.sw);
+        sw.matrixAutoUpdate = false;
+        sw.matrix.copy(mx);
+        g.add(sw);
+        const wide = m.params.widePinky && key.col === m.params.cols - 1 && key.row !== m.params.rows - 1;
+        const tall = key.thumb === 'tl' || key.thumb === 'tr';
+        const w = CAP.size + (wide ? 9.525 : 0), h = CAP.size + (tall ? 9.525 : 0);
+        const cg = new THREE.BoxGeometry(w, h, CAP.z1 - CAP.z0);
+        // zwężenie ku górze
+        const pa = cg.getAttribute('position');
+        for (let i = 0; i < pa.count; i++)
+          if (pa.getZ(i) > 0) {
+            pa.setX(i, pa.getX(i) * ((w - (CAP.size - CAP.top)) / w));
+            pa.setY(i, pa.getY(i) * ((h - (CAP.size - CAP.top)) / h));
+          }
+        cg.translate(0, 0, (CAP.z0 + CAP.z1) / 2);
+        cg.computeVertexNormals();
+        const cm = new THREE.Mesh(cg, hit.has(key.id) ? mats.capHit : mats.cap);
+        cm.matrixAutoUpdate = false;
+        cm.matrix.copy(mx);
+        g.add(cm);
+      }
+    }
+    return g;
+  }
+
+  function rebuild() {
+    if (!scene) return;
+    scene.remove(group);
+    group.traverse((o) => {
+      if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) o.geometry.dispose();
+    });
+    group = new THREE.Group();
+    const m = model;
+    if (m && size) {
+      const sides = show === 'both' ? (['left', 'right'] as const) : [show];
+      // model liczony jest dla prawej połówki; lewa to lustro w X
+      const minX = Math.min(...m.hulls.flat().map((q) => q[0]));
+      for (const s of sides) {
+        const hg = halfGroup(m);
+        if (s === 'left') {
+          hg.scale.x = -1;
+          if (sides.length === 2) hg.position.x = 2 * minX - 30;
+        }
+        group.add(hg);
+      }
+    }
+    scene.add(group);
+    if (!framed && m) {
+      frame();
+      framed = true;
+    }
+  }
+
+  function frame(fromBelow = false) {
+    const box = new THREE.Box3().setFromObject(group);
+    if (box.isEmpty()) return;
+    const c = box.getCenter(new THREE.Vector3());
+    const sz = box.getSize(new THREE.Vector3());
+    const fov = (camera.fov * Math.PI) / 180;
+    const dist = (Math.max(sz.y, sz.x / camera.aspect) / (2 * Math.tan(fov / 2))) * 1.3;
+    controls.target.copy(c);
+    if (fromBelow) camera.position.set(c.x, c.y - dist * 0.45, c.z - dist * 0.9);
+    else camera.position.set(c.x, c.y - dist * 0.7, c.z + dist * 0.7);
+    camera.near = dist / 100;
+    camera.far = dist * 20;
+    camera.updateProjectionMatrix();
+    controls.update();
+  }
+
+  $effect(() => {
+    void model;
+    void exact.shell;
+    void exact.bottom;
+    void show;
+    void showCaps;
+    void explode;
+    void holder;
+    void caps;
+    rebuild();
+  });
+
+  function applyTheme() {
+    if (!scene) return;
+    const css = getComputedStyle(document.documentElement);
+    const tok = (n: string, f: string) => css.getPropertyValue(n).trim() || f;
+    (scene.background as THREE.Color).set(tok('--scene', '#e9edf1'));
+    mats.shell.color.set(tok('--plate', '#dfe3e8'));
+    mats.quick.color.set(tok('--plate', '#dfe3e8'));
+    mats.bottom.color.set(tok('--case', '#3f4b58'));
+    mats.edge.color.set(tok('--plate-edge', '#5b6875'));
+  }
+
+  onMount(() => {
+    renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    host.appendChild(renderer.domElement);
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color();
+    camera = new THREE.PerspectiveCamera(40, 1, 1, 5000);
+    camera.up.set(0, 0, 1);
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 1.6));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.6);
+    dir.position.set(-150, -200, 300);
+    scene.add(dir);
+    applyTheme();
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    media.addEventListener('change', applyTheme);
+    const mo = new MutationObserver(applyTheme);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class', 'style'] });
+    const resize = () => {
+      const { clientWidth: w, clientHeight: h } = host;
+      renderer.setSize(w, h);
+      camera.aspect = w / Math.max(h, 1);
+      camera.updateProjectionMatrix();
+    };
+    const ro = new ResizeObserver(resize);
+    ro.observe(host);
+    resize();
+    rebuild();
+    let raf = 0;
+    const loop = () => {
+      controls.update();
+      renderer.render(scene, camera);
+      raf = requestAnimationFrame(loop);
+    };
+    loop();
+
+    status = t(lang, 'loadingCad');
+    fetch(`${import.meta.env.BASE_URL}cells/mx-hotswap.step`)
+      .then((r) => r.arrayBuffer())
+      .then((b) => (cellStep = b));
+    client
+      .init()
+      .then(() => (status = ''))
+      .catch((e) => (error = String(e)));
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      media.removeEventListener('change', applyTheme);
+      mo.disconnect();
+      renderer.dispose();
+    };
+  });
+
+  const ctrlIds = Object.keys(CONTROLLERS) as ControllerId[];
+  const list = (pairs: [string, string][]) => pairs.map((q) => q.join('/')).join(', ');
+  const fits = $derived(size ? size.x <= 250 && size.y <= 250 : true);
+  void apply;
+</script>
+
+<Tooltip />
+<div class="app">
+  <aside>
+    <header>
+      <h1>{t(lang, 'title')}</h1>
+      <select bind:value={lang} aria-label="Język / Language">
+        <option value="pl">PL</option>
+        <option value="en">EN</option>
+      </select>
+    </header>
+
+    <section>
+      <h2>{t(lang, 'template')}</h2>
+      <select value="dactyl" onchange={(e) => onTemplate(e.currentTarget.value)} aria-label={t(lang, 'template')}>
+        {#each TEMPLATES as tpl (tpl.id)}
+          <option value={tpl.id}>{tpl.name[lang]}</option>
+        {/each}
+        <option value="dactyl">{tx('kind')}</option>
+      </select>
+      <p class="muted">{model ? model.keys.length * (show === 'both' ? 2 : 1) : 0} {t(lang, 'keys')} · {tx('credit')}</p>
+    </section>
+
+    <section>
+      <h2>{t(lang, 'cell')}</h2>
+      <label data-tip={t(lang, 'tipVariant')}>
+        {t(lang, 'variant')}
+        <select bind:value={variant}>
+          <option value="hotswap">{t(lang, 'hotswap')}</option>
+          <option value="no-hotswap">{t(lang, 'noHotswap')}</option>
+        </select>
+      </label>
+    </section>
+
+    <section>
+      <h2>{t(lang, 'layout')}</h2>
+      <div class="grid2">
+        <label data-tip={t(lang, 'tipRows')}>{t(lang, 'rows')} <input type="number" min="3" max="6" bind:value={p.rows} /></label>
+        <label data-tip={t(lang, 'tipCols')}>{t(lang, 'cols')} <input type="number" min="5" max="7" bind:value={p.cols} /></label>
+      </div>
+      <label class="check"><input type="checkbox" bind:checked={p.widePinky} /> {tx('widePinky')}</label>
+    </section>
+
+    <section>
+      <h2>{tx('curve')}</h2>
+      <div class="grid2">
+        <label data-tip={tx('tipCurve')}>{tx('alpha')} <input type="number" min="0" max="30" step="1" bind:value={p.alpha} /></label>
+        <label data-tip={tx('tipCurve')}>{tx('pinkyAlpha')} <input type="number" min="0" max="30" step="1" bind:value={p.pinkyAlpha} /></label>
+        <label data-tip={tx('tipCurve')}>{tx('beta')} <input type="number" min="0" max="15" step="1" bind:value={p.beta} /></label>
+        <label data-tip={tx('tipTent')}>{tx('tent')} <input type="number" min="0" max="45" step="1" bind:value={p.tent} /></label>
+        <label>{tx('height')} <input type="number" min="0" max="40" step="1" bind:value={p.zOffset} /></label>
+        <label>{tx('wall')} <input type="number" min="2" max="5" step="0.5" bind:value={p.wallThickness} /></label>
+      </div>
+      <span class="label" data-tip={tx('tipThumb')}>{tx('thumbShift')}</span>
+      <div class="grid3">
+        <input type="number" step="1" bind:value={p.thumbOffset[0]} aria-label="X" />
+        <input type="number" step="1" bind:value={p.thumbOffset[1]} aria-label="Y" />
+        <input type="number" step="1" bind:value={p.thumbOffset[2]} aria-label="Z" />
+      </div>
+      {#if caps.length}<p class="warn">{tx('capHit').replace('{l}', list(caps))}</p>{/if}
+      {#if cells.length}<p class="warn">{tx('cellHit').replace('{l}', list(cells))}</p>{/if}
+      {#if !model}<p class="warn">{t(lang, 'error')}</p>{/if}
+    </section>
+
+    <section>
+      <h2>{t(lang, 'electronics')}</h2>
+      <label class="check" data-tip={tx('tipCtrl')}><input type="checkbox" bind:checked={ctrlOn} /> {tx('controller')}</label>
+      {#if ctrlOn}
+        <div class="grid2">
+          <label>
+            {t(lang, 'controller')}
+            <select bind:value={ctrl.controller}>
+              {#each ctrlIds as id (id)}
+                <option value={id}>{CONTROLLERS[id].name}</option>
+              {/each}
+            </select>
+          </label>
+          <label>{tx('ctrlCol')} <input type="number" min="0" max={p.cols - 1} step="0.25" bind:value={ctrl.col} /></label>
+        </div>
+      {/if}
+    </section>
+
+    <section>
+      <h2>{t(lang, 'caseBottom')}</h2>
+      <div class="grid2">
+        <label>{tx('floor')} <input type="number" min="2" max="6" step="0.5" bind:value={floor} /></label>
+        <label>{t(lang, 'screwSize')}
+          <select bind:value={screwSize}>
+            <option value="M3">M3</option>
+            <option value="M2.5">{lang === 'pl' ? 'M2,5' : 'M2.5'}</option>
+          </select>
+        </label>
+        <label>{tx('explode')} <input type="number" min="0" max="80" step="5" bind:value={explode} /></label>
+      </div>
+      <p class="muted">{lang === 'pl' ? screwSize.replace('.', ',') : screwSize} × 8–10, 5 ×</p>
+      {#if headOut > 0.05}<p class="warn">{t(lang, 'dactylHeadOut').replace('{h}', headOut.toFixed(1).replace('.', lang === 'pl' ? ',' : '.')).replace('{f}', String(headFloor).replace('.', lang === 'pl' ? ',' : '.'))}</p>{/if}
+    </section>
+
+    <section>
+      <h2>{t(lang, 'export')}</h2>
+      <div class="grid2">
+        <label>
+          {tx('side')}
+          <select bind:value={show}>
+            <option value="both">{tx('both')}</option>
+            <option value="left">{t(lang, 'left')}</option>
+            <option value="right">{t(lang, 'right')}</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" bind:checked={showCaps} /> {tx('showCaps')}</label>
+      </div>
+      {#if size}
+        <p class={fits ? 'muted' : 'warn'}>
+          {tx('size').replace('{x}', String(Math.round(size.x))).replace('{y}', String(Math.round(size.y))).replace('{z}', String(Math.round(size.z)))}
+          {fits ? tx('bed') : tx('bedNo')}
+        </p>
+      {/if}
+      {#if model && model.lift > 0.05}<p class="muted">{tx('lift').replace('{v}', model.lift.toFixed(1))}</p>{/if}
+      {#each show === 'both' ? (['left', 'right'] as const) : [show] as s (s)}
+        {#each ['shell', 'bottom'] as const as part (part)}
+          <div class="row">
+            <span class="side">{tx(part)}: {t(lang, s).toLowerCase()}</span>
+            <button onclick={() => exportPart(part, s, 'stl')} disabled={!cellStep} data-tip={t(lang, 'tipStl')}>STL</button>
+            <button onclick={() => exportPart(part, s, 'step')} disabled={!cellStep} data-tip={t(lang, 'tipStep')}>STEP</button>
+          </div>
+        {/each}
+      {/each}
+      <p class="muted">{tx('slow')}</p>
+    </section>
+
+    <footer class="muted">
+      <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noreferrer">{t(lang, 'license')}</a>
+      · <a href="https://github.com/NuernGH/Keyboard-maker" target="_blank" rel="noreferrer">{t(lang, 'source')}</a>
+      · <a href="https://github.com/rianadon/dactyl-configurator" target="_blank" rel="noreferrer">Dactyl Configurator</a>
+    </footer>
+  </aside>
+
+  <main>
+    <div class="preview" bind:this={host}></div>
+    <div class="hud">
+      <span class="badge" class:exact={!busy && !!exact.shell}>
+        {#if busy}{t(lang, 'computing')}{:else if exact.shell}{t(lang, 'exact')}{#if lastMs}&nbsp;· {Math.round(lastMs / 1000)} s{/if}{:else}{t(lang, 'quick')}{/if}
+      </span>
+      {#if status}<span class="badge">{status}</span>{/if}
+      {#if error}<span class="badge err">{t(lang, 'error')}: {error}</span>{/if}
+      <button onclick={() => frame()} data-tip={t(lang, 'tipResetView')}>{t(lang, 'resetView')}</button>
+      <button onclick={() => frame(true)} data-tip={t(lang, 'tipBottomView')}>{t(lang, 'bottomView')}</button>
+    </div>
+  </main>
+</div>
+
+<style>
+  .app {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    height: 100%;
+  }
+  aside {
+    overflow-y: auto;
+    padding: 12px 16px;
+    border-right: 1px solid var(--line);
+    background: var(--panel);
+  }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  header select {
+    width: auto;
+  }
+  h1 {
+    font-size: 17px;
+    margin: 4px 0;
+  }
+  h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 6px;
+  }
+  section {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 13px;
+    margin-bottom: 6px;
+  }
+  label.check {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+  }
+  .label {
+    font-size: 13px;
+  }
+  .grid2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 10px;
+  }
+  .grid3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 4px;
+    margin: 2px 0 6px;
+  }
+  input[type='number'],
+  select {
+    width: 100%;
+    min-width: 0;
+    padding: 5px 7px;
+    font: inherit;
+    font-size: 13px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--field);
+    box-sizing: border-box;
+  }
+  .row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+  }
+  .side {
+    width: 120px;
+    font-size: 13px;
+  }
+  button {
+    padding: 4px 12px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--field);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) {
+    border-color: var(--accent);
+  }
+  button:disabled {
+    opacity: 0.5;
+  }
+  .muted {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .warn {
+    color: var(--warn);
+    font-size: 12px;
+  }
+  main {
+    position: relative;
+    overflow: hidden;
+  }
+  .preview {
+    position: absolute;
+    inset: 0;
+  }
+  .hud {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .badge {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 12px;
+  }
+  .badge.exact {
+    border-color: var(--ok);
+    color: var(--ok);
+  }
+  .badge.err {
+    border-color: var(--err);
+    color: var(--err);
+  }
+  footer {
+    padding-top: 10px;
+  }
+  @media (max-width: 760px) {
+    .app {
+      grid-template-columns: 1fr;
+      grid-template-rows: 55vh auto;
+      height: auto;
+    }
+    aside {
+      order: 2;
+    }
+    main {
+      height: 55vh;
+    }
+  }
+</style>
