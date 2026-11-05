@@ -33,11 +33,12 @@ export const DEFAULT_DACTYL_CONTROLLER: ControllerParams = { controller: 'nicena
 /**
  * `lift`: podest pod płytką, żeby obudowa wtyku nie zahaczała o dno. nice!nano ma gniazdo USB
  * osadzone we wcięciu płytki (nisko), więc podest jest wyższy: 2,5 mm. `height`: ścianki korytka.
+ * `lip`, `lipGap`, `lipT`: zaczep nad końcem płytki (zachodzi na płytkę, luz nad nią, grubość).
  */
 /** połowa szerokości podestu: wolny pas 2,5 mm przy każdym brzegu na luty pinów */
 const PAD_HALF = 4.5;
 
-export const HOLDER = { gap: 0.3, wall: 1.6, height: 5.5, lift: 2.5, plugW: USB_PLUG.w, plugH: USB_PLUG.h, plugFrom: 1.5 };
+export const HOLDER = { gap: 0.3, wall: 1.6, height: 5.5, lift: 2.5, lip: 1.2, lipGap: 0.2, lipT: 1.2, plugW: USB_PLUG.w, plugH: USB_PLUG.h, plugFrom: 1.5 };
 
 /**
  * Ustawia kontroler przy tylnej ścianie: znajduje wewnętrzną krawędź ściany nad kolumną `col`
@@ -76,15 +77,18 @@ export function controllerHolder(model: DactylModel, cp: ControllerParams): Dact
   const yBack = yEdge - c.h;
   const zb = HOLDER.lift; // spód płytki
   const usbZ = zb + usbCenterOf(c);
+  const zTop = zb + pcbOf(c); // wierzch płytki
   const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): PartBox => ({ x0, y0, z0, x1, y1, z1, m });
   const bottomAdd = [
     box(-hw - g - w, yBack - g - w, -1, -hw - g, -0.4, HOLDER.height),
     box(hw + g, yBack - g - w, -1, hw + g + w, -0.4, HOLDER.height),
     box(-hw - g - w, yBack - g - w, -1, hw + g + w, yBack - g, HOLDER.height),
-    // podest pod płytką między rzędami pinów (luty pinów są 1,27 mm od brzegów): pod gniazdem USB,
-    // które przy wtykaniu kabla dostaje największy nacisk, i pasek przy drugim końcu płytki
-    box(-PAD_HALF, yEdge - 7, -1, PAD_HALF, yEdge - 0.01, zb),
-    box(-PAD_HALF, yBack - g, -1, PAD_HALF, yBack + 3, zb),
+    // podest pod płytką na całą długość, między rzędami pinów (luty pinów są 1,27 mm od brzegów):
+    // płytka nie ugina się przy wtykaniu kabla
+    box(-PAD_HALF, yBack - g, -1, PAD_HALF, yEdge - 0.01, zb),
+    // zaczep L na tylnej ściance korytka: występ nad końcem płytki (na środku, między pinami)
+    // trzyma płytkę od góry. Wkładanie: koniec płytki pod zaczep, potem opuścić stronę z USB.
+    box(-PAD_HALF, yBack - g - w, zTop + HOLDER.lipGap, PAD_HALF, yBack + HOLDER.lip, zTop + HOLDER.lipGap + HOLDER.lipT),
   ];
   const ports = c.ports ?? [0];
   const shellCut: PartBox[] = [];
