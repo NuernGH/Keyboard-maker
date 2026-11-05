@@ -56,6 +56,8 @@ export interface IslandParams {
    * (od góry przy położeniu „góra”), `end` = USB wychodzi z krótkiego końca wyspy.
    */
   usbOut?: 'edge' | 'end';
+  /** wyrównanie wzdłuż krawędzi siatki (macropad): do początku (lewo/góra), środka albo końca */
+  align?: 'start' | 'center' | 'end';
 }
 
 export const DEFAULT_ISLAND: IslandParams = {
@@ -67,6 +69,7 @@ export const DEFAULT_ISLAND: IslandParams = {
   moduleSide: 'left',
   position: 'inner',
   usbOut: 'edge',
+  align: 'center',
 };
 
 export const ISLAND_W = 38;
@@ -169,7 +172,12 @@ export function islandFor(
   // Wyspa stoi przy górze wewnętrznej kolumny. Gdy płyta ma mało rzędów, dół wyspy wchodziłby
   // na klawisze kciuka, więc podnosimy ją, aż zostanie między nimi KEY_GAP luzu.
   let y1 = local ? 0 : (p.stagger[inner] ?? 0) + PITCH / 2 + ip.offsetY;
-  const keyPolys = local ? [] : splitLeft(p).map(keyCorners);
+  if (!local && p.single) {
+    // macropad: wyspa z boku wyrównana do góry, środka albo dołu siatki
+    const { ky0, ky1 } = gridBounds(p);
+    y1 = alongCenter(ky1, ky0, -H, ip.align) + H / 2 + ip.offsetY;
+  }
+  const keyPolys = local || p.single ? [] : splitLeft(p).map(keyCorners);
   const hits = (top: number) => {
     const r: [number, number][] = [[x0, top - H - KEY_GAP], [x1, top - H - KEY_GAP], [x1, top], [x0, top]];
     return keyPolys.some((k) => polysOverlap(k, r));
@@ -249,22 +257,36 @@ export function islandFor(
   };
 }
 
+/** Obrys samej siatki klawiszy (bez dodatkowych klawiszy, żeby nie przesuwały wyspy). */
+function gridBounds(p: SplitParams) {
+  const pts = splitLeft(p)
+    .filter((k) => !k.id.startsWith('e-'))
+    .flatMap(keyCorners);
+  return {
+    kx0: Math.min(...pts.map((q) => q[0])),
+    kx1: Math.max(...pts.map((q) => q[0])),
+    ky0: Math.min(...pts.map((q) => q[1])),
+    ky1: Math.max(...pts.map((q) => q[1])),
+  };
+}
+
+/** Środek wyspy o długości `len` wzdłuż odcinka [a, b] przy danym wyrównaniu. */
+const alongCenter = (a: number, b: number, len: number, align: IslandParams['align']) =>
+  align === 'start' ? a + len / 2 : align === 'end' ? b - len / 2 : (a + b) / 2;
+
 /**
  * Przenosi wyspę z układu lokalnego (bok przy klawiszach x = 0, USB na górze y = 0)
  * na wybrane miejsce przy siatce klawiszy. Obroty o 90° zostawiają pudełka pudełkami.
  */
 function place(g: IslandGeom, pos: IslandPosition, p: SplitParams, ip: IslandParams): IslandGeom {
-  const pts = splitLeft(p).flatMap(keyCorners);
-  const kx0 = Math.min(...pts.map((q) => q[0]));
-  const kx1 = Math.max(...pts.map((q) => q[0]));
-  const ky0 = Math.min(...pts.map((q) => q[1]));
-  const ky1 = Math.max(...pts.map((q) => q[1]));
+  const { kx0, kx1, ky0, ky1 } = gridBounds(p);
   const H = g.rect.y1 - g.rect.y0;
-  const cx = (kx0 + kx1) / 2;
+  const cx = alongCenter(kx0, kx1, H, ip.align);
   let f: (x: number, y: number) => [number, number];
   if (pos === 'outer') {
     // lustro: bok przy klawiszach po lewej stronie siatki, USB nadal u góry
-    const top = ky1;
+    // (start = góra siatki, end = dół)
+    const top = alongCenter(ky1, ky0, -H, ip.align) + H / 2;
     f = (x, y) => [kx0 - x, top + y];
   } else if (pos === 'top') {
     // obrót o 90° w lewo: bok przy klawiszach na dole wyspy, USB na lewym końcu
@@ -362,12 +384,8 @@ function edgeIsland(
   if (variant === 'hotswap') cuts.push(box(-L / 2 - 1, -0.01, -cellHeight - 1, L / 2 + 1, 2.5, -cellHeight + 2.4));
 
   // przeniesienie na siatkę: nad nią (y w górę) albo pod nią (y w dół)
-  const pts = splitLeft(p).flatMap(keyCorners);
-  const kx0 = Math.min(...pts.map((q) => q[0]));
-  const kx1 = Math.max(...pts.map((q) => q[0]));
-  const ky0 = Math.min(...pts.map((q) => q[1]));
-  const ky1 = Math.max(...pts.map((q) => q[1]));
-  const cx = (kx0 + kx1) / 2 + ip.offsetX;
+  const { kx0, kx1, ky0, ky1 } = gridBounds(p);
+  const cx = alongCenter(kx0, kx1, L, ip.align) + ip.offsetX;
   const tb = <B extends Box>(b: B): B =>
     pos === 'top'
       ? { ...b, x0: cx + b.x0, x1: cx + b.x1, y0: ky1 + b.y0 + ip.offsetY, y1: ky1 + b.y1 + ip.offsetY }

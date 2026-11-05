@@ -3,7 +3,7 @@
   import { onMount } from 'svelte';
   import Preview, { type PreviewHalf, type PreviewMesh } from './ui/Preview.svelte';
   import { t, type Lang } from './ui/i18n';
-  import { SPLIT_4x6_4, TEMPLATES, splitLeft, mirrorKeys, keysOverlap, PITCH, type SplitParams } from './lib/layout';
+  import { SPLIT_4x6_4, TEMPLATES, splitLeft, mirrorKeys, keysOverlap, keyCorners, polysOverlap, PITCH, type SplitParams } from './lib/layout';
   import {
     DEFAULT_PLATE_OPTIONS,
     NO_HOTSWAP_HEIGHT,
@@ -66,6 +66,21 @@
     for (let i = 0; i < k.length; i++) for (let j = i + 1; j < k.length; j++) if (keysOverlap(k[i], k[j])) return true;
     return false;
   });
+  // czy któryś klawisz wchodzi na wyspę (np. dodatkowy klawisz w macropadzie)
+  let islandOverlap = $derived.by(() => {
+    const g = islandGeom('left');
+    if (!g) return false;
+    const r = g.rect;
+    const rp: [number, number][] = [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]];
+    return leftKeys.some((k) => polysOverlap(keyCorners(k), rp));
+  });
+  function addExtra() {
+    const n = params.extra?.length ?? 0;
+    params.extra = [...(params.extra ?? []), { col: params.cols, row: n % Math.max(params.rows, 1), w: 1, rot: 0 }];
+  }
+  function removeExtra(i: number) {
+    params.extra = (params.extra ?? []).filter((_, j) => j !== i);
+  }
 
   const islandGeom = (s: Side) => {
     const ip = $state.snapshot(island) as IslandParams;
@@ -315,6 +330,24 @@
     </section>
     {/if}
 
+    {#if single}
+    <section>
+      <h2>{t(lang, 'extraKeys')}</h2>
+      {#each params.extra ?? [] as e, i (i)}
+        <div class="extra">
+          <label data-tip={t(lang, 'tipExtraCol')}>{t(lang, 'extraCol')} <input type="number" step="0.25" bind:value={e.col} /></label>
+          <label data-tip={t(lang, 'tipExtraRow')}>{t(lang, 'extraRow')} <input type="number" step="0.25" bind:value={e.row} /></label>
+          <label data-tip={t(lang, 'tipExtraW')}>U <select bind:value={e.w}><option value={1}>1</option><option value={1.25}>1,25</option><option value={1.5}>1,5</option><option value={2}>2</option></select></label>
+          <label data-tip={t(lang, 'tipExtraRot')}>° <input type="number" step="5" bind:value={e.rot} /></label>
+          <button class="del" onclick={() => removeExtra(i)} aria-label={t(lang, 'remove')} data-tip={t(lang, 'remove')}>×</button>
+        </div>
+      {/each}
+      <button onclick={addExtra} data-tip={t(lang, 'tipAddExtra')}>+ {t(lang, 'addExtra')}</button>
+      {#if overlap}<p class="warn">{t(lang, 'overlap')}</p>{/if}
+      {#if islandOverlap}<p class="warn">{t(lang, 'islandOverlap')}</p>{/if}
+    </section>
+    {/if}
+
     <section>
       <h2>{t(lang, 'plate')}</h2>
       <div class="grid2">
@@ -350,6 +383,13 @@
               <option value="inner">{t(lang, 'right')}</option>
               <option value="outer">{t(lang, 'left')}</option>
               <option value="bottom">{t(lang, 'posBottom')}</option>
+            </select>
+          </label>
+          <label data-tip={t(lang, 'tipAlign')}>{t(lang, 'align')}
+            <select bind:value={island.align}>
+              <option value="start">{island.position === 'top' || island.position === 'bottom' ? t(lang, 'alignLeft') : t(lang, 'alignTop')}</option>
+              <option value="center">{t(lang, 'alignCenter')}</option>
+              <option value="end">{island.position === 'top' || island.position === 'bottom' ? t(lang, 'alignRight') : t(lang, 'alignBottom')}</option>
             </select>
           </label>
           {#if island.position === 'top' || island.position === 'bottom'}
@@ -569,5 +609,20 @@
     main {
       height: 55vh;
     }
+  }
+  .extra {
+    display: grid;
+    grid-template-columns: 1fr 1fr 0.8fr 0.8fr auto;
+    gap: 6px;
+    align-items: end;
+    margin-bottom: 6px;
+  }
+  .extra input,
+  .extra select {
+    width: 100%;
+    min-width: 0;
+  }
+  .del {
+    padding: 4px 9px;
   }
 </style>

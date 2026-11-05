@@ -40,6 +40,21 @@ export interface SplitParams {
   thumbLastVertical: boolean;
   /** jedna płyta zamiast dwóch połówek (macropad): bez lustra i bez klastra kciuka */
   single?: boolean;
+  /** dodatkowe klawisze poza siatką (np. obok wyspy) */
+  extra?: ExtraKey[];
+}
+
+/**
+ * Dodatkowy klawisz w jednostkach siatki: `col` to kolumna lewej krawędzi (0 = pierwsza),
+ * `row` rząd (0 = górny, w dół rośnie, ułamki i wartości ujemne dozwolone).
+ */
+export interface ExtraKey {
+  col: number;
+  row: number;
+  /** szerokość w U */
+  w: number;
+  /** obrót w stopniach */
+  rot: number;
 }
 
 /** Szablon 4×6 + 4 kciukowe, płaski split z lekkim staggerem kolumn. */
@@ -193,6 +208,10 @@ export function splitLeft(p: SplitParams): Key[] {
     cy += ny;
     angle += p.thumbSplay;
   }
+  (p.extra ?? []).forEach((e, i) => {
+    const w = Math.max(1, e.w || 1);
+    keys.push({ id: `e-${i}`, x: e.col * PITCH + ((w - 1) * PITCH) / 2, y: -e.row * PITCH, rot: e.rot || 0, w, h: 1 });
+  });
   return keys;
 }
 

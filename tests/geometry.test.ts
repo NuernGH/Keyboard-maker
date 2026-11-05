@@ -220,3 +220,45 @@ describe('macropad: USB długą krawędzią', () => {
         expect(plate.solids.length).toBe(1);
       }, 180000);
 });
+
+describe('macropad: wyrównanie wyspy i dodatkowe klawisze', () => {
+  const mp = { ...TEMPLATES.find((t) => t.id === 'macropad-4x4')!.params, cols: 6, stagger: Array(6).fill(0) };
+  const grid = splitLeft(mp).flatMap(keyCorners);
+  const kx0 = Math.min(...grid.map((q) => q[0]));
+  const kx1 = Math.max(...grid.map((q) => q[0]));
+  const ky0 = Math.min(...grid.map((q) => q[1]));
+  const ky1 = Math.max(...grid.map((q) => q[1]));
+  for (const usbOut of ['edge', 'end'] as const)
+    test(`góra, USB ${usbOut}: do lewej, środek, do prawej`, () => {
+      const r = (align: 'start' | 'center' | 'end') =>
+        islandFor(mp, { ...DEFAULT_ISLAND, position: 'top', usbOut, align }, 'left', 'hotswap', 8.58)!.rect;
+      expect(r('start').x0).toBeCloseTo(kx0, 6);
+      expect(r('end').x1).toBeCloseTo(kx1, 6);
+      expect((r('center').x0 + r('center').x1) / 2).toBeCloseTo((kx0 + kx1) / 2, 6);
+    });
+  for (const position of ['inner', 'outer'] as const)
+    test(`${position}: do góry, środek, do dołu`, () => {
+      const r = (align: 'start' | 'center' | 'end') =>
+        islandFor(mp, { ...DEFAULT_ISLAND, position, align }, 'left', 'hotswap', 8.58)!.rect;
+      expect(r('start').y1).toBeCloseTo(ky1, 6);
+      expect(r('end').y0).toBeCloseTo(ky0, 6);
+      expect((r('center').y0 + r('center').y1) / 2).toBeCloseTo((ky0 + ky1) / 2, 6);
+    });
+
+  test('dodatkowe klawisze obok wyspy nie przesuwają jej i dają jedną bryłę', async () => {
+    // wyspa u góry do lewej (68 mm), w wolnym miejscu z prawej dwa klawisze nad siatką
+    const p = { ...mp, extra: [{ col: 4, row: -1, w: 1, rot: 0 }, { col: 5, row: -1, w: 1, rot: 0 }] };
+    const ip = { ...DEFAULT_ISLAND, position: 'top' as const, align: 'start' as const };
+    const g = islandFor(p, ip, 'left', 'hotswap', 8.58)!;
+    expect(g.rect).toEqual(islandFor(mp, ip, 'left', 'hotswap', 8.58)!.rect);
+    const keys = splitLeft(p);
+    expect(keys.filter((k) => k.id.startsWith('e-')).length).toBe(2);
+    const r = g.rect;
+    const rp: [number, number][] = [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]];
+    for (const k of keys) expect(polysOverlap(keyCorners(k), rp)).toBe(false);
+    const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
+    const plate = buildPlate(keys, cell, undefined, g);
+    expect(isValidShape(plate)).toBe(true);
+    expect(plate.solids.length).toBe(1);
+  }, 180000);
+});
