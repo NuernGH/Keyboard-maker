@@ -18,6 +18,10 @@
     mesh: PreviewMesh | null;
     island?: IslandGeom | null;
     showElectronics?: boolean;
+    /** spód obudowy (dokładna bryła), rysowany niżej o `explode` mm */
+    caseMesh?: PreviewMesh | null;
+    caseOn?: boolean;
+    explode?: number;
   }
 
   let { halves, cellHeight, holeSize = 14 }: { halves: PreviewHalf[]; cellHeight: number; holeSize?: number } =
@@ -30,7 +34,9 @@
   let controls: OrbitControls;
   let group = new THREE.Group();
   let framed = false;
+  let grid: THREE.GridHelper | undefined;
 
+  const caseMat = new THREE.MeshStandardMaterial({ color: 0x5f7a8a, metalness: 0.05, roughness: 0.7 });
   const exactMat = new THREE.MeshStandardMaterial({ color: 0x8fa3b8, metalness: 0.1, roughness: 0.6 });
   const quickMat = new THREE.MeshStandardMaterial({
     color: 0xb9c4cf,
@@ -103,6 +109,15 @@
         const r = half.island.rect;
         hg.add(boxMesh({ x0: r.x0, y0: r.y0, z0: -half.island.depth, x1: r.x1, y1: r.y1, z1: -0.01 }, quickMat));
       }
+      if (half.caseOn && half.caseMesh) {
+        const cg = new THREE.BufferGeometry();
+        cg.setAttribute('position', new THREE.BufferAttribute(half.caseMesh.vertices, 3));
+        cg.setAttribute('normal', new THREE.BufferAttribute(half.caseMesh.normals, 3));
+        cg.setIndex(new THREE.BufferAttribute(half.caseMesh.triangles, 1));
+        const cm = new THREE.Mesh(cg, caseMat);
+        cm.position.z = -(half.explode ?? 0);
+        hg.add(cm);
+      }
       if (half.mesh) {
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.BufferAttribute(half.mesh.vertices, 3));
@@ -132,7 +147,7 @@
     }
   }
 
-  function frame() {
+  function frame(fromBelow = false) {
     const box = new THREE.Box3().setFromObject(group);
     if (box.isEmpty()) return;
     const c = box.getCenter(new THREE.Vector3());
@@ -142,7 +157,9 @@
     const dist = fit * 1.25;
     controls.target.copy(c);
     // widok z góry, lekko z przodu
-    camera.position.set(c.x, c.y - dist * 0.45, c.z + dist * 0.9);
+    if (grid) grid.visible = !fromBelow;
+    if (fromBelow) camera.position.set(c.x, c.y - dist * 0.45, c.z - dist * 0.9);
+    else camera.position.set(c.x, c.y - dist * 0.45, c.z + dist * 0.9);
     camera.near = dist / 100;
     camera.far = dist * 20;
     camera.updateProjectionMatrix();
@@ -170,9 +187,9 @@
     const dir = new THREE.DirectionalLight(0xffffff, 1.6);
     dir.position.set(-150, -200, 300);
     scene.add(dir);
-    const grid = new THREE.GridHelper(600, 600 / PITCH, 0xd0d6dc, 0xe3e7eb);
+    grid = new THREE.GridHelper(600, 600 / PITCH, 0xd0d6dc, 0xe3e7eb);
     grid.rotation.x = Math.PI / 2;
-    grid.position.z = -12;
+    grid.position.z = -60;
     scene.add(grid);
 
     const resize = () => {
@@ -202,6 +219,10 @@
 
   export function resetView() {
     frame();
+  }
+  /** Widok od spodu: widać dno obudowy, łby śrub i kieszeń kontrolera. */
+  export function bottomView() {
+    frame(true);
   }
 </script>
 

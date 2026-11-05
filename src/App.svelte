@@ -17,6 +17,7 @@
   import { zipStore } from './lib/zip';
   import Tooltip from './ui/Tooltip.svelte';
   import { CONTROLLERS, DEFAULT_ISLAND, islandFor, type IslandParams } from './lib/island';
+  import { DEFAULT_CASE, SCREW_MARGIN, caseLayout, type CaseParams } from './lib/case';
 
   type Side = 'left' | 'right';
 
@@ -25,6 +26,9 @@
   let templateId = $state(TEMPLATES[0].id);
   let island = $state<IslandParams>({ ...DEFAULT_ISLAND });
   let showElectronics = $state(true);
+  let caseP = $state<CaseParams>({ ...DEFAULT_CASE });
+  /** obudowa ma sens tylko dla pełnych komórek (cienka płyta nie utrzyma śrub) */
+  const caseOn = $derived(caseP.enabled && variant !== 'thin-plate');
   function applyTemplate(id: string) {
     const tpl = TEMPLATES.find((x) => x.id === id);
     if (tpl) params = structuredClone(tpl.params);
@@ -42,8 +46,9 @@
 
   let status = $state<string>('');
   let error = $state<string>('');
-  let meshes = $state<Record<Side, { key: string; mesh: PreviewMesh } | null>>({ left: null, right: null });
-  let busy = $state<Record<Side, boolean>>({ left: false, right: false });
+  type Job = Side | 'left-case' | 'right-case';
+  let meshes = $state<Partial<Record<Job, { key: string; mesh: PreviewMesh } | null>>>({});
+  let busy = $state<Partial<Record<Job, boolean>>>({});
   let lastMs = $state<number | null>(null);
   let preview: Preview | undefined = $state();
 
@@ -93,18 +98,28 @@
   const single = $derived(!!params.single);
   const sides = $derived<Side[]>(single ? ['left'] : show === 'both' ? ['left', 'right'] : [show]);
 
-  function inputFor(s: Side): BuildInput | null {
+  function inputFor(s: Side, part: 'plate' | 'case' = 'plate'): BuildInput | null {
     if (!cellStep) return null;
+    if (part === 'case' && !caseOn) return null;
+    const po = $state.snapshot(plate) as PlateOptions;
+    // przy obudowie płyta dostaje pas na śruby
+    const plateOpts = caseOn ? { ...po, margin: Math.max(po.margin, SCREW_MARGIN) } : po;
+    const isl = islandGeom(s);
+    const cp = $state.snapshot(caseP) as CaseParams;
     return {
       keys: keysFor(s),
       variant,
-      plate: $state.snapshot(plate) as PlateOptions,
+      plate: plateOpts,
       cellId,
       cellStep,
       up,
-      island: islandGeom(s),
+      island: isl,
+      part,
+      case: caseOn ? { params: cp, layout: caseLayout(keysFor(s), isl, cellHeight, cp) } : null,
     };
   }
+  const job = (s: Side, part: 'plate' | 'case'): Job => (part === 'case' ? `${s}-case` : s);
+  let screwInfo = $derived(caseOn ? caseLayout(leftKeys, islandGeom('left'), cellHeight, caseP) : null);
   const inputKey = (i: BuildInput) => JSON.stringify({ ...i, cellStep: undefined });
 
   let halves = $derived.by<PreviewHalf[]>(() => {
@@ -116,12 +131,16 @@
     const reachL = Math.max(kb, il ? il.rect.x1 : -Infinity);
     const reachR = Math.max(kb, ir ? -ir.rect.x0 : -Infinity);
     const gap = 2 * PITCH;
+    const pad = caseOn ? SCREW_MARGIN + caseP.gap + caseP.wall : 0;
     return sides.map((s) => {
       const inp = inputFor(s);
       const m = meshes[s];
       const fresh = inp && m && m.key === inputKey(inp) ? m.mesh : null;
-      const offsetX = s === 'right' && sides.length === 2 ? reachL + reachR + gap : 0;
-      return { keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), showElectronics };
+      const cin = inputFor(s, 'case');
+      const cm = meshes[job(s, 'case')];
+      const caseMesh = cin && cm && cm.key === inputKey(cin) ? cm.mesh : null;
+      const offsetX = s === 'right' && sides.length === 2 ? reachL + reachR + gap + 2 * pad : 0;
+      return { keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), showElectronics, caseMesh, caseOn, explode: caseP.explode };
     });
   });
 
@@ -131,43 +150,47 @@
   let timer: ReturnType<typeof setTimeout> | undefined;
   $effect(() => {
     // przelicz dokładną bryłę po krótkiej przerwie od ostatniej zmiany
-    const jobs = sides.map((s) => [s, inputFor(s)] as const);
+    const jobs = sides.flatMap((s) => [[s, 'plate', inputFor(s)] as const, [s, 'case', inputFor(s, 'case')] as const]);
     clearTimeout(timer);
-    timer = setTimeout(() => {
-      for (const [s, inp] of jobs) if (inp) void computeMesh(s, inp);
+    timer = setTimeout(async () => {
+      // płyta przed obudową na tym samym wątku: najpierw widać płytę
+      for (const [s, part, inp] of jobs) if (inp && part === 'plate') void computeMesh(s, part, inp);
+      for (const [s, part, inp] of jobs) if (inp && part === 'case') void computeMesh(s, part, inp);
     }, 500);
   });
 
-  const running: Partial<Record<Side, string>> = {};
-  async function computeMesh(s: Side, inp: BuildInput) {
+  const running: Partial<Record<Job, string>> = {};
+  async function computeMesh(s: Side, part: 'plate' | 'case', inp: BuildInput) {
+    const j = job(s, part);
     const key = inputKey(inp);
-    if (meshes[s]?.key === key || running[s] === key) return;
-    running[s] = key;
-    busy[s] = true;
+    if (meshes[j]?.key === key || running[j] === key) return;
+    running[j] = key;
+    busy[j] = true;
     error = '';
     try {
       const r = await client(s).mesh(inp);
       lastMs = Math.round(r.ms);
       // zapisz tylko, jeśli nikt w międzyczasie nie zmienił parametrów
-      if (running[s] === key) meshes[s] = { key, mesh: r };
+      if (running[j] === key) meshes[j] = { key, mesh: r };
     } catch (e) {
       error = (e as Error).message;
     } finally {
-      if (running[s] === key) {
-        busy[s] = false;
-        running[s] = undefined;
+      if (running[j] === key) {
+        busy[j] = false;
+        running[j] = undefined;
       }
     }
   }
 
-  async function exportFile(s: Side, format: 'stl' | 'step') {
-    const inp = inputFor(s);
+  async function exportFile(s: Side, format: 'stl' | 'step', part: 'plate' | 'case' = 'plate') {
+    const inp = inputFor(s, part);
     if (!inp) return;
     status = t(lang, 'computing');
     error = '';
     try {
       const data = await client(s).exportFile(inp, format);
-      const name = params.single ? `macropad-${params.rows}x${params.cols}-${variant}.${format}` : `plate-${s}-${variant}.${format}`;
+      const base = params.single ? `macropad-${params.rows}x${params.cols}` : `${s}`;
+      const name = `${base}-${part === 'case' ? 'case' : 'plate'}-${variant}.${format}`;
       await saveFile(name, data);
     } catch (e) {
       error = (e as Error).message;
@@ -225,8 +248,8 @@
       .catch((e) => (error = String(e)));
   });
 
-  const anyBusy = $derived(sides.some((s) => busy[s]));
-  const allExact = $derived(halves.every((h) => h.mesh));
+  const anyBusy = $derived(sides.some((s) => busy[s] || busy[job(s, 'case')]));
+  const allExact = $derived(halves.every((h) => h.mesh && (!h.caseOn || h.caseMesh)));
 </script>
 
 <Tooltip />
@@ -421,6 +444,23 @@
     </section>
 
     <section>
+      <h2>{t(lang, 'case')}</h2>
+      <label class="check" data-tip={t(lang, 'tipCase')}><input type="checkbox" bind:checked={caseP.enabled} /> {t(lang, 'caseBottomOn')}</label>
+      {#if caseP.enabled && variant === 'thin-plate'}<p class="warn">{t(lang, 'caseThin')}</p>{/if}
+      {#if caseOn}
+        <div class="grid2">
+          <label data-tip={t(lang, 'tipCaseWall')}>{t(lang, 'caseWall')} <input type="number" min="1.2" step="0.2" bind:value={caseP.wall} /></label>
+          <label data-tip={t(lang, 'tipCaseFloor')}>{t(lang, 'caseFloor')} <input type="number" min="2.6" step="0.2" bind:value={caseP.floor} /></label>
+          <label data-tip={t(lang, 'tipCaseSpace')}>{t(lang, 'caseSpace')} <input type="number" min="0" step="0.5" bind:value={caseP.space} /></label>
+          <label data-tip={t(lang, 'tipCaseScrews')}>{t(lang, 'caseScrews')} <input type="number" min="3" max="12" step="1" bind:value={caseP.screws} /></label>
+          <label data-tip={t(lang, 'tipCaseGap')}>{t(lang, 'caseGap')} <input type="number" min="0" step="0.1" bind:value={caseP.gap} /></label>
+          <label data-tip={t(lang, 'tipExplode')}>{t(lang, 'explode')} <input type="number" min="0" step="5" bind:value={caseP.explode} /></label>
+        </div>
+        {#if screwInfo}<p class="muted">{t(lang, 'screwInfo').replace('{n}', String(screwInfo.screws.length)).replace('{l}', String(screwInfo.screwLength))}</p>{/if}
+      {/if}
+    </section>
+
+    <section>
       <h2>{t(lang, 'export')}</h2>
       {#each sides.length === 1 && single ? (['left'] as const) : (['left', 'right'] as const) as s (s)}
         <div class="row">
@@ -428,6 +468,13 @@
           <button onclick={() => exportFile(s, 'stl')} disabled={!cellStep} data-tip={t(lang, 'tipStl')}>STL</button>
           <button onclick={() => exportFile(s, 'step')} disabled={!cellStep} data-tip={t(lang, 'tipStep')}>STEP</button>
         </div>
+        {#if caseOn}
+          <div class="row">
+            <span class="side">{single ? t(lang, 'caseBottom') : `${t(lang, 'caseBottom')}: ${t(lang, s).toLowerCase()}`}</span>
+            <button onclick={() => exportFile(s, 'stl', 'case')} disabled={!cellStep} data-tip={t(lang, 'tipStl')}>STL</button>
+            <button onclick={() => exportFile(s, 'step', 'case')} disabled={!cellStep} data-tip={t(lang, 'tipStep')}>STEP</button>
+          </div>
+        {/if}
       {/each}
     </section>
 
@@ -446,6 +493,7 @@
       {#if status}<span class="badge">{status}</span>{/if}
       {#if error}<span class="badge err">{t(lang, 'error')}: {error}</span>{/if}
       <button onclick={() => preview?.resetView()} data-tip={t(lang, 'tipResetView')}>{t(lang, 'resetView')}</button>
+      <button onclick={() => preview?.bottomView()} data-tip={t(lang, 'tipBottomView')}>{t(lang, 'bottomView')}</button>
     </div>
   </main>
 </div>

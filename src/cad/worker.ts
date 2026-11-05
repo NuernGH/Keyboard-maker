@@ -3,7 +3,7 @@
 import opencascade from 'replicad-opencascadejs';
 import wasmUrl from 'replicad-opencascadejs/wasm?url';
 import { setOC, type Shape3D } from 'replicad';
-import { buildPlate, loadCell, type Cell } from '../lib/geometry';
+import { buildPlate, buildCase, screwPilots, loadCell, type Cell } from '../lib/geometry';
 import type { Request, Response, BuildInput } from './protocol';
 
 let ready: Promise<void> | null = null;
@@ -57,7 +57,11 @@ async function plateFor(input: BuildInput): Promise<Shape3D> {
   if (lastPlate?.key === key) return lastPlate.shape;
   await init();
   const cell = await getCell(input);
-  const shape = buildPlate(input.keys, cell, input.plate, input.island);
+  const c = input.case;
+  const shape =
+    input.part === 'case' && c
+      ? buildCase(input.keys, input.plate, input.island, cell.height, c.params, c.layout)
+      : buildPlate(input.keys, cell, input.plate, input.island, c ? screwPilots(c.layout.screws, cell.height, c.layout.pilotDepth) : []);
   lastPlate = { key, shape };
   return shape;
 }

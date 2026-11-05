@@ -23,6 +23,7 @@ import {
 } from 'replicad';
 import { PITCH, type Key } from './layout';
 import type { IslandGeom } from './island';
+import { CASE_SCREW, type CaseLayout, type CaseParams } from './case';
 
 import {
   DEFAULT_PLATE_OPTIONS,
@@ -178,6 +179,7 @@ export function buildPlate(
   cell: Cell,
   opts: PlateOptions = DEFAULT_PLATE_OPTIONS,
   island: IslandGeom | null = null,
+  pilots: Shape3D[] = [],
 ): Shape3D {
   const outline = footprint(keys, opts, island);
   let body = outline.sketchOnPlane('XY', -cell.height).extrude(cell.height) as Shape3D;
@@ -195,6 +197,7 @@ export function buildPlate(
           ? (makeCylinder((b.x1 - b.x0) / 2, b.z1 - b.z0, [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, b.z0], [0, 0, 1]) as Shape3D)
           : makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]),
       );
+  negatives.push(...pilots);
   return cutMany(body, negatives);
 }
 
@@ -237,4 +240,43 @@ export function isValidShape(s: Shape3D): boolean {
   } finally {
     an.delete();
   }
+}
+
+/** Otwory pilotowe pod śruby obudowy, od spodu płyty. */
+export function screwPilots(screws: [number, number][], cellHeight: number, depth: number): Shape3D[] {
+  return screws.map(
+    ([x, y]) => makeCylinder(CASE_SCREW.pilot / 2, depth + 0.5, [x, y, -cellHeight - 0.5], [0, 0, 1]) as Shape3D,
+  );
+}
+
+/**
+ * Spód obudowy: wanna o obrysie płyty powiększonym o luz i ściankę, ścianki do górnej
+ * powierzchni płyty, w środku słupki pod śruby (od spodu, łby schowane w dnie)
+ * i wycięcia na wtyki USB.
+ */
+export function buildCase(
+  keys: Key[],
+  opts: PlateOptions,
+  island: IslandGeom | null,
+  cellHeight: number,
+  cp: CaseParams,
+  layout: CaseLayout,
+): Shape3D {
+  const outline = footprint(keys, opts, island);
+  const inner = outline.offset(cp.gap);
+  const outer = outline.offset(cp.gap + cp.wall);
+  const { bottom, floorTop } = layout;
+  let body = outer.sketchOnPlane('XY', bottom).extrude(-bottom) as Shape3D;
+  const cavity = inner.sketchOnPlane('XY', floorTop).extrude(-floorTop + 1) as Shape3D;
+  body = body.cut(cavity) as Shape3D;
+  const standH = -cellHeight - floorTop;
+  for (const [x, y] of layout.screws)
+    if (standH > 0.01) body = body.fuse(makeCylinder(CASE_SCREW.boss / 2, standH + 0.01, [x, y, floorTop - 0.01], [0, 0, 1]) as Shape3D) as Shape3D;
+  const tools: Shape3D[] = [];
+  for (const [x, y] of layout.screws) {
+    tools.push(makeCylinder(CASE_SCREW.clearance / 2, -bottom + 1, [x, y, bottom - 0.5], [0, 0, 1]) as Shape3D);
+    tools.push(makeCylinder(CASE_SCREW.head / 2, CASE_SCREW.headDepth + 0.5, [x, y, bottom - 0.5], [0, 0, 1]) as Shape3D);
+  }
+  for (const b of layout.usbCuts) tools.push(makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]));
+  return tools.length ? cutMany(body, tools) : body;
 }

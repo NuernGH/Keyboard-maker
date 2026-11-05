@@ -2,7 +2,8 @@
 import { beforeAll, test } from 'vitest';
 import { writeFileSync } from 'node:fs';
 import { initOC, cellStep } from './oc';
-import { loadCell, buildPlate } from '../src/lib/geometry';
+import { loadCell, buildPlate, buildCase, screwPilots } from '../src/lib/geometry';
+import { caseLayout, DEFAULT_CASE, SCREW_MARGIN } from '../src/lib/case';
 import { SPLIT_4x6_4, splitLeft, mirrorKeys } from '../src/lib/layout';
 import { islandFor, DEFAULT_ISLAND } from '../src/lib/island';
 
@@ -14,10 +15,16 @@ test.skipIf(!OUT)('eksport próbek', async () => {
     for (const side of ['left', 'right'] as const) {
       const base = splitLeft(SPLIT_4x6_4);
       const keys = side === 'left' ? base : mirrorKeys(base);
-      const plate = buildPlate(keys, cell, undefined, islandFor(SPLIT_4x6_4, DEFAULT_ISLAND, side, variant, cell.height));
-      const name = `${OUT}/plate-${side}-${variant}`;
-      writeFileSync(`${name}.step`, Buffer.from(await plate.blobSTEP().arrayBuffer()));
-      writeFileSync(`${name}.stl`, Buffer.from(await plate.blobSTL({ binary: true }).arrayBuffer()));
+      const island = islandFor(SPLIT_4x6_4, DEFAULT_ISLAND, side, variant, cell.height);
+      const opts = { fillGaps: 4, margin: SCREW_MARGIN };
+      const lay = caseLayout(keys, island, cell.height, DEFAULT_CASE);
+      const plate = buildPlate(keys, cell, opts, island, screwPilots(lay.screws, cell.height, lay.pilotDepth));
+      const shell = buildCase(keys, opts, island, cell.height, DEFAULT_CASE, lay);
+      for (const [part, shape] of [['plate', plate], ['case', shell]] as const) {
+        const name = `${OUT}/${part}-${side}-${variant}`;
+        writeFileSync(`${name}.step`, Buffer.from(await shape.blobSTEP().arrayBuffer()));
+        writeFileSync(`${name}.stl`, Buffer.from(await shape.blobSTL({ binary: true }).arrayBuffer()));
+      }
     }
   }
 }, 600000);
