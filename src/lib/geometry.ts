@@ -24,7 +24,7 @@ import {
 } from 'replicad';
 import { PITCH, switchSpots, type Key } from './layout';
 import { wedgeZ, type Box, type IslandGeom } from './island';
-import { CASE_SCREW, SUPPORT, type CaseLayout, type CaseParams } from './case';
+import { CASE_SCREW, LEDGE, SUPPORT, ledgeKeepouts, ledgeWidth, type CaseLayout, type CaseParams } from './case';
 import { leftRegion, type PrintSplit } from './split';
 
 import {
@@ -344,6 +344,8 @@ export function buildCase(
   if (supH > 0.3)
     for (const [x, y] of layout.supports ?? [])
       body = body.fuse(makeCylinder(SUPPORT.d / 2, supH + 0.01, [x, y, floorTop - 0.01], [0, 0, 1]) as Shape3D) as Shape3D;
+  const ledge = buildLedge(outline, island, cellHeight, cp, opts.margin, floorTop);
+  if (ledge) body = body.fuse(ledge) as Shape3D;
   const tools: Shape3D[] = [];
   for (const [x, y] of layout.screws) {
     tools.push(makeCylinder(CASE_SCREW.clearance / 2, -bottom + 1, [x, y, bottom - 0.5], [0, 0, 1]) as Shape3D);
@@ -351,6 +353,28 @@ export function buildCase(
   }
   for (const b of layout.usbCuts) tools.push(makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]));
   return tools.length ? cutMany(body, tools) : body;
+}
+
+/**
+ * Gzyms: pas od wnętrza ścianki (0,5 mm w ściankę, żeby nie było wspólnych ścian przy fuzji)
+ * do `w` mm pod płytą, od dna do 0,1 mm pod spód płyty. Bez wyspy i drogi wtyku USB.
+ */
+export function buildLedge(
+  outline: Drawing,
+  island: IslandGeom | null,
+  cellHeight: number,
+  cp: CaseParams,
+  plateMargin: number,
+  floorTop: number,
+): Shape3D | null {
+  const w = ledgeWidth(cp, plateMargin);
+  const top = -cellHeight - LEDGE.gap;
+  if (w <= 0 || top - floorTop < 0.3) return null;
+  const z0 = floorTop - 0.01;
+  let ring = outline.offset(cp.gap + 0.5).sketchOnPlane('XY', z0).extrude(top - z0) as Shape3D;
+  ring = ring.cut(outline.offset(-w).sketchOnPlane('XY', z0 - 1).extrude(top - z0 + 2) as Shape3D) as Shape3D;
+  const keep = ledgeKeepouts(island, cellHeight, cp).map((b) => makeBox([b.x0, b.y0, z0 - 1], [b.x1, b.y1, top + 1]) as Shape3D);
+  return keep.length ? cutMany(ring, keep) : ring;
 }
 
 /** Pryzmat z wielokąta XY, od z0 do z1. */
