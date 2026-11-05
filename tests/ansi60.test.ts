@@ -202,6 +202,22 @@ describe('bryły 60%', () => {
     expect(vol(plate, [nano.x0, nano.y0, -2.4], [nano.x1, nano.y1, -0.1])).toBeGreaterThan(0.9 * (nano.x1 - nano.x0) * (nano.y1 - nano.y0) * 2.3);
   }, 240000);
 
+  test('wnęka na blaszki hot-swap tylko tam, gdzie kieszeń komórki wychodzi na bok', async () => {
+    const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
+    const h = cell.size / 2;
+    const side = (a: [number, number, number], b: [number, number, number]) => measureVolume(cell.negative.clone().intersect(makeBox(a, b)));
+    // kieszeń gniazda otwarta na boki w osi X, zamknięta w osi Y
+    expect(side([-h, -h, -cell.height], [-h + 0.3, h, -cell.height + 3])).toBeGreaterThan(1);
+    expect(side([h - 0.3, -h, -cell.height], [h, h, -cell.height + 3])).toBeGreaterThan(1);
+    expect(side([-h, -h, -cell.height], [h, -h + 0.3, -cell.height + 3])).toBeLessThan(0.001);
+    expect(side([-h, h - 0.3, -cell.height], [h, h - 0, -cell.height + 3])).toBeLessThan(0.001);
+    const notch = (g: NonNullable<ReturnType<typeof islandFor>>) => g.cuts.some((c) => Math.abs(c.z1 - (-cell.height + 2.4)) < 1e-6);
+    // 60%: wyspa nad klawiszami, bez wnęki; split: wyspa obok kolumny, z wnęką
+    expect(notch(islandFor(tpl, { ...ip, tilt: 25 }, 'left', 'hotswap', cell.height)!)).toBe(false);
+    const split = TEMPLATES.find((t) => !t.params.single)!.params;
+    expect(notch(islandFor(split, DEFAULT_ISLAND, 'left', 'hotswap', cell.height)!)).toBe(true);
+  }, 120000);
+
   test('cała płyta i spód hot-swap, podział na części', async () => {
     const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
     const keys = splitLeft(tpl);
