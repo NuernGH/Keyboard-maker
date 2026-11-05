@@ -33,6 +33,11 @@ export interface CaseParams {
    * mniejsza niż margines płyty, żeby nie dotykał komórek.
    */
   ledge?: number;
+  /**
+   * Faza 45° na zewnętrznej górnej krawędzi ścianki (mm, 0 = ostra krawędź). Nad płytą zawsze
+   * zostaje co najmniej CHAMFER.minLand mm płaskiej góry ścianki.
+   */
+  chamfer?: number;
 }
 
 export const DEFAULT_CASE: CaseParams = {
@@ -46,7 +51,17 @@ export const DEFAULT_CASE: CaseParams = {
   supports: true,
   screwSize: 'M3',
   ledge: 4.5,
+  chamfer: 1,
 };
+
+/** Faza górnej krawędzi: najmniej płaskiej góry ścianki, która zostaje przy płycie (mm). */
+export const CHAMFER = { minLand: 0.8 };
+
+/** Faza górnej krawędzi z parametrów, przycięta tak, żeby została płaska góra ścianki. */
+export function chamferSize(cp: CaseParams): number {
+  const c = Math.min(cp.chamfer ?? 0, cp.wall - CHAMFER.minLand);
+  return c >= 0.2 ? c : 0;
+}
 
 export type ScrewSize = 'M3' | 'M2.5';
 

@@ -24,7 +24,7 @@ import {
 } from 'replicad';
 import { PITCH, switchSpots, type Key } from './layout';
 import { wedgeZ, type Box, type IslandGeom } from './island';
-import { LEDGE, SUPPORT, ledgeKeepouts, ledgeWidth, screwSpec, type ScrewSpec, type CaseLayout, type CaseParams } from './case';
+import { LEDGE, SUPPORT, chamferSize, ledgeKeepouts, ledgeWidth, screwSpec, type ScrewSpec, type CaseLayout, type CaseParams } from './case';
 import { leftRegion, type PrintSplit } from './split';
 
 import {
@@ -338,6 +338,9 @@ export function buildCase(
   const outer = outline.offset(cp.gap + cp.wall);
   const { bottom, floorTop } = layout;
   let body = outer.sketchOnPlane('XY', bottom).extrude(-bottom) as Shape3D;
+  // faza zewnętrznej górnej krawędzi: przed wycięciem wnętrza górna ściana ma tylko obrys zewnętrzny
+  const ch = chamferSize(cp);
+  if (ch > 0) body = body.chamfer(ch, (e) => e.inPlane('XY', 0)) as Shape3D;
   const cavity = inner.sketchOnPlane('XY', floorTop).extrude(-floorTop + 1) as Shape3D;
   body = body.cut(cavity) as Shape3D;
   const sp = layout.screw ?? screwSpec(cp.screwSize);
