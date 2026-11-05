@@ -38,6 +38,13 @@ export interface CaseParams {
    * zostaje co najmniej CHAMFER.minLand mm płaskiej góry ścianki.
    */
   chamfer?: number;
+  /**
+   * Wzmocnienie u podstawy słupków pod śruby: zaokrąglenie (lub faza 45°) między słupkiem a dnem,
+   * mm (0 = bez). Słupek nie urywa się przy dokręcaniu. Przycinane przez bossFilletSize.
+   */
+  bossFillet?: number;
+  /** kształt wzmocnienia: zaokrąglenie (domyślnie) albo faza 45° */
+  bossFilletKind?: 'fillet' | 'chamfer';
 }
 
 export const DEFAULT_CASE: CaseParams = {
@@ -52,6 +59,8 @@ export const DEFAULT_CASE: CaseParams = {
   screwSize: 'M3',
   ledge: 4.5,
   chamfer: 1,
+  bossFillet: 1.5,
+  bossFilletKind: 'fillet',
 };
 
 /** Faza górnej krawędzi: najmniej płaskiej góry ścianki, która zostaje przy płycie (mm). */
@@ -61,6 +70,21 @@ export const CHAMFER = { minLand: 0.8 };
 export function chamferSize(cp: CaseParams): number {
   const c = Math.min(cp.chamfer ?? 0, cp.wall - CHAMFER.minLand);
   return c >= 0.2 ? c : 0;
+}
+
+/**
+ * Wzmocnienie podstawy słupka: najwyżej `max` mm, co najmniej `minTop` mm prostego słupka nad nim
+ * i co najmniej `belowParts` mm pod najniższą częścią pod płytą (wyspa, komórki), czyli r ≤ space − belowParts.
+ */
+export const BOSS_FILLET = { max: 3, minTop: 1, belowParts: 0.5 };
+
+/**
+ * Promień wzmocnienia podstawy słupka (mm) dla słupka o wysokości standH. Przy podziale spodu
+ * do druku słupek stoi co najmniej sp.boss/2 + 1,5 mm od cięcia, więc kołnierz nie sięga cięcia.
+ */
+export function bossFilletSize(cp: CaseParams, standH: number): number {
+  const r = Math.min(cp.bossFillet ?? 0, BOSS_FILLET.max, standH - BOSS_FILLET.minTop, cp.space - BOSS_FILLET.belowParts);
+  return r >= 0.2 ? r : 0;
 }
 
 export type ScrewSize = 'M3' | 'M2.5';
