@@ -28,6 +28,8 @@
   function applyTemplate(id: string) {
     const tpl = TEMPLATES.find((x) => x.id === id);
     if (tpl) params = structuredClone(tpl.params);
+    // macropad: wyspa domyślnie nad klawiszami
+    if (tpl) island.position = tpl.params.single ? 'top' : 'inner';
   }
   let variant = $state<CellVariant>('hotswap');
   let plate = $state<PlateOptions>({ ...DEFAULT_PLATE_OPTIONS });
@@ -65,10 +67,16 @@
     return false;
   });
 
-  const islandGeom = (s: Side) =>
-    islandFor($state.snapshot(params) as SplitParams, $state.snapshot(island) as IslandParams, s, variant, cellHeight);
+  const islandGeom = (s: Side) => {
+    const ip = $state.snapshot(island) as IslandParams;
+    // macropad ma jedną płytę: moduł jest na niej albo nigdzie
+    if (params.single) ip.moduleSide = ip.moduleSide === 'none' ? 'none' : 'left';
+    else ip.position = 'inner';
+    return islandFor($state.snapshot(params) as SplitParams, ip, s, variant, cellHeight);
+  };
   const keysFor = (s: Side) => (s === 'left' ? leftKeys : rightKeys);
-  const sides = $derived<Side[]>(show === 'both' ? ['left', 'right'] : [show]);
+  const single = $derived(!!params.single);
+  const sides = $derived<Side[]>(single ? ['left'] : show === 'both' ? ['left', 'right'] : [show]);
 
   function inputFor(s: Side): BuildInput | null {
     if (!cellStep) return null;
@@ -97,7 +105,7 @@
       const inp = inputFor(s);
       const m = meshes[s];
       const fresh = inp && m && m.key === inputKey(inp) ? m.mesh : null;
-      const offsetX = s === 'right' && show === 'both' ? reachL + reachR + gap : 0;
+      const offsetX = s === 'right' && sides.length === 2 ? reachL + reachR + gap : 0;
       return { keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), showElectronics };
     });
   });
@@ -144,7 +152,7 @@
     error = '';
     try {
       const data = await client(s).exportFile(inp, format);
-      const name = `plate-${s}-${variant}.${format}`;
+      const name = params.single ? `macropad-${params.rows}x${params.cols}-${variant}.${format}` : `plate-${s}-${variant}.${format}`;
       await saveFile(name, data);
     } catch (e) {
       error = (e as Error).message;
@@ -229,7 +237,7 @@
           <option value={tpl.id}>{tpl.name[lang]}</option>
         {/each}
       </select>
-      <p class="muted">{leftKeys.length * 2} {t(lang, 'keys')}</p>
+      <p class="muted">{leftKeys.length * (single ? 1 : 2)} {t(lang, 'keys')}</p>
     </section>
 
     <section>
@@ -279,6 +287,7 @@
       </div>
     </section>
 
+    {#if !single}
     <section>
       <h2>{t(lang, 'thumb')}</h2>
       <div class="grid2">
@@ -304,6 +313,7 @@
       </div>
       {#if overlap}<p class="warn">{t(lang, 'overlap')}</p>{/if}
     </section>
+    {/if}
 
     <section>
       <h2>{t(lang, 'plate')}</h2>
@@ -311,6 +321,7 @@
         <label data-tip={t(lang, 'tipFillGaps')}>{t(lang, 'fillGaps')} <input type="number" min="0" step="0.5" bind:value={plate.fillGaps} /></label>
         <label data-tip={t(lang, 'tipMargin')}>{t(lang, 'margin')} <input type="number" min="0" step="0.5" bind:value={plate.margin} /></label>
       </div>
+      {#if !single}
       <label data-tip={t(lang, 'tipHalves')}>
         {t(lang, 'halves')}
         <select bind:value={show}>
@@ -319,6 +330,7 @@
           <option value="right">{t(lang, 'right')}</option>
         </select>
       </label>
+      {/if}
     </section>
 
     <section>
@@ -331,6 +343,17 @@
               {#each Object.entries(CONTROLLERS) as [id, c] (id)}<option value={id}>{c.name}</option>{/each}
             </select>
           </label>
+          {#if single}
+          <label data-tip={t(lang, 'tipIslandPos')}>{t(lang, 'islandPos')}
+            <select bind:value={island.position}>
+              <option value="top">{t(lang, 'posTop')}</option>
+              <option value="inner">{t(lang, 'right')}</option>
+              <option value="outer">{t(lang, 'left')}</option>
+              <option value="bottom">{t(lang, 'posBottom')}</option>
+            </select>
+          </label>
+          <label class="check" data-tip={t(lang, 'tipModuleSingle')}><input type="checkbox" checked={island.moduleSide !== 'none'} onchange={(e) => (island.moduleSide = e.currentTarget.checked ? 'left' : 'none')} /> {t(lang, 'moduleSingle')}</label>
+          {:else}
           <label data-tip={t(lang, 'tipModuleSide')}>{t(lang, 'moduleSide')}
             <select bind:value={island.moduleSide}>
               <option value="left">{t(lang, 'left')}</option>
@@ -339,6 +362,7 @@
               <option value="none">{t(lang, 'none')}</option>
             </select>
           </label>
+          {/if}
           <label data-tip={t(lang, 'tipIslandDepth')}>{t(lang, 'islandDepth')} <input type="number" min="5" step="0.5" bind:value={island.depth} /></label>
           <span></span>
           <label data-tip={t(lang, 'tipIslandX')}>{t(lang, 'thumbX')} <input type="number" step="0.5" bind:value={island.offsetX} /></label>
@@ -350,9 +374,9 @@
 
     <section>
       <h2>{t(lang, 'export')}</h2>
-      {#each ['left', 'right'] as const as s (s)}
+      {#each sides.length === 1 && single ? (['left'] as const) : (['left', 'right'] as const) as s (s)}
         <div class="row">
-          <span class="side">{t(lang, s)}</span>
+          <span class="side">{single ? t(lang, 'plate') : t(lang, s)}</span>
           <button onclick={() => exportFile(s, 'stl')} disabled={!cellStep} data-tip={t(lang, 'tipStl')}>STL</button>
           <button onclick={() => exportFile(s, 'step')} disabled={!cellStep} data-tip={t(lang, 'tipStep')}>STEP</button>
         </div>

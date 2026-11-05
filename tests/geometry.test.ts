@@ -175,3 +175,25 @@ describe('wyspa nie wchodzi na klawisze w żadnym szablonie', () => {
         for (const k of splitLeft(t.params)) expect(polysOverlap(keyCorners(k), rp)).toBe(false);
       });
 });
+
+describe('macropad: położenie wyspy', () => {
+  const mp = TEMPLATES.find((t) => t.id === 'macropad-3x3')!.params;
+  for (const position of ['top', 'inner', 'outer', 'bottom'] as const)
+    for (const moduleSide of ['left', 'none'] as const)
+      test(`${position}, moduł: ${moduleSide}`, async () => {
+        const g = islandFor(mp, { ...DEFAULT_ISLAND, position, moduleSide }, 'left', 'hotswap', 8.58)!;
+        const r = g.rect;
+        const rp: [number, number][] = [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]];
+        const keys = splitLeft(mp);
+        for (const k of keys) expect(polysOverlap(keyCorners(k), rp)).toBe(false);
+        // wyspa styka się z siatką (jedna bryła) i wszystkie wycięcia są w jej obrysie w XY
+        for (const c of g.cuts.filter((c) => c.z1 > -8)) {
+          expect(c.x0).toBeGreaterThanOrEqual(r.x0 - 1.01);
+          expect(c.x1).toBeLessThanOrEqual(r.x1 + 1.01);
+        }
+        const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
+        const plate = buildPlate(keys, cell, undefined, g);
+        expect(isValidShape(plate)).toBe(true);
+        expect(plate.solids.length).toBe(1);
+      }, 180000);
+});

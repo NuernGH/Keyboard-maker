@@ -11,6 +11,11 @@ import type { CellVariant } from './cell-spec';
 
 export type ControllerId = 'nicenano' | 'promicro-c' | 'promicro-micro' | 'kb2040' | 's2mini';
 export type ModuleSide = 'left' | 'right' | 'both' | 'none';
+/**
+ * Gdzie stoi wyspa: `inner` przy wewnętrznej kolumnie (split, prawa strona macropada),
+ * `outer` po drugiej stronie, `top`/`bottom` nad lub pod siatką klawiszy (wyspa leży poziomo).
+ */
+export type IslandPosition = 'inner' | 'outer' | 'top' | 'bottom';
 
 export interface Controller {
   name: string;
@@ -45,6 +50,7 @@ export interface IslandParams {
   controller: ControllerId;
   /** na której połówce jest moduł OLED z enkoderem; druga dostaje małą wyspę na sam kontroler */
   moduleSide: ModuleSide;
+  position?: IslandPosition;
 }
 
 export const DEFAULT_ISLAND: IslandParams = {
@@ -137,13 +143,16 @@ export function islandFor(
   const mod = hasModule(ip, side);
   const { w: W, h: H } = islandSize(ip, side);
   const D = Math.max(ip.depth, cellHeight, ctrl.height + 1.5);
+  const pos = ip.position ?? 'inner';
   const inner = p.cols - 1;
-  const x0 = inner * PITCH + PITCH / 2 + ip.offsetX;
+  // przy innych położeniach liczymy wyspę w układzie lokalnym (lewy górny róg w 0,0), potem obracamy
+  const local = pos !== 'inner';
+  const x0 = local ? 0 : inner * PITCH + PITCH / 2 + ip.offsetX;
   const x1 = x0 + W;
   // Wyspa stoi przy górze wewnętrznej kolumny. Gdy płyta ma mało rzędów, dół wyspy wchodziłby
   // na klawisze kciuka, więc podnosimy ją, aż zostanie między nimi KEY_GAP luzu.
-  let y1 = (p.stagger[inner] ?? 0) + PITCH / 2 + ip.offsetY;
-  const keyPolys = splitLeft(p).map(keyCorners);
+  let y1 = local ? 0 : (p.stagger[inner] ?? 0) + PITCH / 2 + ip.offsetY;
+  const keyPolys = local ? [] : splitLeft(p).map(keyCorners);
   const hits = (top: number) => {
     const r: [number, number][] = [[x0, top - H - KEY_GAP], [x1, top - H - KEY_GAP], [x1, top], [x0, top]];
     return keyPolys.some((k) => polysOverlap(k, r));
@@ -211,12 +220,58 @@ export function islandFor(
   // przy hot-swap kieszenie gniazd wewnętrznej kolumny wychodzą na bok komórki: zostawiamy im miejsce
   if (variant === 'hotswap') cuts.push(box(x0 - 0.01, y0 - 1, -cellHeight - 1, x0 + 2.5, y1 + 1, -cellHeight + 2.4));
 
-  const g: IslandGeom = { rect: { x0, y0, x1, y1 }, depth: D, cuts, ghosts };
+  let g: IslandGeom = { rect: { x0, y0, x1, y1 }, depth: D, cuts, ghosts };
+  if (local) g = place(g, pos, p, ip);
   if (side === 'left') return g;
+  const { x0: gx0, x1: gx1 } = g.rect;
   return {
-    rect: { x0: -x1, y0, x1: -x0, y1 },
+    rect: { ...g.rect, x0: -gx1, x1: -gx0 },
     depth: D,
-    cuts: cuts.map(mirrorBox),
-    ghosts: ghosts.map((gp) => ({ ...gp, box: mirrorBox(gp.box) })),
+    cuts: g.cuts.map(mirrorBox),
+    ghosts: g.ghosts.map((gp) => ({ ...gp, box: mirrorBox(gp.box) })),
+  };
+}
+
+/**
+ * Przenosi wyspę z układu lokalnego (bok przy klawiszach x = 0, USB na górze y = 0)
+ * na wybrane miejsce przy siatce klawiszy. Obroty o 90° zostawiają pudełka pudełkami.
+ */
+function place(g: IslandGeom, pos: IslandPosition, p: SplitParams, ip: IslandParams): IslandGeom {
+  const pts = splitLeft(p).flatMap(keyCorners);
+  const kx0 = Math.min(...pts.map((q) => q[0]));
+  const kx1 = Math.max(...pts.map((q) => q[0]));
+  const ky0 = Math.min(...pts.map((q) => q[1]));
+  const ky1 = Math.max(...pts.map((q) => q[1]));
+  const H = g.rect.y1 - g.rect.y0;
+  const cx = (kx0 + kx1) / 2;
+  let f: (x: number, y: number) => [number, number];
+  if (pos === 'outer') {
+    // lustro: bok przy klawiszach po lewej stronie siatki, USB nadal u góry
+    const top = ky1;
+    f = (x, y) => [kx0 - x, top + y];
+  } else if (pos === 'top') {
+    // obrót o 90° w lewo: bok przy klawiszach na dole wyspy, USB na lewym końcu
+    f = (x, y) => [cx - H / 2 - y, ky1 + x];
+  } else {
+    // obrót o 90° w prawo: bok przy klawiszach u góry wyspy, USB na prawym końcu
+    f = (x, y) => [cx + H / 2 + y, ky0 - x];
+  }
+  const tb = <T extends Box>(b: T): T => {
+    const [ax, ay] = f(b.x0, b.y0);
+    const [bx, by] = f(b.x1, b.y1);
+    return {
+      ...b,
+      x0: Math.min(ax, bx) + ip.offsetX,
+      x1: Math.max(ax, bx) + ip.offsetX,
+      y0: Math.min(ay, by) + ip.offsetY,
+      y1: Math.max(ay, by) + ip.offsetY,
+    };
+  };
+  const r = tb({ x0: g.rect.x0, y0: g.rect.y0, z0: 0, x1: g.rect.x1, y1: g.rect.y1, z1: 0 });
+  return {
+    rect: { x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1 },
+    depth: g.depth,
+    cuts: g.cuts.map(tb),
+    ghosts: g.ghosts.map((gp) => ({ ...gp, box: tb(gp.box) })),
   };
 }

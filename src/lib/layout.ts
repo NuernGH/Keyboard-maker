@@ -38,6 +38,8 @@ export interface SplitParams {
   thumbLastWidth: number;
   /** obróć ostatni klawisz o 90° (pionowy 1,5U jak w Lily58) */
   thumbLastVertical: boolean;
+  /** jedna płyta zamiast dwóch połówek (macropad): bez lustra i bez klastra kciuka */
+  single?: boolean;
 }
 
 /** Szablon 4×6 + 4 kciukowe, płaski split z lekkim staggerem kolumn. */
@@ -60,6 +62,16 @@ export interface Template {
   name: { pl: string; en: string };
   params: SplitParams;
 }
+
+/** Macropad: prosta siatka bez staggera i bez kciuka, jedna płyta. */
+const macropad = (rows: number, cols: number): SplitParams => ({
+  ...SPLIT_4x6_4,
+  rows,
+  cols,
+  stagger: Array(cols).fill(0),
+  thumbKeys: 0,
+  single: true,
+});
 
 /** Gotowe szablony splitu (proporcje wzorowane na popularnych klasach układów). */
 export const TEMPLATES: Template[] = [
@@ -119,6 +131,10 @@ export const TEMPLATES: Template[] = [
       thumbLastVertical: false,
     },
   },
+  { id: 'macropad-3x3', name: { pl: 'Macropad 3×3 (9)', en: 'Macropad 3×3 (9)' }, params: macropad(3, 3) },
+  { id: 'macropad-3x4', name: { pl: 'Macropad 3×4 (12)', en: 'Macropad 3×4 (12)' }, params: macropad(3, 4) },
+  { id: 'macropad-4x4', name: { pl: 'Macropad 4×4 (16)', en: 'Macropad 4×4 (16)' }, params: macropad(4, 4) },
+  { id: 'macropad-5x4', name: { pl: 'Macropad 5×4, jak klawiatura numeryczna (20)', en: 'Macropad 5×4, numpad size (20)' }, params: macropad(5, 4) },
 ];
 
 const rotPt = (x: number, y: number, deg: number): [number, number] => {
