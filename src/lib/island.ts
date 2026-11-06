@@ -52,9 +52,11 @@ export const USB_PLUG = { w: 12.5, h: 7 };
 
 /** Uproszczone wymiary kontrolerów (zmierzone z modeli, zaokrąglone w górę). */
 export const CONTROLLERS: Record<ControllerId, Controller> = {
-  // nice!nano v2 wg modelu Woovie (CC0): płytka 17,78 × 33,10 × 0,8, USB-C 8,99 × 3,2 we wcięciu płytki,
-  // spodem równo ze spodem płytki, wystaje 1,52. Grubość płytki i wysokość USB do sprawdzenia suwmiarką.
-  nicenano: { name: 'nice!nano v2', w: 17.78, h: 33.1, height: 3.2, usbOverhang: 1.52, usbW: 10, usbH: 5.4, pcb: 0.8, usbZ0: 0, model: 'controllers/nice-nano-v2.stl' },
+  // nice!nano v2 zmierzony suwmiarką przez Marcina (2026-11-06): 17,8 × 33,8 (razem z USB) × 3,3 (przy USB),
+  // płytka 1,2. Zgodne z modelem Joe Scotto: płytka 33,0, USB-C wystaje 0,8. Gniazdo osadzone we wcięciu
+  // płytki (mid-mount), wystaje ok. 0,2 pod spód płytki, więc góra gniazda 3,1 nad spodem płytki.
+  // Podgląd: model Woovie (CC0) przeskalowany do tych wymiarów.
+  nicenano: { name: 'nice!nano v2', w: 17.8, h: 33.0, height: 3.1, usbOverhang: 0.8, usbW: 10, usbH: 5.4, pcb: 1.2, usbZ0: -0.2, model: 'controllers/nice-nano-v2.stl' },
   // Pro Micro USB-C (model GrabCAD od Marcina, zgodny z modelem qwelyt/waddle): płytka 18,3 × 34,7 × 1,5,
   // USB-C na płytce, wystaje 1,5, razem 4,66.
   'promicro-c': { name: 'Pro Micro USB-C', w: 18.3, h: 34.7, height: 4.7, usbOverhang: 1.5, usbW: 10, usbH: 5.4, pcb: 1.5 },

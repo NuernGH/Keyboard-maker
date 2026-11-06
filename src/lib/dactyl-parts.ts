@@ -78,6 +78,7 @@ export function controllerHolder(model: DactylModel, cp: ControllerParams): Dact
   const zb = HOLDER.lift; // spód płytki
   const usbZ = zb + usbCenterOf(c);
   const zTop = zb + pcbOf(c); // wierzch płytki
+  const usbBack = yEdge - 7.3 + c.usbOverhang; // tył gniazda USB (jak w duchu gniazda)
   const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): PartBox => ({ x0, y0, z0, x1, y1, z1, m });
   const bottomAdd = [
     box(-hw - g - w, yBack - g - w, -1, -hw - g, -0.4, HOLDER.height),
@@ -85,7 +86,13 @@ export function controllerHolder(model: DactylModel, cp: ControllerParams): Dact
     box(-hw - g - w, yBack - g - w, -1, hw + g + w, yBack - g, HOLDER.height),
     // podest pod płytką na całą długość, między rzędami pinów (luty pinów są 1,27 mm od brzegów):
     // płytka nie ugina się przy wtykaniu kabla
-    box(-PAD_HALF, yBack - g, -1, PAD_HALF, yEdge - 0.01, zb),
+    // gniazdo wystające pod spód płytki (nice!nano: 0,2 mm) dostaje pod sobą obniżenie podestu z luzem 0,2
+    ...(usbBottomOf(c) < 0
+      ? [
+          box(-PAD_HALF, yBack - g, -1, PAD_HALF, usbBack - 0.3, zb),
+          box(-PAD_HALF, usbBack - 0.3, -1, PAD_HALF, yEdge - 0.01, zb + usbBottomOf(c) - 0.2),
+        ]
+      : [box(-PAD_HALF, yBack - g, -1, PAD_HALF, yEdge - 0.01, zb)]),
     // zaczep L na tylnej ściance korytka: występ nad końcem płytki (na środku, między pinami)
     // trzyma płytkę od góry. Wkładanie: koniec płytki pod zaczep, potem opuścić stronę z USB.
     box(-PAD_HALF, yBack - g - w, zTop + HOLDER.lipGap, PAD_HALF, yBack + HOLDER.lip, zTop + HOLDER.lipGap + HOLDER.lipT),
@@ -100,7 +107,7 @@ export function controllerHolder(model: DactylModel, cp: ControllerParams): Dact
   shellCut.push(box(-hw - g - w - 0.3, yBack - g - w - 0.3, -1, hw + g + w + 0.3, 0.01, Math.max(HOLDER.height, zb + c.height) + 0.5));
   const ghosts = [
     { kind: 'board' as const, box: box(-hw, yBack, zb, hw, yEdge, zb + pcbOf(c)), model: c.model },
-    ...ports.map((px) => ({ kind: 'usb' as const, box: box(px - 4.5, yEdge - 7.3 + c.usbOverhang, zb + usbBottomOf(c), px + 4.5, yEdge + c.usbOverhang, zb + c.height) })),
+    ...ports.map((px) => ({ kind: 'usb' as const, box: box(px - 4.5, usbBack, zb + usbBottomOf(c), px + 4.5, yEdge + c.usbOverhang, zb + c.height) })),
   ];
   const u = apply(m, [0, 0, 0]);
   return { shellAdd: [], shellCut, bottomAdd, bottomCut: [], ghosts, usb: [u[0], u[1]] };

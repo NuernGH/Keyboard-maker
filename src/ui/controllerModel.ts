@@ -28,6 +28,7 @@ export function loadControllerModel(path: string): Promise<THREE.BufferGeometry 
 
 /**
  * Macierz, która kładzie model na płytce `board` (pudełko płytki w XY, spód na z0).
+ * Y = 0 w modelu to spód płytki (gniazdo USB może wystawać niżej, np. nice!nano o 0,2 mm).
  * Gniazdo USB jest po stronie dłuższej osi pudełka, w kierunku `usb` (środek gniazda);
  * bez niego po stronie +Y. Obrót jest właściwy (bez odbicia), płytka jest symetryczna.
  */
@@ -50,6 +51,6 @@ export function placeOnBoard(geo: THREE.BufferGeometry, board: Box, usb?: Box): 
   const far = alongY
     ? new THREE.Vector3(cx, sign > 0 ? board.y0 : board.y1, board.z0)
     : new THREE.Vector3(sign > 0 ? board.x0 : board.x1, cy, board.z0);
-  const o = far.clone().addScaledVector(a, -(bb.min.x + w / 2)).addScaledVector(up, -bb.min.y).addScaledVector(d, -bb.min.z);
+  const o = far.clone().addScaledVector(a, -(bb.min.x + w / 2)).addScaledVector(up, 0).addScaledVector(d, -bb.min.z);
   return new THREE.Matrix4().set(a.x, up.x, d.x, o.x, a.y, up.y, d.y, o.y, a.z, up.z, d.z, o.z, 0, 0, 0, 1);
 }

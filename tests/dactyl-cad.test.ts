@@ -47,8 +47,12 @@ describe('Dactyl: bryły', () => {
     for (const g of controller.ghosts) expect(vol(bottom, boxOf(g.box))).toBeLessThan(0.01);
     // podest na całą długość płytki pod jej środkiem i zaczep L nad jej końcem (trzyma od góry)
     const bd = controller.ghosts.find((g) => g.kind === 'board')!.box;
-    const under = { ...bd, x0: -4, x1: 4, z0: bd.z0 - 0.5, z1: bd.z0 - 0.05 };
-    expect(vol(bottom, boxOf(under))).toBeGreaterThan(0.95 * 8 * (bd.y1 - bd.y0) * 0.45);
+    // gniazdo wystające pod spód płytki (nice!nano) ma pod sobą obniżenie: podest pełny do tyłu gniazda
+    const ub = controller.ghosts.find((g) => g.kind === 'usb')!.box;
+    const padEnd = ub.z0 < bd.z0 ? ub.y0 - 0.3 : bd.y1;
+    const under = { ...bd, x0: -4, x1: 4, y1: padEnd, z0: bd.z0 - 0.5, z1: bd.z0 - 0.05 };
+    expect(padEnd - bd.y0).toBeGreaterThan(0.75 * (bd.y1 - bd.y0));
+    expect(vol(bottom, boxOf(under))).toBeGreaterThan(0.95 * 8 * (padEnd - bd.y0) * 0.45);
     const lip = { ...bd, x0: -4, x1: 4, y1: bd.y0 + 1, z0: bd.z1 + 0.3, z1: bd.z1 + 1.3 };
     expect(vol(bottom, boxOf(lip))).toBeGreaterThan(0.95 * 8 * 1 * 1);
     // łeb chowa się w dnie 4 mm, nad nim zostaje 1 mm dna, a wokół łba pełny pierścień 1,2 mm
