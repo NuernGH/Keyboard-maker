@@ -10,6 +10,8 @@
   import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
   import qh from 'quickhull3d/dist/quickhull3d.js';
   import { t, type Lang } from './i18n';
+  import WiringPanel from './WiringPanel.svelte';
+  import { dactylWiringInput } from '../lib/wiring-doc';
   import Tooltip from './Tooltip.svelte';
   import { TEMPLATES } from '../lib/layout';
   import {
@@ -275,7 +277,7 @@
       }
       return;
     }
-    const blob = new Blob([data], { type: name.endsWith('.stl') ? 'model/stl' : 'model/step' });
+    const blob = new Blob([data], { type: name.endsWith('.html') ? 'text/html' : name.endsWith('.stl') ? 'model/stl' : 'model/step' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = name;
@@ -685,6 +687,11 @@
       {/each}
       <p class="muted">{tx('slow')}</p>
     </section>
+
+    {#if model}
+      {@const m = model}
+      <WiringPanel {lang} input={() => dactylWiringInput({ model: m, controller: ctrlOn ? ctrl.controller : null, hotswap: variant === 'hotswap', lang })} fileBase={`dactyl-${p.rows}x${p.cols}`} save={saveFile} />
+    {/if}
 
     <footer class="muted">
       <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noreferrer">{t(lang, 'license')}</a>

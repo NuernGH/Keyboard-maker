@@ -27,7 +27,8 @@
   function hide() {
     clearTimeout(timer);
     current = null;
-    text = '';
+    // focusout przychodzi też przy usuwaniu elementu z DOM (np. zamknięcie okienka): bez zmiany stanu, gdy nic nie ma
+    if (text) text = '';
   }
 
   onMount(() => {

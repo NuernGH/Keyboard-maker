@@ -246,6 +246,12 @@ const dict = {
   tipFitTop: { pl: 'Odstęp stropu kieszeni od najwyższego elementu (kontroler elementami do góry).', en: 'Gap between the pocket roof and the tallest part (controller parts up).' },
   fitBottom: { pl: 'Luz pod (mm)', en: 'Gap below (mm)' },
   tipFitBottom: { pl: 'Odstęp podkładki (przy odwróconym: podestu pod USB) od kontrolera. Ujemny = wcisk.', en: 'Gap between the pad (flipped: the post under USB) and the controller. Negative = press fit.' },
+  wiring: { pl: 'Okablowanie', en: 'Wiring' },
+  wiringInfo: { pl: 'Instrukcja ręcznego okablowania dla tego układu i kontrolera: diody, rzędy, kolumny, piny i fragment firmware.', en: 'Handwiring guide for this layout and controller: diodes, rows, columns, pins and a firmware snippet.' },
+  wiringShow: { pl: 'Pokaż instrukcję', en: 'Show guide' },
+  wiringDownload: { pl: 'Pobierz (HTML)', en: 'Download (HTML)' },
+  tipWiring: { pl: 'Instrukcja liczy się z bieżących ustawień: układu, kontrolera, modułu OLED i stabilizatorów. Plik HTML otworzysz w przeglądarce i wydrukujesz.', en: 'The guide follows the current settings: layout, controller, OLED module and stabilizers. Open the HTML file in a browser and print it.' },
+  close: { pl: 'Zamknij', en: 'Close' },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type MsgKey = keyof typeof dict;
