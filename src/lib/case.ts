@@ -45,6 +45,11 @@ export interface CaseParams {
   bossFillet?: number;
   /** kształt wzmocnienia: faza 45° (domyślnie, wybór Marcina) albo zaokrąglenie */
   bossFilletKind?: 'fillet' | 'chamfer';
+  /**
+   * Długość śrub, które użytkownik ma (mm); brak albo 0 = dobierz automatycznie. Wybranie na łeb
+   * w dnie przesuwa się tak, żeby śruba weszła w płytę; gdy się nie da, CaseLayout.screwWarn.
+   */
+  screwLength?: number;
 }
 
 export const DEFAULT_CASE: CaseParams = {
@@ -61,6 +66,7 @@ export const DEFAULT_CASE: CaseParams = {
   chamfer: 1,
   bossFillet: 1.5,
   bossFilletKind: 'chamfer',
+  screwLength: 0,
 };
 
 /** Faza górnej krawędzi: najmniej płaskiej góry ścianki, która zostaje przy płycie (mm). */
@@ -127,7 +133,11 @@ export const SCREW_MARGIN = 6;
 const SCREW_INSET = SCREW_MARGIN / 2;
 /** Minimalna odległość osi śruby od komórek: promień otworu pilotowego plus ścianka ok. 1,65 mm. */
 const screwClear = (sp: ScrewSpec) => Math.max(2.9, sp.pilot / 2 + 1.65);
-const STANDARD_LENGTHS = [6, 8, 10, 12, 14, 16, 20];
+export const STANDARD_LENGTHS = [6, 8, 10, 12, 14, 16, 20];
+/** Śruba w płycie: najmniej wkręcenia (mm), zapas do dna otworu pilotowego (mm). */
+export const SCREW_BITE = { min: 3, tipGap: 0.5 };
+/** Słupek śruby: najcieńsza zewnętrzna ścianka obudowy, która zostaje przy słupku (mm). */
+export const BOSS_SKIN = 0.4;
 
 export interface CaseLayout {
   /** wymiary śruby (otwory, łeb, słupek) */
@@ -140,8 +150,14 @@ export interface CaseLayout {
   floorTop: number;
   /** z spodu obudowy */
   bottom: number;
-  /** zalecana długość śrub (mm) */
+  /** długość śrub (mm): wybrana przez użytkownika albo dobrana automatycznie */
   screwLength: number;
+  /** głębokość wybrania na łeb od spodu obudowy (mm) */
+  headDepth: number;
+  /** standardowe długości, które pasują przy obecnym dnie (z przesunięciem wybrania na łeb) */
+  screwFits: number[];
+  /** wybrana śruba nie pasuje: za długa (podana grubość dna, przy której pasuje) albo za krótka */
+  screwWarn: { kind: 'long'; floor: number } | { kind: 'short' } | null;
   /** wycięcia w ściance na gniazda USB */
   usbCuts: Box[];
   /** podkładki na dnie, które po przykręceniu dociskają kontroler do kieszeni */
@@ -216,9 +232,14 @@ export function screwPositions(
   count: number,
   split: PrintSplit | null = null,
   sp: ScrewSpec = screwSpec(),
+  reach = Infinity,
 ): [number, number][] {
-  const s = SCREW_INSET;
   const clear = screwClear(sp);
+  // słupek zostaje w obrysie obudowy (reach = odległość zewnętrznej ścianki od klawiszy) z BOSS_SKIN
+  // ścianki: przy cienkiej ściance śruba dosuwa się do klawiszy, ale nie bliżej niż `clear`
+  const room = reach - sp.boss / 2 - BOSS_SKIN;
+  const s = Math.min(SCREW_INSET, room);
+  const d = Math.min(SCREW_INSET * Math.SQRT2, room) / Math.SQRT2; // narożnik: po skosie od rogu klawisza
   const cand: [number, number][] = [];
   for (const k of keys) {
     const hw = (k.w * PITCH) / 2;
@@ -226,7 +247,9 @@ export function screwPositions(
     const a = (k.rot * Math.PI) / 180;
     const local: [number, number][] = [];
     for (const sx of [-1, 0, 1])
-      for (const sy of [-1, 0, 1]) if (sx || sy) local.push([sx * (hw + s), sy * (hh + s)]);
+      for (const sy of [-1, 0, 1])
+        if (sx && sy) local.push([sx * (hw + d), sy * (hh + d)]);
+        else if (sx || sy) local.push([sx * (hw + s), sy * (hh + s)]);
     // wzdłuż długich klawiszy (spacja, Shift) co pół U, żeby śruby mogły stać blisko szwów
     for (let lx = -hw + PITCH / 2; lx < hw - 1e-6; lx += PITCH / 2)
       for (const sy of [-1, 1]) local.push([lx, sy * (hh + s)]);
@@ -323,13 +346,38 @@ export function caseLayout(
   const sp = screwSpec(cp.screwSize);
   const pilotDepth = Math.max(Math.min(6, cellHeight - 1.5), 2);
   // śruba od spodu: reszta dna pod łbem + słupek do płyty + wkręcenie w płytę
-  const below = cp.floor - sp.headDepth + (-cellHeight - floorTop);
-  const fit = STANDARD_LENGTHS.filter((l) => l - below >= 3 && l - below <= pilotDepth);
-  const screwLength = fit.length ? fit[fit.length - 1] : Math.ceil(below + Math.min(4, pilotDepth));
-  const screws = screwPositions(keys, island, cp.screws, split, sp);
+  const standH = -cellHeight - floorTop;
+  // wybranie na łeb: standardowo na wysokość łba (przy cienkim dnie płycej), najgłębiej do 0,6 mm pod płytą
+  const maxHead = cp.floor - 0.6 + Math.max(standH, 0);
+  const minHead = Math.min(sp.headDepth, maxHead);
+  // wkręcenie w płytę dla śruby l przy wybraniu h
+  const bite = (l: number, h: number) => bottom + h + l + cellHeight;
+  const fits = (b: number) => b >= SCREW_BITE.min - 1e-6 && b <= pilotDepth + 1e-6;
+  // wybranie dla śruby l: standardowe, a jeśli śruba za krótka, głębsze (łeb wchodzi w słupek)
+  const headFor = (l: number) => {
+    if (fits(bite(l, minHead))) return minHead;
+    const want = -cellHeight + pilotDepth - SCREW_BITE.tipGap - bottom - l;
+    return Math.min(Math.max(want, minHead), maxHead);
+  };
+  const below = cp.floor - sp.headDepth + standH;
+  const fit = STANDARD_LENGTHS.filter((l) => l - below >= SCREW_BITE.min && l - below <= pilotDepth);
+  const auto = fit.length ? fit[fit.length - 1] : Math.ceil(below + Math.min(4, pilotDepth));
+  const screwFits = STANDARD_LENGTHS.filter((l) => fits(bite(l, headFor(l))));
+  const screwLength = cp.screwLength && cp.screwLength > 0 ? cp.screwLength : auto;
+  const headDepth = cp.screwLength && cp.screwLength > 0 ? headFor(screwLength) : minHead;
+  const b = bite(screwLength, headDepth);
+  const screwWarn: CaseLayout['screwWarn'] = !cp.screwLength || fits(b)
+    ? null
+    : b > pilotDepth
+      ? { kind: 'long', floor: Math.ceil((cp.floor + b - pilotDepth) * 5 - 1e-6) / 5 }
+      : { kind: 'short' };
+  const screws = screwPositions(keys, island, cp.screws, split, sp, SCREW_MARGIN + cp.gap + cp.wall);
   return {
     screw: sp,
     screws,
+    headDepth,
+    screwFits,
+    screwWarn,
     supports: cp.supports === false ? [] : supportPositions(keys, island, screws, split, stabs),
     pilotDepth,
     floorTop,
