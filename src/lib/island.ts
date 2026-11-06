@@ -123,6 +123,12 @@ export interface IslandParams {
    */
   tilt?: number;
   /**
+   * Kierunek gniazda USB przy wyspie z klinem: `auto` = w tył, gdy kontroler mieści się w poprzek,
+   * inaczej z końca wyspy po stronie wyrównania; `left`/`right` = z lewego/prawego końca
+   * (kontroler wzdłuż wyspy); `back` = w tył (kontroler w poprzek; długi kontroler wydłuża wyspę do tyłu).
+   */
+  usbDir?: 'auto' | 'left' | 'right' | 'back';
+  /**
    * Kontroler odwrócony: płaska strona płytki (bez elementów) przylega do płyty od spodu i jest
    * przyklejona (albo przykręcona, gdy płytka ma otwory, np. S2 mini). Elementy i gniazdo USB w dół.
    * Domyślnie włączone; false = elementami do góry, dociśnięty podkładką z dna obudowy.
@@ -141,6 +147,7 @@ export const DEFAULT_ISLAND: IslandParams = {
   moduleSide: 'left',
   position: 'inner',
   usbOut: 'edge',
+  usbDir: 'auto',
   align: 'center',
   flip: true,
   pins: false,
@@ -406,7 +413,8 @@ export function islandFor(
   const pos = ip.position ?? 'inner';
   // długi kontroler (np. ESP32-S3) nie mieści się w poprzek poziomej wyspy z modułem: USB wtedy z końca.
   // Przy klinie moduł jest na osobnej części, więc kontroler może leżeć wzdłuż płaskiej wyspy.
-  const wedgeAlong = mod && (ip.tilt ?? 0) > 0 && fitsAlong(ctrl);
+  const dir = ip.usbDir ?? 'auto';
+  const wedgeAlong = mod && (ip.tilt ?? 0) > 0 && (fitsAlong(ctrl) || dir === 'back');
   const edgeFits = !mod || fitsAcross(ctrl) || wedgeAlong;
   // z klinem także przy wyjściu USB z końca: kontroler wzdłuż wyspy (wyspa zostaje płaska)
   if ((pos === 'top' || pos === 'bottom') && (((ip.usbOut ?? 'edge') === 'edge' && edgeFits) || wedgeAlong)) {
@@ -601,10 +609,16 @@ function edgeIsland(
 ): IslandGeom {
   const cw = ctrl.w + 2 * CTRL_CLEARANCE;
   const L = mod ? ISLAND_H : cw + 2 * SMALL_WALL;
-  const T = mod ? ISLAND_W : ctrl.h + ctrl.usbOverhang + 2 * CTRL_CLEARANCE + SMALL_WALL + 2;
+  // głębokość części wyspy pod modułem (i klinem)
+  const TW = mod ? ISLAND_W : ctrl.h + ctrl.usbOverhang + 2 * CTRL_CLEARANCE + SMALL_WALL + 2;
+  const tilt = mod ? Math.max(0, Math.min(60, ip.tilt ?? 0)) : 0;
+  const dir = tilt ? (ip.usbDir ?? 'auto') : 'auto';
+  // długi kontroler w poprzek (USB w tył) pod klinem: wyspa wydłużona do tyłu, klin zostaje 38 mm
+  const longBack = tilt > 0 && dir === 'back' && !fitsAcross(ctrl);
+  const T = longBack ? ctrl.h + ctrl.usbOverhang + 2 * CTRL_CLEARANCE + 2 : TW;
   const mw = MODULE.w + 2 * MODULE.clearance; // w poprzek (y)
   const mh = MODULE.h + 2 * MODULE.clearance; // wzdłuż (x)
-  const my = T / 2;
+  const my = TW / 2;
   const mL = -mh / 2; // lewy koniec gniazda modułu (strona enkodera)
   const slotX0 = mL + 31;
   const slotX1 = mL + 53.5;
@@ -614,10 +628,13 @@ function edgeIsland(
     const leftLimit = -MODULE_HOLES.dy / 2 + MODULE_HOLES.pilot / 2 + 1;
     ccx = Math.max(slotX0 - 1 - cw / 2, leftLimit + cw / 2);
   }
-  const tilt = mod ? Math.max(0, Math.min(60, ip.tilt ?? 0)) : 0;
-  // długi kontroler pod klinem leży wzdłuż wyspy, przy krawędzi od klawiszy, USB z krótkiego końca
-  // (od strony bliższej krawędzi klawiatury); przy tylnej krawędzi zostaje pas na śruby klina
-  const along = mod && tilt > 0 && (!fitsAcross(ctrl) || ip.usbOut === 'end');
+  // kontroler pod klinem leży wzdłuż wyspy, przy krawędzi od klawiszy, USB z krótkiego końca:
+  // na życzenie (lewo/prawo) albo w trybie auto, gdy nie mieści się w poprzek lub wybrano USB z końca
+  // (wtedy od strony wyrównania wyspy); przy tylnej krawędzi zostaje pas na śruby klina
+  const along =
+    mod &&
+    tilt > 0 &&
+    (((dir === 'left' || dir === 'right') && fitsAlong(ctrl)) || (dir === 'auto' && (!fitsAcross(ctrl) || ip.usbOut === 'end')));
   const z = ctrlZ(ctrl, ctrlRoof(mod && !tilt, ctrl, flip, pins), flip);
   const cuts: Box[] = [];
   const ghosts: GhostPart[] = [];
@@ -636,7 +653,7 @@ function edgeIsland(
       ...usbGhosts(ctrl, ccx, nTop, edgeY, z),
     );
   } else {
-    const sx = ip.align === 'start' ? -1 : 1;
+    const sx = dir === 'left' ? -1 : dir === 'right' ? 1 : ip.align === 'start' ? -1 : 1;
     const edgeX = L / 2 + margin;
     const nEnd = edgeX - ctrl.usbOverhang; // koniec płytki od strony USB (|x|)
     const nStart = nEnd - ctrl.h;
@@ -698,8 +715,10 @@ function edgeIsland(
       // dwie śruby: w połowie głębokości klina (tam jest najgrubszy pod gniazdem modułu),
       // jedna za kieszenią kontrolera, druga za przepustami pinów; przy kontrolerze wzdłuż wyspy
       // w pasie przy tylnej krawędzi, za kieszenią kontrolera
-      const sy = along ? T - WEDGE_SCREW_BAND / 2 : T / 2;
-      for (const sx of [mL + 4.5, slotX1 + 4.5]) {
+      const sy = along ? TW - WEDGE_SCREW_BAND / 2 : TW / 2;
+      // długi kontroler w poprzek zajmuje lewą część wyspy aż do przepustów: lewa śruba tuż za kieszenią
+      const xs = longBack ? [ccx + cw / 2 + 5.5, slotX1 + 4.5] : [mL + 4.5, slotX1 + 4.5];
+      for (const sx of xs) {
         wScrews.push([sx, sy]);
         const c = WEDGE.clearance / 2;
         const h = WEDGE.head / 2;
@@ -722,7 +741,9 @@ function edgeIsland(
 
   // przeniesienie na siatkę: nad nią (y w górę) albo pod nią (y w dół)
   const { kx0, kx1, ky0, ky1 } = gridBounds(p);
-  const cx = alongCenter(kx0, kx1, L, ip.align) + ip.offsetX;
+  // USB w lewo/prawo: wyspa dosunięta do tej krawędzi klawiatury, żeby gniazdo wyszło na brzeg płyty
+  const align = along && dir === 'left' ? 'start' : along && dir === 'right' ? 'end' : ip.align;
+  const cx = alongCenter(kx0, kx1, L, align) + ip.offsetX;
   // oś obrotu klina: krawędź wyspy przy klawiszach; pod siatką y jest odbite, więc kąt zmienia znak
   const hingeY = (pos === 'top' ? ky1 : ky0) + ip.offsetY;
   const tiltOut = (b: Box): Box['tilt'] =>
@@ -732,6 +753,7 @@ function edgeIsland(
       ? { ...b, x0: cx + b.x0, x1: cx + b.x1, y0: ky1 + b.y0 + ip.offsetY, y1: ky1 + b.y1 + ip.offsetY, tilt: tiltOut(b) }
       : { ...b, x0: cx + b.x0, x1: cx + b.x1, y0: ky0 - b.y1 + ip.offsetY, y1: ky0 - b.y0 + ip.offsetY, tilt: tiltOut(b) };
   const r = tb(box(-L / 2, 0, 0, L / 2, T, 0));
+  const wr = tb(box(-L / 2, 0, 0, L / 2, TW, 0));
   return {
     rect: { x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1 },
     depth: D,
@@ -739,10 +761,10 @@ function edgeIsland(
     ghosts: ghosts.map((gp) => ({ ...gp, box: tb(gp.box) })),
     wedge: tilt
       ? {
-          x0: r.x0,
-          x1: r.x1,
-          y0: r.y0,
-          y1: r.y1,
+          x0: wr.x0,
+          x1: wr.x1,
+          y0: wr.y0,
+          y1: wr.y1,
           deg: pos === 'top' ? tilt : -tilt,
           hingeY,
           base: WEDGE.base,

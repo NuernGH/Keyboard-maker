@@ -248,6 +248,78 @@ describe('bryły 60%', () => {
     }
   }, 300000);
 
+  for (const [controller, dir] of [
+    ['esp32s3', 'left'],
+    ['esp32s3', 'right'],
+    ['esp32s3', 'back'],
+    ['nicenano', 'left'],
+    ['nicenano', 'back'],
+  ] as const)
+    test(`kierunek USB ${dir} (${controller}) z klinem: gniazdo przy krawędzi płyty, wolna droga wtyku, klin bez kolizji`, async () => {
+      const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
+      const keys = splitLeft(tpl);
+      const island = islandFor(tpl, { ...ip, controller, tilt: 25, usbDir: dir }, 'left', 'hotswap', cell.height, SCREW_MARGIN)!;
+      const w = island.wedge!;
+      expect(w.deg).toBe(25);
+      const r = island.rect;
+      const usbs = island.ghosts.filter((g) => g.kind === 'usb').map((g) => g.box);
+      const nano = island.ghosts.find((g) => g.kind === 'nano')!.box;
+      expect(usbs.length).toBeGreaterThan(0);
+      // klin zawsze 38 mm głęboki, od krawędzi klawiszy; wyspa może być głębsza (długi kontroler w tył)
+      expect(w.y1 - w.y0).toBeCloseTo(38, 6);
+      expect(w.y0).toBeCloseTo(r.y0, 6);
+      if (dir === 'back') {
+        expect(nano.y1 - nano.y0).toBeGreaterThan(nano.x1 - nano.x0);
+        if (controller === 'esp32s3') expect(r.y1 - r.y0).toBeGreaterThan(65);
+      } else expect(nano.x1 - nano.x0).toBeGreaterThan(nano.y1 - nano.y0);
+      // śruby klina poza kieszenią kontrolera
+      for (const [x, y] of w.screws) {
+        const out = x + 2.5 < nano.x0 - 0.3 || x - 2.5 > nano.x1 + 0.3 || y + 2.5 < nano.y0 - 0.3 || y - 2.5 > nano.y1 + 0.3;
+        expect(out).toBe(true);
+      }
+      // gniazdo równo z krawędzią płyty po wybranej stronie; kierunek wyjścia wtyku
+      const edge = dir === 'left' ? r.x0 - SCREW_MARGIN : dir === 'right' ? r.x1 + SCREW_MARGIN : r.y1 + SCREW_MARGIN;
+      for (const u of usbs) expect(dir === 'left' ? u.x0 : dir === 'right' ? u.x1 : u.y1).toBeCloseTo(edge, 6);
+      const cl = caseLayout(keys, island, cell.height, DEFAULT_CASE, null, 'cherry');
+      const plate = buildPlate(keys, cell, opts, island, screwPilots(cl.screws, cell.height, cl.pilotDepth));
+      const shell = buildCase(keys, opts, island, cell.height, DEFAULT_CASE, cl);
+      const wedge = buildWedge(island);
+      for (const s of [plate, shell, wedge]) expect(isValidShape(s)).toBe(true);
+      expect(plate.solids.length).toBe(1);
+      expect(wedge.solids.length).toBe(1);
+      expect(measureVolume(wedge.clone().intersect(plate.clone()))).toBeLessThan(0.01);
+      expect(measureVolume(plate.clone().intersect(shell.clone()) as never)).toBeLessThan(0.01);
+      const vol = (a: Shape3D, b: [number, number, number], c: [number, number, number]) =>
+        measureVolume(a.clone().intersect(makeBox(b, c)));
+      for (const g of [nano, ...usbs]) {
+        expect(vol(plate, [g.x0, g.y0, g.z0], [g.x1, g.y1, g.z1])).toBeLessThan(0.01);
+        expect(vol(shell, [g.x0, g.y0, g.z0], [g.x1, g.y1, g.z1])).toBeLessThan(0.01);
+      }
+      // słupki śrub obudowy nie wchodzą w kontroler
+      for (const [x, y] of cl.screws) {
+        const rr = cl.screw.boss / 2;
+        const hit = x + rr > nano.x0 && x - rr < nano.x1 && y + rr > nano.y0 && y - rr < nano.y1;
+        expect(hit).toBe(false);
+      }
+      // wtyk z obudową (12,4 × 6,5 mm) od krawędzi płyty na zewnątrz przez ściankę obudowy
+      for (const u of usbs) {
+        const cz = (u.z0 + u.z1) / 2;
+        let p0: [number, number, number], p1: [number, number, number];
+        if (dir === 'back') {
+          const cx = (u.x0 + u.x1) / 2;
+          p0 = [cx - 6.2, edge + 0.05, cz - 3.25];
+          p1 = [cx + 6.2, edge + 15, cz + 3.25];
+        } else {
+          const cy = (u.y0 + u.y1) / 2;
+          const s = dir === 'left' ? -1 : 1;
+          p0 = [Math.min(edge + s * 0.05, edge + s * 15), cy - 6.2, cz - 3.25];
+          p1 = [Math.max(edge + s * 0.05, edge + s * 15), cy + 6.2, cz + 3.25];
+        }
+        expect(vol(plate, p0, p1)).toBeLessThan(0.01);
+        expect(vol(shell, p0, p1)).toBeLessThan(0.01);
+      }
+    }, 300000);
+
   test('kanały na przewody w komórce hot-swap: otwarte na boki X i od spodu, wyspa bez wnęki', async () => {
     const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
     const h = cell.size / 2;
