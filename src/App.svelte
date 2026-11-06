@@ -17,7 +17,8 @@
   import { zipStore } from './lib/zip';
   import Tooltip from './ui/Tooltip.svelte';
   import DactylApp from './ui/DactylApp.svelte';
-  import { CONTROLLERS, DEFAULT_ISLAND, islandFor, type IslandParams } from './lib/island';
+  import { CONTROLLERS, DEFAULT_ISLAND, islandFor, controllerOf, type IslandParams, type CtrlFit } from './lib/island';
+  import CustomController from './ui/CustomController.svelte';
   import { DEFAULT_CASE, SCREW_MARGIN, caseLayout, type CaseParams } from './lib/case';
   import { DEFAULT_PRINT, planSplit, pieceOf, type PrintParams, type PrintSplit } from './lib/split';
 
@@ -502,8 +503,20 @@
       {#if island.enabled}
         <div class="grid2">
           <label data-tip={t(lang, 'tipController')}>{t(lang, 'controller')}
-            <select bind:value={island.controller}>
+            <select
+              value={island.controller}
+              onchange={(e) => {
+                const v = e.currentTarget.value as IslandParams['controller'];
+                // pierwszy własny: zaczynamy od liczb dotychczasowego kontrolera
+                if (v === 'custom' && !island.custom) {
+                  const { model: _m, ...c } = controllerOf($state.snapshot(island) as IslandParams);
+                  island.custom = { ...c, name: lang === 'pl' ? 'Własny kontroler' : 'Custom controller' };
+                }
+                island.controller = v;
+              }}
+            >
               {#each Object.entries(CONTROLLERS) as [id, c] (id)}<option value={id}>{c.name}</option>{/each}
+              <option value="custom" data-tip={t(lang, 'tipCtrlCustom')}>{island.controller === 'custom' && island.custom ? island.custom.name : t(lang, 'ctrlCustom')}</option>
             </select>
           </label>
           {#if single}
@@ -559,11 +572,30 @@
           {:else}
           <span></span>
           {/if}
+          <label data-tip={t(lang, 'tipFit')}>{t(lang, 'fit')}
+            <select value={island.fit ?? 'standard'} onchange={(e) => (island.fit = e.currentTarget.value as CtrlFit)}>
+              <option value="standard">{t(lang, 'fitStandard')}</option>
+              <option value="snug">{t(lang, 'fitSnug')}</option>
+              <option value="press">{t(lang, 'fitPress')}</option>
+              <option value="custom">{t(lang, 'fitCustom')}</option>
+            </select>
+          </label>
+          {#if island.fit === 'custom'}
+          <span></span>
+          {#if !(island.flip ?? true)}
+          <label data-tip={t(lang, 'tipFitTop')}>{t(lang, 'fitTop')} <input type="number" min="0" max="3" step="0.05" value={island.fitTop ?? 0.6} onchange={(e) => (island.fitTop = +e.currentTarget.value)} /></label>
+          {/if}
+          <label data-tip={t(lang, 'tipFitBottom')}>{t(lang, 'fitBottom')} <input type="number" min="-0.6" max="3" step="0.05" value={island.fitBottom ?? 0.2} onchange={(e) => (island.fitBottom = +e.currentTarget.value)} /></label>
+          {#if island.flip ?? true}<span></span>{/if}
+          {/if}
           <label data-tip={t(lang, 'tipIslandDepth')}>{t(lang, 'islandDepth')} <input type="number" min="0" step="0.5" bind:value={island.depth} /></label>
           <span></span>
           <label data-tip={t(lang, 'tipIslandX')}>{t(lang, 'thumbX')} <input type="number" step="0.5" bind:value={island.offsetX} /></label>
           <label data-tip={t(lang, 'tipIslandY')}>{t(lang, 'thumbY')} <input type="number" step="0.5" bind:value={island.offsetY} /></label>
         </div>
+        {#if island.controller === 'custom'}
+          <CustomController {lang} bind:value={island.custom} stepMesh={(b) => client('right').stepMesh(b)} />
+        {/if}
         <label class="check" data-tip={t(lang, 'tipShowElectronics')}><input type="checkbox" bind:checked={showElectronics} /> {t(lang, 'showElectronics')}</label>
       {/if}
     </section>

@@ -105,7 +105,7 @@ export interface IslandParams {
   /** przesunięcie wyspy względem domyślnej pozycji przy wewnętrznej kolumnie (mm) */
   offsetX: number;
   offsetY: number;
-  controller: ControllerId;
+  controller: ControllerId | 'custom';
   /** na której połówce jest moduł OLED z enkoderem; druga dostaje małą wyspę na sam kontroler */
   moduleSide: ModuleSide;
   position?: IslandPosition;
@@ -136,6 +136,73 @@ export interface IslandParams {
   flip?: boolean;
   /** przylutowane goldpiny: przy odwróconym kontrolerze rowki w płycie na końcówki pinów */
   pins?: boolean;
+  /** własny kontroler (z modelu użytkownika albo z formularza), gdy `controller` = 'custom' */
+  custom?: Controller;
+  /**
+   * Dopasowanie kontrolera w pionie: `standard` (luz 0,6 nad elementami, 0,2 nad podkładką),
+   * `snug` (ciasno), `press` (podkładka/podest zachodzi na płytkę i ją zaciska), `custom` (fitTop/fitBottom).
+   */
+  fit?: CtrlFit;
+  /** luz nad elementami (mm), przy `fit` = 'custom'; dotyczy kontrolera elementami do góry */
+  fitTop?: number;
+  /** luz między podkładką (podestem pod USB) a kontrolerem (mm), ujemny = wcisk; przy `fit` = 'custom' */
+  fitBottom?: number;
+}
+
+export type CtrlFit = 'standard' | 'snug' | 'press' | 'custom';
+/** Luzy w pionie (mm): nad elementami (strop kieszeni) i pod spodem (podkładka albo podest pod USB). */
+export const FIT_PRESETS: Record<Exclude<CtrlFit, 'custom'>, { top: number; bottom: number }> = {
+  standard: { top: 0.6, bottom: 0.2 },
+  // strop kieszeni drukuje się jako mostek i lekko opada, więc „ciasno” zostawia 0,15
+  snug: { top: 0.15, bottom: 0.05 },
+  press: { top: 0.1, bottom: -0.2 },
+};
+/** Najmniejszy luz nad elementami i największy wcisk podkładki (mm). */
+export const FIT_LIMITS = { top: [0, 3], bottom: [-0.6, 3] } as const;
+const clamp = (v: number, [a, b]: readonly [number, number]) => Math.min(b, Math.max(a, v));
+export function fitGaps(ip: Pick<IslandParams, 'fit' | 'fitTop' | 'fitBottom'>): { top: number; bottom: number } {
+  const f = ip.fit ?? 'standard';
+  if (f !== 'custom') return FIT_PRESETS[f] ?? FIT_PRESETS.standard;
+  return {
+    top: clamp(ip.fitTop ?? FIT_PRESETS.standard.top, FIT_LIMITS.top),
+    bottom: clamp(ip.fitBottom ?? FIT_PRESETS.standard.bottom, FIT_LIMITS.bottom),
+  };
+}
+
+/** Kontroler wybrany w parametrach (własny, gdy podano). */
+export function controllerOf(ip: Pick<IslandParams, 'controller' | 'custom'>): Controller {
+  if (ip.controller === 'custom') return ip.custom ? sanitizeController(ip.custom) : NANO;
+  return CONTROLLERS[ip.controller] ?? NANO;
+}
+
+const num = (v: unknown, d: number, lo: number, hi: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
+/** Własny kontroler z pliku albo formularza: liczby w rozsądnych granicach, brakujące uzupełnione. */
+export function sanitizeController(c: Partial<Controller>): Controller {
+  const w = num(c.w, NANO.w, 5, 80);
+  const h = num(c.h, NANO.h, 5, 120);
+  const pcb = num(c.pcb, 1.6, 0.3, 3);
+  const out: Controller = {
+    name: typeof c.name === 'string' && c.name.trim() ? c.name.trim().slice(0, 60) : 'Własny kontroler',
+    w,
+    h,
+    height: num(c.height, NANO.height, pcb, 20),
+    usbOverhang: num(c.usbOverhang, 0, 0, 10),
+    usbW: num(c.usbW, 10, 4, 20),
+    usbH: num(c.usbH, 5.4, 2, 12),
+    pcb,
+  };
+  if (c.usbZ0 !== undefined) out.usbZ0 = num(c.usbZ0, pcb, -2, 10);
+  if (Array.isArray(c.ports) && c.ports.length) out.ports = c.ports.slice(0, 4).map((x) => num(x, 0, -w / 2, w / 2));
+  if (c.pins && Array.isArray(c.pins.x) && c.pins.x.length)
+    out.pins = {
+      x: c.pins.x.slice(0, 4).map((x) => num(x, w / 2 - 1.27, 0, w / 2)),
+      y0: num(c.pins.y0, 1.27, 0, h),
+      y1: num(c.pins.y1, h - 1.27, 0, h),
+    };
+  if (Array.isArray(c.holes) && c.holes.length)
+    out.holes = c.holes.slice(0, 4).map((o) => ({ x: num(o.x, 0, 0, w / 2), y: num(o.y, 0, 0, h), d: num(o.d, 2, 0.5, 5) }));
+  if (typeof c.model === 'string' && c.model) out.model = c.model;
+  return out;
 }
 
 export const DEFAULT_ISLAND: IslandParams = {
@@ -151,6 +218,7 @@ export const DEFAULT_ISLAND: IslandParams = {
   align: 'center',
   flip: true,
   pins: false,
+  fit: 'standard',
 };
 
 export const ISLAND_W = 38;
@@ -177,7 +245,7 @@ export const hasModule = (ip: IslandParams, side: 'left' | 'right') =>
 /** Rozmiar wyspy w XY dla danej połówki. */
 export function islandSize(ip: IslandParams, side: 'left' | 'right'): { w: number; h: number } {
   if (hasModule(ip, side)) return { w: ISLAND_W, h: ISLAND_H };
-  const c = CONTROLLERS[ip.controller];
+  const c = controllerOf(ip);
   return { w: c.w + 2 * CTRL_CLEARANCE + 2 * SMALL_WALL, h: c.h + c.usbOverhang + 2 * CTRL_CLEARANCE + SMALL_WALL + 2 };
 }
 
@@ -204,6 +272,8 @@ export interface GhostPart {
 }
 
 export interface IslandGeom {
+  /** luz między podkładką (podestem pod USB) z dna obudowy a kontrolerem (mm), ujemny = wcisk */
+  padGap?: number;
   /** obrys wyspy w XY */
   rect: { x0: number; y0: number; x1: number; y1: number };
   depth: number;
@@ -319,7 +389,7 @@ interface CtrlZ {
   face: number;
 }
 
-function ctrlZ(c: Controller, roof: number, flip: boolean): CtrlZ {
+function ctrlZ(c: Controller, roof: number, flip: boolean, topGap = FIT_PRESETS.standard.top): CtrlZ {
   const usbTop = Math.min(c.height, c.usbH - 0.4);
   if (!flip) {
     // płytka elementami do góry, luz 0,6 mm nad elementami
@@ -329,7 +399,8 @@ function ctrlZ(c: Controller, roof: number, flip: boolean): CtrlZ {
       board: [zN, zN + pcbOf(c)],
       usb: [zN + usbBottomOf(c), zN + usbTop],
       slotTop: zN + c.usbH,
-      pocketTop: zN + c.height + 0.6,
+      // strop kieszeni: luz nad elementami wg dopasowania (płytka zostaje na miejscu, rośnie dach)
+      pocketTop: zN + c.height + topGap,
       lowest: zN,
       face: zN,
     };
@@ -400,14 +471,32 @@ export function islandFor(
   /** margines płyty wokół obrysu: kontroler przesuwamy o tyle na zewnątrz, żeby USB było przy krawędzi płyty */
   margin = 0,
 ): IslandGeom | null {
+  const g = islandGeomFor(p, ip, side, variant, cellHeight, margin);
+  if (g) g.padGap = fitGaps(ip).bottom;
+  return g;
+}
+
+function islandGeomFor(
+  p: SplitParams,
+  ip: IslandParams,
+  side: 'left' | 'right',
+  variant: CellVariant,
+  cellHeight: number,
+  margin: number,
+): IslandGeom | null {
   if (!ip.enabled) return null;
-  const ctrl = CONTROLLERS[ip.controller] ?? NANO;
+  const flip = ip.flip ?? true;
+  // Środki gniazd USB (`ports`) są podane patrząc od strony elementów, z USB u góry. Geometrię liczymy
+  // patrząc z góry na płytę, a prawą połówkę jako lustro lewej: odwrócona płytka i lustro zamieniają
+  // stronę gniazda, więc wtedy zmieniamy znak (niesymetryczne gniazda trafiają we właściwe miejsce).
+  const c0 = controllerOf(ip);
+  const mirrorPorts = flip !== (side === 'right');
+  const ctrl = mirrorPorts && c0.ports ? { ...c0, ports: c0.ports.map((x) => -x) } : c0;
   const mod = hasModule(ip, side);
   const { w: W, h: H } = islandSize(ip, side);
   // moduł płasko nad kontrolerem: przy klinie moduł jest na osobnej części, wyspa zostaje płaska
   const flatModule = mod && !((ip.position === 'top' || ip.position === 'bottom') && (ip.tilt ?? 0) > 0);
   // głębokość: tyle co płyta, chyba że kontroler pod płaskim modułem potrzebuje więcej
-  const flip = ip.flip ?? true;
   const pins = flip && !!ip.pins;
   const D = Math.max(ip.depth, cellHeight, -ctrlZ(ctrl, ctrlRoof(flatModule, ctrl, flip, pins), flip).lowest);
   const pos = ip.position ?? 'inner';
@@ -460,7 +549,7 @@ export function islandFor(
   const nTop = edgeY - ctrl.usbOverhang;
   const nBot = nTop - ctrl.h;
   // moduł leży tu zawsze płasko nad kontrolerem (także przy pochyleniu, gdy nie ma klina)
-  const z = ctrlZ(ctrl, ctrlRoof(mod, ctrl, flip, pins), flip);
+  const z = ctrlZ(ctrl, ctrlRoof(mod, ctrl, flip, pins), flip, fitGaps(ip).top);
   const Di = Math.max(D, -z.lowest);
   const ctrlCuts: Box[] = [
     // kieszeń kontrolera od spodu
@@ -635,7 +724,7 @@ function edgeIsland(
     mod &&
     tilt > 0 &&
     (((dir === 'left' || dir === 'right') && fitsAlong(ctrl)) || (dir === 'auto' && (!fitsAcross(ctrl) || ip.usbOut === 'end')));
-  const z = ctrlZ(ctrl, ctrlRoof(mod && !tilt, ctrl, flip, pins), flip);
+  const z = ctrlZ(ctrl, ctrlRoof(mod && !tilt, ctrl, flip, pins), flip, fitGaps(ip).top);
   const cuts: Box[] = [];
   const ghosts: GhostPart[] = [];
   if (!along) {
@@ -664,12 +753,14 @@ function edgeIsland(
     cuts.push(
       ...flipCuts(ctrl, z, pins, (u0, u1, v0, v1, z0, z1) => {
         const [a, b] = X(nEnd - v1, nEnd - v0);
-        return box(a, cy + u0, z0, b, cy + u1, z1);
+        // USB w stronę +x: prawa strona płytki (patrząc z USB u góry) to −y
+        return box(a, cy - sx * u0, z0, b, cy - sx * u1, z1);
       }),
     );
     const [bx0, bx1] = X(nStart, nEnd);
     ghosts.push({ kind: 'nano', box: box(bx0, cy - ctrl.w / 2, z.board[0], bx1, cy + ctrl.w / 2, z.board[1]), model: ctrl.model, flip });
-    for (const dy of ctrl.ports ?? [0]) {
+    for (const px of ctrl.ports ?? [0]) {
+      const dy = -sx * px;
       const [sx0, sx1] = X(nEnd - 2, edgeX + 1);
       cuts.push(box(sx0, cy + dy - ctrl.usbW / 2, -D - 1, sx1, cy + dy + ctrl.usbW / 2, z.slotTop));
       const [gx0, gx1] = X(nEnd - 6.5, edgeX);

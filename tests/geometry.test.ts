@@ -280,11 +280,23 @@ describe('ESP32-S3 z dwoma gniazdami USB', () => {
       const usb = g.ghosts.filter((p) => p.kind === 'usb');
       expect(usb.length).toBe(2);
       for (const u of usb) expect(u.box.y1).toBeCloseTo(g.rect.y1, 6);
-      // gniazda na −6,2 i +6,1 od środka płytki (klon z dwoma USB-C)
+      // gniazda na −6,2 i +6,1 od środka płytki (klon z dwoma USB-C, patrząc od elementów);
+      // płytka domyślnie odwrócona, więc z góry gniazda są w lustrze: −6,1 i +6,2
       const cx = (g.rect.x0 + g.rect.x1) / 2;
       const centers = usb.map((u) => (u.box.x0 + u.box.x1) / 2 - cx).sort((a, b) => a - b);
-      expect(centers[0]).toBeCloseTo(-6.2, 6);
-      expect(centers[1]).toBeCloseTo(6.1, 6);
+      expect(centers[0]).toBeCloseTo(-6.1, 6);
+      expect(centers[1]).toBeCloseTo(6.2, 6);
+      // elementami do góry: bez lustra
+      const up = islandFor(SPLIT_4x6_4, { ...ip, flip: false }, 'left', 'hotswap', 8.58)!;
+      const cu = up.ghosts.filter((p) => p.kind === 'usb').map((u) => (u.box.x0 + u.box.x1) / 2 - cx).sort((a, b) => a - b);
+      expect(cu[0]).toBeCloseTo(-6.2, 6);
+      expect(cu[1]).toBeCloseTo(6.1, 6);
+      // prawa połówka (lustro lewej): gniazda fizycznie w tym samym miejscu płytki
+      const r = islandFor(SPLIT_4x6_4, ip, 'right', 'hotswap', 8.58)!;
+      const rcx = (r.rect.x0 + r.rect.x1) / 2;
+      const cr = r.ghosts.filter((p) => p.kind === 'usb').map((u) => (u.box.x0 + u.box.x1) / 2 - rcx).sort((a, b) => a - b);
+      expect(cr[0]).toBeCloseTo(-6.1, 6);
+      expect(cr[1]).toBeCloseTo(6.2, 6);
       const pocket = g.cuts[moduleSide === 'left' ? 2 : 0];
       // kieszeń mieści płytkę z wystającym modułem (63,4) i szerokość 28,3
       expect(pocket.y1 - pocket.y0).toBeGreaterThanOrEqual(63.4);

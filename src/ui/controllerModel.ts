@@ -8,6 +8,19 @@ type Box = { x0: number; y0: number; z0: number; x1: number; y1: number; z1: num
 
 const cache = new Map<string, Promise<THREE.BufferGeometry | null>>();
 
+/**
+ * Model kontrolera wgrany przez użytkownika (już ułożony jak pliki w public/controllers, oś płytki w X = 0).
+ * Zostaje tylko w tej karcie przeglądarki, nigdzie nie jest wysyłany.
+ */
+export function registerControllerModel(path: string, positions: Float32Array) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  g.computeBoundingBox();
+  g.computeVertexNormals();
+  g.userData.boardCenterX = 0;
+  cache.set(path, Promise.resolve(g));
+}
+
 /** Wczytuje model (raz na ścieżkę); null, gdy się nie udało (zostają pudełka). */
 export function loadControllerModel(path: string): Promise<THREE.BufferGeometry | null> {
   let p = cache.get(path);
@@ -37,6 +50,8 @@ export function loadControllerModel(path: string): Promise<THREE.BufferGeometry 
 export function placeOnBoard(geo: THREE.BufferGeometry, board: Box, usb?: Box, flip = false): THREE.Matrix4 {
   const bb = geo.boundingBox!;
   const w = bb.max.x - bb.min.x;
+  // oś płytki w modelu: zwykle środek obrysu, w modelu użytkownika podana wprost
+  const mid = typeof geo.userData.boardCenterX === 'number' ? geo.userData.boardCenterX : bb.min.x + w / 2;
   const alongY = board.y1 - board.y0 >= board.x1 - board.x0;
   const cx = (board.x0 + board.x1) / 2;
   const cy = (board.y0 + board.y1) / 2;
@@ -54,6 +69,6 @@ export function placeOnBoard(geo: THREE.BufferGeometry, board: Box, usb?: Box, f
   const far = alongY
     ? new THREE.Vector3(cx, sign > 0 ? board.y0 : board.y1, zb)
     : new THREE.Vector3(sign > 0 ? board.x0 : board.x1, cy, zb);
-  const o = far.clone().addScaledVector(a, -(bb.min.x + w / 2)).addScaledVector(up, 0).addScaledVector(d, -bb.min.z);
+  const o = far.clone().addScaledVector(a, -mid).addScaledVector(up, 0).addScaledVector(d, -bb.min.z);
   return new THREE.Matrix4().set(a.x, up.x, d.x, o.x, a.y, up.y, d.y, o.y, a.z, up.z, d.z, o.z, 0, 0, 0, 1);
 }
