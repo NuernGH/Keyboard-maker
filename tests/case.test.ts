@@ -61,8 +61,18 @@ describe('spód obudowy', () => {
           expect(lay.pads[0].x0).toBeGreaterThan(board.x0);
           expect(lay.pads[0].x1).toBeLessThan(board.x1);
         } else {
-          // odwrócony kontroler jest przyklejony pod płytą: bez podkładki, płaska strona na stropie kieszeni
-          expect(lay.pads.length).toBe(0);
+          // odwrócony kontroler jest przyklejony pod płytą, płaska strona na stropie kieszeni;
+          // podest z dna podpiera tylko gniazdo USB (0,2 mm pod nim), w obrysie płytki
+          const usbs = island!.ghosts.filter((g) => g.kind === 'usb').map((g) => g.box);
+          expect(lay.pads.length).toBe(usbs.length);
+          for (const [i, u] of usbs.entries()) {
+            const pad = lay.pads[i];
+            expect(u.z0 - pad.z1).toBeCloseTo(0.2, 6);
+            expect(pad.x0).toBeGreaterThanOrEqual(Math.max(u.x0, board.x0));
+            expect(pad.x1).toBeLessThanOrEqual(Math.min(u.x1, board.x1));
+            expect(pad.y0).toBeGreaterThanOrEqual(Math.max(u.y0, board.y0));
+            expect(pad.y1).toBeLessThanOrEqual(Math.min(u.y1, board.y1));
+          }
           const pocket = island!.cuts.find((k) => k.x0 <= board.x0 && k.x1 >= board.x1 && k.y0 <= board.y0 && k.y1 >= board.y1 && k.z0 < board.z0)!;
           expect(pocket.z1).toBeCloseTo(board.z1, 6);
         }
