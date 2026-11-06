@@ -29,10 +29,24 @@
   import { NO_HOTSWAP_HEIGHT } from '../lib/cell-spec';
   import { dactylHeadDepth, screwSpec, type ScrewSize } from '../lib/case';
   import { CadClient } from '../cad/client';
+  import type { PreviewMesh } from './Preview.svelte';
   import type { DactylInput } from '../cad/protocol';
   import { zipStore } from '../lib/zip';
 
-  let { lang = $bindable(), onTemplate }: { lang: Lang; onTemplate: (id: string) => void } = $props();
+  let {
+    lang = $bindable(),
+    onTemplate,
+    switchMesh = null,
+  }: { lang: Lang; onTemplate: (id: string) => void; switchMesh?: PreviewMesh | null } = $props();
+  // model przełącznika Cherry MX (ten sam co w podglądzie płaskiej klawiatury), środek wierzchu płyty = 0
+  const switchGeo = $derived.by(() => {
+    if (!switchMesh) return null;
+    const sg = new THREE.BufferGeometry();
+    sg.setAttribute('position', new THREE.BufferAttribute(switchMesh.vertices, 3));
+    sg.setAttribute('normal', new THREE.BufferAttribute(switchMesh.normals, 3));
+    sg.setIndex(new THREE.BufferAttribute(switchMesh.triangles, 1));
+    return sg;
+  });
 
   const L = {
     pl: {
@@ -45,6 +59,16 @@
       height: 'Podniesienie (mm)',
       widePinky: 'Mały palec 1,5U',
       thumbShift: 'Przesunięcie kciuka X / Y / Z (mm)',
+      stagger: 'Przesunięcie kolumn: przód / wysokość (mm)',
+      fIndex: 'Wskazujący',
+      fMiddle: 'Środkowy',
+      fRing: 'Serdeczny',
+      fPinky: 'Mały',
+      tipStagger: 'Każdy palec ma inną długość, więc kolumny są przesunięte do przodu (Y, + dalej od ciebie) i w pionie (Z, + wyżej). Wszystko na 0 = kolumny równo, bez schodków.',
+      smooth: 'Ściany',
+      smoothOff: 'kanciaste (jak oryginał)',
+      smoothCorners: 'zaokrąglone narożniki',
+      smoothFull: 'gładkie',
       wall: 'Ściana (mm)',
       floor: 'Dno (mm)',
       controller: 'Kontroler przy tylnej ścianie',
@@ -79,6 +103,16 @@
       height: 'Height offset (mm)',
       widePinky: 'Pinky 1.5U',
       thumbShift: 'Thumb shift X / Y / Z (mm)',
+      stagger: 'Column stagger: forward / height (mm)',
+      fIndex: 'Index',
+      fMiddle: 'Middle',
+      fRing: 'Ring',
+      fPinky: 'Pinky',
+      tipStagger: 'Fingers differ in length, so columns are shifted forward (Y, + away from you) and vertically (Z, + higher). All 0 = even columns, no steps.',
+      smooth: 'Walls',
+      smoothOff: 'faceted (as original)',
+      smoothCorners: 'rounded corners',
+      smoothFull: 'smooth',
       wall: 'Wall (mm)',
       floor: 'Bottom (mm)',
       controller: 'Controller at the back wall',
@@ -173,6 +207,9 @@
   let lastMs = $state<number | null>(null);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let want = '';
+  // ile dokładnych skorup policzył obecny worker (pamięć OpenCascade rośnie z każdą)
+  let shellBuilds = 0;
+  const SHELLS_PER_WORKER = 2;
   $effect(() => {
     const si = inputFor('shell', 'right');
     const bi = inputFor('bottom', 'right');
@@ -183,19 +220,26 @@
   async function compute(si: DactylInput, bi: DactylInput) {
     const k = keyOf(si);
     want = k;
+    // poprzednie liczenie jeszcze trwa (parametry zmieniły się w trakcie): przerywamy je od razu
+    const stale = busy;
     busy = true;
     error = '';
+    if (stale || shellBuilds >= SHELLS_PER_WORKER) {
+      client.restart();
+      shellBuilds = 0;
+    }
     try {
       // dno jest szybkie, więc najpierw
       const b = await client.dactylMesh(bi);
       if (want !== k) return;
       exact.bottom = { key: k, mesh: b };
       const s = await client.dactylMesh(si);
+      shellBuilds++;
       if (want !== k) return;
       exact.shell = { key: k, mesh: s };
       lastMs = Math.round(s.ms);
     } catch (e) {
-      if (want === k) error = (e as Error).message;
+      if (want === k && (e as Error).message !== 'restart') error = (e as Error).message;
     } finally {
       if (want === k) busy = false;
     }
@@ -341,7 +385,9 @@
       const hit = new Set(caps.flat());
       for (const key of m.keys) {
         const mx = toMatrix(key.frame);
-        const sw = boxAt({ x0: -7.8, y0: -7.8, z0: 0, x1: 7.8, y1: 7.8, z1: CAP.z0 - 0.4 }, mats.sw);
+        const sw = switchGeo
+          ? new THREE.Mesh(switchGeo, mats.sw)
+          : boxAt({ x0: -7.8, y0: -7.8, z0: 0, x1: 7.8, y1: 7.8, z1: CAP.z0 - 0.4 }, mats.sw);
         sw.matrixAutoUpdate = false;
         sw.matrix.copy(mx);
         g.add(sw);
@@ -371,7 +417,7 @@
     if (!scene) return;
     scene.remove(group);
     group.traverse((o) => {
-      if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) o.geometry.dispose();
+      if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) { if (o.geometry !== switchGeo) o.geometry.dispose(); }
     });
     group = new THREE.Group();
     const m = model;
@@ -417,6 +463,7 @@
     void exact.bottom;
     void show;
     void showCaps;
+    void switchGeo;
     void explode;
     void holder;
     void ctrlGeo;
@@ -553,6 +600,21 @@
         <input type="number" step="1" bind:value={p.thumbOffset[1]} aria-label="Y" />
         <input type="number" step="1" bind:value={p.thumbOffset[2]} aria-label="Z" />
       </div>
+      <span class="label" data-tip={tx('tipStagger')}>{tx('stagger')}</span>
+      <div class="grid3 stagger">
+        {#each [['index', 'fIndex'], ['middle', 'fMiddle'], ['ring', 'fRing'], ['pinky', 'fPinky']] as const as [f, lbl] (f)}
+          <span>{tx(lbl)}</span>
+          <input type="number" min="-25" max="25" step="0.5" bind:value={p.stagger[f][0]} aria-label="{tx(lbl)} Y" />
+          <input type="number" min="-25" max="25" step="0.5" bind:value={p.stagger[f][1]} aria-label="{tx(lbl)} Z" />
+        {/each}
+      </div>
+      <label>{tx('smooth')}
+        <select bind:value={p.wallSmooth}>
+          <option value="off">{tx('smoothOff')}</option>
+          <option value="corners">{tx('smoothCorners')}</option>
+          <option value="smooth">{tx('smoothFull')}</option>
+        </select>
+      </label>
       {#if caps.length}<p class="warn">{tx('capHit').replace('{l}', list(caps))}</p>{/if}
       {#if cells.length}<p class="warn">{tx('cellHit').replace('{l}', list(cells))}</p>{/if}
       {#if !model}<p class="warn">{t(lang, 'error')}</p>{/if}
@@ -700,6 +762,12 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 0 10px;
+  }
+  .grid3.stagger {
+    grid-template-columns: auto 1fr 1fr;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 13px;
   }
   .grid3 {
     display: grid;

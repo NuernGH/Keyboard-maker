@@ -104,7 +104,14 @@ export interface DactylParams {
   extraHeight: number;
   /** grubość ściany (mm) */
   wallThickness: number;
+  /**
+   * wygładzanie ścian: `off` jak w oryginale (płaskie kawałki), `corners` zaokrąglone narożniki
+   * (łuk w miejscu, gdzie ściana skręca na jednym słupku), `smooth` cały obwód jako gładka krzywa
+   */
+  wallSmooth?: WallSmooth;
 }
+
+export type WallSmooth = 'off' | 'corners' | 'smooth';
 
 /** Domyślny model Dactyl Configuratora (manuform.json): 5×6, kciuk 6, alpha 15°, beta 5°, tenting 12°. */
 export const DACTYL_DEFAULT: DactylParams = {
@@ -131,6 +138,7 @@ export const DACTYL_DEFAULT: DactylParams = {
   extraWidth: 2.5,
   extraHeight: 1,
   wallThickness: 3,
+  wallSmooth: 'smooth',
 };
 
 // stałe oryginału (przełącznik MX, profil SA)
@@ -203,6 +211,11 @@ export interface DactylModel {
    * [a wewn. ×2, a zewn. ×2, b wewn. ×2, b zewn. ×2] (góra i dół słupka)
    */
   floorQuads: [number, number][][];
+  /**
+   * przy wygładzonych ścianach: obrys podłogi po kolei wzdłuż obwodu, zewnętrzny (dno)
+   * i wewnętrzny (śruby, kontroler); bez wygładzania liczone z floorQuads
+   */
+  outline?: { outer: [number, number][]; inner: [number, number][] };
   /** wysokość mostków i bloków (mm) = wysokość komórki */
   web: number;
   /** o ile podniesiono model ponad zOffset, żeby komórki nie schodziły pod podłogę */
@@ -303,15 +316,11 @@ export function buildDactyl(p: DactylParams, o: DactylOptions): DactylModel {
   const tri = (...posts: Post[]) => {
     for (let i = 0; i + 2 < posts.length; i++) hull(posts[i], posts[i + 1], posts[i + 2]);
   };
-  const wall = (a: Post, dx1: number, dy1: number, b: Post, dx2: number, dy2: number) => {
-    hulls.push([
-      ...pts(a), ...pts(a, loc1(dx1, dy1)), ...pts(a, loc2(dx1, dy1)), ...pts(a, loc3(dx1, dy1)),
-      ...pts(b), ...pts(b, loc1(dx2, dy2)), ...pts(b, loc2(dx2, dy2)), ...pts(b, loc3(dx2, dy2)),
-    ]);
-    const low = [...pts(a, loc2(dx1, dy1)), ...pts(a, loc3(dx1, dy1)), ...pts(b, loc2(dx2, dy2)), ...pts(b, loc3(dx2, dy2))];
-    hulls.push(floor(low));
-    floorQuads.push(low.map((q) => [q[0], q[1]]));
-  };
+  type End = { q: Post; dx: number; dy: number };
+  type Seg = { a: End; b: End; cap?: Post };
+  const segs: Seg[] = [];
+  const wall = (a: Post, dx1: number, dy1: number, b: Post, dx2: number, dy2: number) =>
+    segs.push({ a: { q: a, dx: dx1, dy: dy1 }, b: { q: b, dx: dx2, dy: dy2 } });
 
   // bloki klawiszy (komórka zostanie w nie wycięta)
   for (const k of keys) hull(corner(k, -1, 1, k.hw + POST_ADJ, k.hh + POST_ADJ), corner(k, 1, 1, k.hw + POST_ADJ, k.hh + POST_ADJ),
@@ -401,14 +410,27 @@ export function buildDactyl(p: DactylParams, o: DactylOptions): DactylModel {
   wall(ml.tl, -1.1, 1, ml.tr, 0, 1);
   // second-thumb-to-body: szczelina między kciukiem a lewą ścianą
   const lc = LK(cornerRow, -1);
-  const gap = [...pts(lc, loc2(-1, 0)), ...pts(lc, loc3(-1, 0)), ...pts(ml.tr, loc2(-0.3, 1)), ...pts(ml.tr, loc3(-0.3, 1))];
-  hulls.push(floor(gap));
-  floorQuads.push(gap.map((q) => [q[0], q[1]]));
-  hull(gap, tl.tl);
+  // tylko dolna część ściany (od wall-locate2), góra domknięta do rogu tl.tl
+  segs.push({ a: { q: lc, dx: -1, dy: 0 }, b: { q: ml.tr, dx: -0.3, dy: 1 }, cap: tl.tl });
   hull(lc, pts(lc, loc1(-1, 0)), pts(lc, loc2(-1, 0)), pts(lc, loc3(-1, 0)), tl.tl);
   hull(lc, pts(lc, loc1(-1, 0)), K(0, cornerRow).bl, pts(K(0, cornerRow).bl, loc1(-1, 0)), tl.tl);
   hull(ml.tr, pts(ml.tr, loc1(0, 1)), pts(ml.tr, loc2(0, 1)), pts(ml.tr, loc3(0, 1)), tl.tl);
 
+  // --- ściany: przekroje (słupek + wall-locate1/2/3) i otoczki między kolejnymi przekrojami ---
+  type Slice = { top: V3[]; low: V3[] };
+  const slice = (e: End): Slice => ({
+    top: [...pts(e.q), ...pts(e.q, loc1(e.dx, e.dy))],
+    low: [...pts(e.q, loc2(e.dx, e.dy)), ...pts(e.q, loc3(e.dx, e.dy))],
+  });
+  const emit = (s0: Slice, s1: Slice, cap?: Post) => {
+    if (cap) hull([...s0.low, ...s1.low], cap);
+    else hulls.push([...s0.top, ...s0.low, ...s1.top, ...s1.low]);
+    const low = [...s0.low, ...s1.low];
+    hulls.push(floor(low));
+    floorQuads.push(low.map((q) => [q[0], q[1]]));
+  };
+  const ring = smoothWalls(segs, p.wallSmooth ?? 'off', slice, emit);
+  const outline = ring ? ringOutline(ring) : undefined;
   // --- śruby (screw-placement): środek tulei 0,5 mm do środka od wewnętrznej strony ściany,
   // liczony jak dolna krawędź ściany (wall-locate2), żeby tuleja zawsze przylegała do ściany ---
   const inset = WALL_XY - 0.5;
@@ -432,11 +454,191 @@ export function buildDactyl(p: DactylParams, o: DactylOptions): DactylModel {
   ];
 
   const screw = screwSpec(o.screwSize);
-  const model: DactylModel = { params: p, keys, hulls, screws, screw, floorQuads, web: H, lift };
+  const model: DactylModel = { params: p, keys, hulls, screws, screw, floorQuads, outline, web: H, lift };
   // tuleja ma wchodzić w ścianę na SCREW_BITE mm, a resztą stać w środku obudowy
   const loop = floorLoop(model);
   model.screws = screws.map((s) => settleInside(s, loop, screw.boss / 2 - SCREW_BITE));
   return model;
+}
+
+
+type SEnd = { q: Post; dx: number; dy: number };
+type SSeg = { a: SEnd; b: SEnd; cap?: Post };
+type SSlice = { top: V3[]; low: V3[] };
+
+const samePost = (a: Post, b: Post) =>
+  a.m === b.m ? a.x === b.x && a.y === b.y
+    : Math.hypot(...[0, 1, 2].map((i) => apply(a.m, [a.x, a.y, 0])[i] - apply(b.m, [b.x, b.y, 0])[i])) < 1e-6;
+
+/** Pośrednie kierunki ściany na jednym słupku: kąt i długość wektora (dx, dy) zmieniane płynnie. */
+function cornerEnds(a: SEnd, b: SEnd): SEnd[] {
+  const a0 = Math.atan2(a.dy, a.dx), r0 = Math.hypot(a.dx, a.dy);
+  let da = Math.atan2(b.dy, b.dx) - a0;
+  while (da > Math.PI) da -= 2 * Math.PI;
+  while (da < -Math.PI) da += 2 * Math.PI;
+  const r1 = Math.hypot(b.dx, b.dy);
+  const n = Math.max(1, Math.ceil(Math.abs(da) / (Math.PI / 12)));
+  const out: SEnd[] = [];
+  for (let i = 1; i < n; i++) {
+    const t = i / n, ang = a0 + da * t, r = r0 + (r1 - r0) * t;
+    out.push({ q: a.q, dx: r * Math.cos(ang), dy: r * Math.sin(ang) });
+  }
+  return out;
+}
+
+/**
+ * Kawałki ścian łączy w obwód (kolejność i kierunek), potem buduje otoczki między przekrojami.
+ * `off`: jak w oryginale; `corners`: narożnik na jednym słupku jako łuk (co 15°);
+ * `smooth`: wszystkie przekroje obwodu leżą na gładkiej krzywej (Catmull-Rom, centripetal).
+ */
+function smoothWalls(
+  segs: SSeg[], mode: WallSmooth,
+  slice: (e: SEnd) => SSlice, emit: (a: SSlice, b: SSlice, cap?: Post) => void,
+): SSlice[] | null {
+  // usuń powtórzone kawałki (np. narożnik przy wąskim małym palcu)
+  const key = (e: SEnd) => { const w = slice(e).low[2]; return `${w[0].toFixed(4)},${w[1].toFixed(4)},${w[2].toFixed(4)}`; };
+  const uniq: SSeg[] = [];
+  const seen = new Set<string>();
+  for (const s of segs) {
+    const k1 = key(s.a) + '|' + key(s.b), k2 = key(s.b) + '|' + key(s.a);
+    if (seen.has(k1) || seen.has(k2)) continue;
+    seen.add(k1);
+    uniq.push(s);
+  }
+  if (mode === 'off') {
+    for (const s of uniq) emit(slice(s.a), slice(s.b), s.cap);
+    return null;
+  }
+  // obwód: zachłannie od końca do najbliższego początku (po zewnętrznym dolnym punkcie)
+  const at = (e: SEnd) => slice(e).low[2];
+  const d = (u: V3, v: V3) => Math.hypot(u[0] - v[0], u[1] - v[1], u[2] - v[2]);
+  const used = new Array(uniq.length).fill(false);
+  const chain: SSeg[] = [uniq[0]];
+  used[0] = true;
+  for (let n = 1; n < uniq.length; n++) {
+    const end = at(chain[chain.length - 1].b);
+    let best = -1, flip = false, bd = Infinity;
+    uniq.forEach((s, i) => {
+      if (used[i]) return;
+      const da = d(at(s.a), end), db = d(at(s.b), end);
+      if (da < bd) { bd = da; best = i; flip = false; }
+      if (db < bd) { bd = db; best = i; flip = true; }
+    });
+    used[best] = true;
+    const s = uniq[best];
+    chain.push(flip ? { a: s.b, b: s.a, cap: s.cap } : s);
+  }
+  // lista końców obwodu; kawałek i biegnie od ends[i] do ends[i+1]
+  type Span = { from: SEnd; to: SEnd; cap?: Post };
+  const spans: Span[] = [];
+  for (let i = 0; i < chain.length; i++) {
+    const s = chain[i], nx = chain[(i + 1) % chain.length];
+    spans.push({ from: s.a, to: s.b, cap: s.cap });
+    // przerwa między kawałkami (np. ten sam słupek, inny kierunek): też ściana
+    if (d(at(s.b), at(nx.a)) > 1e-6) spans.push({ from: s.b, to: nx.a });
+  }
+  // narożniki na jednym słupku: łuk z pośrednich kierunków
+  const ends: { e: SEnd; cap?: Post }[] = [];
+  for (const sp of spans) {
+    ends.push({ e: sp.from, cap: sp.cap });
+    if (samePost(sp.from.q, sp.to.q)) for (const e of cornerEnds(sp.from, sp.to)) ends.push({ e, cap: sp.cap });
+  }
+  const sl = ends.map((x) => slice(x.e));
+  const N = sl.length;
+  if (mode === 'corners') {
+    for (let i = 0; i < N; i++) emit(sl[i], sl[(i + 1) % N], ends[i].cap);
+    return sl;
+  }
+  // smooth: punkty ściany (wall-locate1/2/3) po krzywej Catmull-Rom, słupki przy klawiszu liniowo
+  const len = (i: number) => Math.max(0.05, Math.sqrt(d(sl[i % N].low[2], sl[(i + 1) % N].low[2])));
+  const cr = (p0: V3, p1: V3, p2: V3, p3: V3, t0: number, t1: number, t2: number, t: number): V3 => {
+    // centripetal Catmull-Rom (Barry–Goldman), węzły: 0, t0, t0+t1, t0+t1+t2; t ∈ [t0, t0+t1]
+    const T1 = t0, T2 = t0 + t1, T3 = T2 + t2;
+    const lerp = (a: V3, b: V3, ta: number, tb: number): V3 => {
+      const w = (t - ta) / (tb - ta);
+      return [a[0] + (b[0] - a[0]) * w, a[1] + (b[1] - a[1]) * w, a[2] + (b[2] - a[2]) * w];
+    };
+    const A1 = lerp(p0, p1, 0, T1), A2 = lerp(p1, p2, T1, T2), A3 = lerp(p2, p3, T2, T3);
+    const B1 = lerp(A1, A2, 0, T2), B2 = lerp(A2, A3, T1, T3);
+    return lerp(B1, B2, T1, T2);
+  };
+  // podział kawałka: tyle przekrojów, żeby krzywa odchodziła od cięciwy najwyżej o TOL
+  const TOL = 0.25, MAXN = 4;
+  const ring: SSlice[] = [];
+  for (let i = 0; i < N; i++) {
+    const i0 = (i - 1 + N) % N, i2 = (i + 1) % N, i3 = (i + 2) % N;
+    const s0 = sl[i0], s1 = sl[i], s2 = sl[i2], s3 = sl[i3];
+    const t0 = len(i0), t1 = len(i), t2 = len(i2);
+    const at = (f: number): SSlice => {
+      const t = t0 + t1 * f;
+      const curve = (j: number, part: 'top' | 'low') => cr(s0[part][j], s1[part][j], s2[part][j], s3[part][j], t0, t1, t2, t);
+      const lin = (j: number): V3 => s1.top[j].map((v, c) => v + (s2.top[j][c] - v) * f) as V3;
+      return { top: [lin(0), lin(1), curve(2, 'top'), curve(3, 'top')], low: [0, 1, 2, 3].map((j) => curve(j, 'low')) };
+    };
+    const mid = at(0.5).low[2], chordMid = s1.low[2].map((v, c) => (v + s2.low[2][c]) / 2) as V3;
+    const dev = d(mid, chordMid);
+    // błąd cięciwy maleje jak 1/n²
+    const n = dev < TOL ? 1 : Math.min(MAXN, Math.ceil(Math.sqrt(dev / TOL)));
+    ring.push(s1);
+    let prev = s1;
+    for (let k = 1; k <= n; k++) {
+      const cur = k === n ? s2 : at(k / n);
+      if (k < n) ring.push(cur);
+      emit(prev, cur, ends[i].cap);
+      prev = cur;
+    }
+  }
+  return ring;
+}
+
+/** Obrys podłogi z przekrojów obwodu: zewnętrzny punkt wall-locate3 i wewnętrzny wall-locate2. */
+function ringOutline(ring: SSlice[]): { outer: [number, number][]; inner: [number, number][] } {
+  const outer: [number, number][] = [], inner: [number, number][] = [];
+  const far = (a: V3, b: V3, from: number[]): [number, number] => {
+    const da = Math.hypot(a[0] - from[0], a[1] - from[1]), db = Math.hypot(b[0] - from[0], b[1] - from[1]);
+    const q = da >= db ? a : b;
+    return [q[0], q[1]];
+  };
+  for (const s of ring) {
+    const [i0, i1, o0, o1] = s.low;
+    const im = [(i0[0] + i1[0]) / 2, (i0[1] + i1[1]) / 2], om = [(o0[0] + o1[0]) / 2, (o0[1] + o1[1]) / 2];
+    outer.push(far(o0, o1, im));
+    inner.push(far(i0, i1, om));
+  }
+  const clean = (p: [number, number][]) => p.filter((q, i) => Math.hypot(q[0] - p[(i + 1) % p.length][0], q[1] - p[(i + 1) % p.length][1]) > 1e-3);
+  return { outer: untangle(clean(outer)), inner: untangle(clean(inner)) };
+}
+
+/** Usuwa małe pętelki wielokąta: przy przecięciu krawędzi i, j wycina wierzchołki między nimi. */
+export function untangle(poly: [number, number][]): [number, number][] {
+  let p = poly;
+  const cr = (o: number[], a: number[], b: number[]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  for (let guard = 0; guard < 200; guard++) {
+    const n = p.length;
+    let hit: { i: number; j: number; x: [number, number] } | null = null;
+    // najkrótsza pętla (najmniej wierzchołków do wycięcia)
+    for (let i = 0; i < n && !hit; i++)
+      for (let k = 2; k < n - 1 && !hit; k++) {
+        const j = (i + k) % n;
+        if (k > n / 2) break;
+        const a = p[i], b = p[(i + 1) % n], c = p[j], d = p[(j + 1) % n];
+        const d1 = cr(a, b, c), d2 = cr(a, b, d), d3 = cr(c, d, a), d4 = cr(c, d, b);
+        if (d1 * d2 < 0 && d3 * d4 < 0) {
+          const t = d3 / (d3 - d4);
+          hit = { i, j, x: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t] };
+        }
+      }
+    if (!hit) return p;
+    const out: [number, number][] = [];
+    // zostaw wierzchołki od j+1 do i (po obwodzie) i punkt przecięcia
+    for (let k = (hit.j + 1) % n; ; k = (k + 1) % n) {
+      out.push(p[k]);
+      if (k === hit.i) break;
+    }
+    out.push(hit.x);
+    p = out;
+  }
+  return p;
 }
 
 /**
@@ -444,6 +646,7 @@ export function buildDactyl(p: DactylParams, o: DactylOptions): DactylModel {
  * początku), z każdego wewnętrzna krawędź. Razem ze śladami ścian daje pełny obrys dna.
  */
 export function floorLoop(m: DactylModel): [number, number][] {
+  if (m.outline) return m.outline.inner;
   // z dwóch punktów wewnętrznej krawędzi (góra i dół słupka) ten dalej od zewnętrznej
   const inner = (i0: number[], i1: number[], o0: number[], o1: number[]): [number, number] => {
     const ox = (o0[0] + o1[0]) / 2, oy = (o0[1] + o1[1]) / 2;
