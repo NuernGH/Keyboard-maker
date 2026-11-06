@@ -572,6 +572,13 @@
           <label data-tip={t(lang, 'tipCaseGap')}>{t(lang, 'caseGap')} <input type="number" min="0" step="0.1" bind:value={caseP.gap} /></label>
           <label data-tip={t(lang, 'tipLedge')}>{t(lang, 'ledge')} <input type="number" min="0" max="5.5" step="0.5" bind:value={caseP.ledge} /></label>
           <label data-tip={t(lang, 'tipChamfer')}>{t(lang, 'chamfer')} <input type="number" min="0" max="2" step="0.5" bind:value={caseP.chamfer} /></label>
+          <label data-tip={t(lang, 'tipBossFillet')}>{t(lang, 'bossFillet')} <input type="number" min="0" max="3" step="0.5" bind:value={caseP.bossFillet} /></label>
+          <label data-tip={t(lang, 'tipBossFillet')}>{t(lang, 'bossFilletKind')}
+            <select bind:value={caseP.bossFilletKind}>
+              <option value="fillet">{t(lang, 'bossFilletRound')}</option>
+              <option value="chamfer">{t(lang, 'bossFilletChamfer')}</option>
+            </select>
+          </label>
           <label class="check" data-tip={t(lang, 'tipSupports')}><input type="checkbox" bind:checked={caseP.supports} /> {t(lang, 'supports')}</label>
           <label data-tip={t(lang, 'tipExplode')}>{t(lang, 'explode')} <input type="number" min="0" step="5" bind:value={caseP.explode} /></label>
         </div>
