@@ -139,3 +139,25 @@ describe('dokument', () => {
     expect(new Set(m.keys.map((k) => `${k.row},${k.col}`)).size).toBe(34);
   });
 });
+
+describe('S2 mini', () => {
+  test('podwójne listwy: rzędy na zewnętrznej lewej, moduł na zewnętrznej prawej, bez IO15', () => {
+    const inp = input('split-4x6-4', 's2mini');
+    const [L, R] = wiringAssignments(inp);
+    expect(L.rows.map((p) => p.id)).toEqual(['IO3', 'IO5', 'IO7', 'IO9', 'IO11']);
+    expect(L.cols.map((p) => p.id)).toEqual(['IO1', 'IO2', 'IO4', 'IO6', 'IO8', 'IO10']);
+    expect(L.module.sda?.id).toBe('IO39');
+    expect(L.module.encA?.id).toBe('IO35');
+    expect(L.split?.id).toBe('IO16');
+    expect([L.module.push?.id, L.module.con?.id, L.module.bak?.id]).toEqual(['IO18', 'IO21', 'IO17']);
+    expect(R.cols.map((p) => p.id)).toEqual(L.cols.map((p) => p.id));
+    const html = wiringHtml(inp);
+    expect(html).toContain('antena');
+    for (const a of [L, R]) expect([...a.byPin.keys()]).not.toContain('IO15');
+  });
+  test('60% z S2 mini: macierz 5 × 14 i moduł mieszczą się', () => {
+    const [A] = wiringAssignments(input('ansi-60', 's2mini', { tilt: 25 }));
+    expect(A.rows.length + A.cols.length).toBe(19);
+    expect(A.missing).toEqual([]);
+  });
+});

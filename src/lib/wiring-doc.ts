@@ -438,6 +438,7 @@ export function bottomSvg(h: WiringHalf, a: Assignment, stabs: WiringInput['stab
 
 /** Listwy kontrolera z przypisaniem (widok od strony elementów). */
 export function pinoutSvg(c: ControllerPins, a: Assignment, t: T, lang: DocLang): string {
+  if (c.leftInner || c.rightInner) return pinoutDoubleSvg(c, a, t, lang);
   const n = Math.max(c.left.length, c.right.length);
   const pitch = 2.54;
   const W = c.left.length > 14 ? 25 : 18;
@@ -478,6 +479,63 @@ export function pinoutSvg(c: ControllerPins, a: Assignment, t: T, lang: DocLang)
   });
   b += `<text x="${f(W / 2)}" y="${f(H + (c.extra.length ? 7.5 : 3))}" font-size="1.7" text-anchor="middle" fill="#555">${t.view}</text>`;
   return svg(`-30 -6 ${W + 60} ${f(H + 15)}`, b, 560);
+}
+
+/** Krótka nazwa roli do opisu wewnątrz płytki (mało miejsca między listwami). */
+function shortRole(t: T, r: Role): string {
+  const m: Partial<Record<Role['kind'], string>> = { sda: 'SDA', scl: 'SCL', encA: 'ENC A', encB: 'ENC B', push: 'PUSH', con: 'CON', bak: 'BAK', split: 'TRRS' };
+  return m[r.kind] ?? roleName(t, r);
+}
+
+/**
+ * Płytka z podwójnymi listwami (S2 mini): zewnętrzne piny opisane na zewnątrz płytki,
+ * wewnętrzne do środka. Rozstaw jak na płytce: listwy ±11,45 i ±8,91 mm od osi, raster 2,54.
+ */
+function pinoutDoubleSvg(c: ControllerPins, a: Assignment, t: T, lang: DocLang): string {
+  const n = Math.max(c.left.length, c.right.length, c.leftInner?.length ?? 0, c.rightInner?.length ?? 0);
+  const pitch = 2.54;
+  const W = 25.4;
+  const top = 9;
+  const H = top + n * pitch + 6;
+  let b = `<rect x="0" y="0" width="${W}" height="${f(H)}" rx="1.5" fill="#2f3b52" stroke="#000" stroke-width="0.2"/>`;
+  b += `<rect x="${f(W / 2 - 6)}" y="1.2" width="12" height="5" fill="#556" stroke="#000" stroke-width="0.1"/><text x="${f(W / 2)}" y="4.4" font-size="1.5" fill="#ddd" text-anchor="middle">${lang === 'pl' ? 'antena' : 'antenna'}</text>`;
+  b += `<rect x="${f(W / 2 - 4.5)}" y="${f(H - 1)}" width="9" height="2.4" fill="#bbb" stroke="#000" stroke-width="0.15"/>`;
+  b += `<text x="${f(W / 2)}" y="${f(H + 4)}" font-size="2" text-anchor="middle">USB</text>`;
+  const info = (p: PinDef): [string, string] => {
+    const role = a.byPin.get(p.id);
+    if (role) return [roleName(t, role), roleColor(role)];
+    if (p.avoid) return [`${t.avoid} (${p.avoid[lang]})`, '#999'];
+    return ['', '#999'];
+  };
+  const dot = (x: number, y: number) => `<circle cx="${f(x)}" cy="${f(y)}" r="0.75" fill="#e8c060" stroke="#000" stroke-width="0.1"/>`;
+  const num = (p: PinDef) => esc(p.label.replace(/^IO/, ''));
+  const outer = (p: PinDef, x: number, y: number, side: -1 | 1) => {
+    const [lab, col] = info(p);
+    let s = dot(x, y);
+    s += `<text x="${f(x + side * 1.4)}" y="${f(y + 0.6)}" font-size="1.6" text-anchor="${side < 0 ? 'end' : 'start'}">${num(p)}</text>`;
+    if (lab) {
+      s += `<path d="M${f(x + side * 5)} ${f(y)} H${f(x + side * 7)}" stroke="${col}" stroke-width="0.4"/>`;
+      s += `<text x="${f(x + side * 7.4)}" y="${f(y + 0.6)}" font-size="1.7" font-weight="bold" fill="${col}" text-anchor="${side < 0 ? 'end' : 'start'}">${esc(lab)}</text>`;
+    }
+    return s;
+  };
+  const inner = (p: PinDef, x: number, y: number, side: -1 | 1) => {
+    const role = a.byPin.get(p.id);
+    let s = dot(x, y);
+    s += `<text x="${f(x - side * 1.3)}" y="${f(y + 0.55)}" font-size="1.4" fill="#fff" text-anchor="${side < 0 ? 'start' : 'end'}">${num(p)}</text>`;
+    const lab = role ? shortRole(t, role) : p.avoid ? '✕' : '';
+    const col = role ? roleColor(role) : '#bbb';
+    if (lab) s += `<text x="${f(x - side * 4.4)}" y="${f(y + 0.55)}" font-size="1.5" font-weight="bold" fill="${col}" text-anchor="${side < 0 ? 'start' : 'end'}">${esc(lab)}</text>`;
+    return s;
+  };
+  const yAt = (i: number) => top + 1.3 + i * pitch;
+  c.left.forEach((p, i) => (b += outer(p, 1.25, yAt(i), -1)));
+  (c.leftInner ?? []).forEach((p, i) => (b += inner(p, 3.79, yAt(i), -1)));
+  c.right.forEach((p, i) => (b += outer(p, W - 1.25, yAt(i), 1)));
+  (c.rightInner ?? []).forEach((p, i) => (b += inner(p, W - 3.79, yAt(i), 1)));
+  const note = lang === 'pl' ? 'opisy w środku płytki = wewnętrzna listwa' : 'labels inside the board = inner header';
+  b += `<text x="${f(W / 2)}" y="${f(H + 7.5)}" font-size="1.7" text-anchor="middle" fill="#555">${t.view} · ${note}</text>`;
+  return svg(`-36 -3 ${W + 72} ${f(H + 13)}`, b, 680);
 }
 
 // ---------------------------------------------------------------- firmware
