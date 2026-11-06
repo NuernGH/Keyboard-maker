@@ -1,11 +1,12 @@
 import { beforeAll, describe, expect, test } from 'vitest';
 import { measureVolume } from 'replicad';
-import { initOC, cellStep } from './oc';
-import { loadCell, buildPlate, buildCase, buildLedge, footprint, screwPilots, isValidShape } from '../src/lib/geometry';
+import { initOC, cellStep, switchStep } from './oc';
+import { loadCell, buildPlate, buildCase, buildLedge, footprint, screwPilots, isValidShape, bossCollar } from '../src/lib/geometry';
+import { loadSwitch } from '../src/lib/switch-model';
 import { SPLIT_4x6_4, TEMPLATES, PITCH, splitLeft, mirrorKeys } from '../src/lib/layout';
 import { islandFor, DEFAULT_ISLAND } from '../src/lib/island';
-import { makeBox, type Shape3D } from 'replicad';
-import { caseLayout, chamferSize, DEFAULT_CASE, SCREW_MARGIN, SCREW_SPECS, LEDGE, type ScrewSize } from '../src/lib/case';
+import { makeBox, makeCylinder, type Shape3D } from 'replicad';
+import { caseLayout, chamferSize, bossFilletSize, BOSS_FILLET, DEFAULT_CASE, SCREW_MARGIN, SCREW_SPECS, LEDGE, type ScrewSize } from '../src/lib/case';
 
 beforeAll(initOC, 60000);
 const opts = { fillGaps: 4, margin: SCREW_MARGIN };
@@ -165,4 +166,100 @@ describe('gzyms pod płytą', () => {
       expect(chamferSize({ ...DEFAULT_CASE, chamfer: undefined })).toBe(0);
     });
   });
+});
+
+describe('wzmocnienie u podstawy słupków śrub', () => {
+  test('kołnierz: wymiary i objętość (zaokrąglenie i faza 45°)', () => {
+    const r0 = 3.75, r = 1.5;
+    const f = bossCollar(r0, r, 'fillet', 10, 20, -5);
+    const bb = f.boundingBox.bounds;
+    expect(bb[0][0]).toBeCloseTo(10 - r0 - r, 3);
+    expect(bb[1][1]).toBeCloseTo(20 + r0 + r, 3);
+    expect(bb[0][2]).toBeCloseTo(-5.01, 3);
+    expect(bb[1][2]).toBeCloseTo(-5 + r, 3);
+    expect(isValidShape(f)).toBe(true);
+    // pierścień pod łukiem: przekrój r²(1 − π/4) na promieniu między r0 a r0 + r
+    const A = r * r * (1 - Math.PI / 4);
+    expect(measureVolume(f)).toBeGreaterThan(2 * Math.PI * r0 * A);
+    expect(measureVolume(f)).toBeLessThan(2 * Math.PI * (r0 + r) * A + 1.5);
+    // faza: stożek ścięty minus walec
+    const c = bossCollar(r0, r, 'chamfer', 0, 0, 0);
+    const cone = ((Math.PI * r) / 3) * ((r0 + r) ** 2 + (r0 + r) * r0 + r0 * r0) - Math.PI * r0 * r0 * r;
+    // + 0,01 mm zakładki w dno i w słupek
+    expect(Math.abs(measureVolume(c) - cone)).toBeLessThan(1);
+  });
+
+  test('przycinanie: zostaje prosty kawałek słupka, 0 wyłącza', () => {
+    expect(bossFilletSize(DEFAULT_CASE, 5)).toBe(1.5);
+    expect(bossFilletSize({ ...DEFAULT_CASE, bossFillet: 5, space: 6 }, 10)).toBe(BOSS_FILLET.max);
+    expect(bossFilletSize({ ...DEFAULT_CASE, bossFillet: 5, space: 3 }, 10)).toBeCloseTo(3 - BOSS_FILLET.belowParts, 6);
+    expect(bossFilletSize({ ...DEFAULT_CASE, bossFillet: 3 }, 2.5)).toBeCloseTo(2.5 - BOSS_FILLET.minTop, 6);
+    expect(bossFilletSize({ ...DEFAULT_CASE, bossFillet: 0 }, 5)).toBe(0);
+    expect(bossFilletSize({ ...DEFAULT_CASE, bossFillet: undefined }, 5)).toBe(0);
+  });
+
+  const boards = [
+    { name: 'split 4x6+4', p: SPLIT_4x6_4, ip: DEFAULT_ISLAND, o: opts },
+    { name: '60% ANSI', p: TEMPLATES.find((t) => t.id === 'ansi-60')!.params, ip: { ...DEFAULT_ISLAND, position: 'top' as const, align: 'end' as const }, o: { ...opts, stabs: 'cherry' as const } },
+  ];
+  // faza 45° o tym samym wymiarze obejmuje zaokrąglenie, więc kolizje sprawdzamy na fazie
+  for (const b of boards)
+    for (const variant of ['hotswap', 'no-hotswap'] as const)
+      test(`${b.name}, ${variant}, faza ${BOSS_FILLET.max} mm: bez kolizji z płytą, przełącznikami, kontrolerem, USB`, async () => {
+        const cell = await loadCell({ step: cellStep(), up: 'auto' }, variant);
+        const sw = await loadSwitch({ step: switchStep(), up: '+Y' });
+        const keys = splitLeft(b.p);
+        const island = islandFor(b.p, b.ip, 'left', variant, cell.height, SCREW_MARGIN)!;
+        const lay = caseLayout(keys, island, cell.height, DEFAULT_CASE);
+        // największe wzmocnienie, jakie da się ustawić w panelu
+        const cp = { ...DEFAULT_CASE, bossFillet: BOSS_FILLET.max, bossFilletKind: 'chamfer' as const };
+        const fr = bossFilletSize(cp, -cell.height - lay.floorTop);
+        expect(fr).toBeGreaterThan(0);
+        const vol = (a: Shape3D, t: Shape3D) => measureVolume(a.clone().intersect(t) as never);
+        const r0 = lay.screw.boss / 2;
+        const collars = lay.screws.map(([x, y]) => bossCollar(r0, fr, 'chamfer', x, y, lay.floorTop));
+        const all = collars.slice(1).reduce((u, c) => u.fuse(c) as Shape3D, collars[0]);
+        // kołnierze kończą się poniżej wszystkiego, co wisi pod płytą (komórki, piny przełączników, wyspa)
+        const swLow = sw.boundingBox.bounds[0][2];
+        expect(lay.floorTop + fr).toBeLessThan(Math.min(-cell.height, -island.depth, swLow));
+        expect(vol(all, buildPlate(keys, cell, b.o, island))).toBeLessThan(0.01);
+        for (const g of island.ghosts)
+          expect(vol(all, makeBox([g.box.x0, g.box.y0, g.box.z0], [g.box.x1, g.box.y1, g.box.z1]) as Shape3D), g.kind).toBeLessThan(0.01);
+        for (const u of lay.usbCuts) expect(vol(all, makeBox([u.x0, u.y0, u.z0], [u.x1, u.y1, u.z1]) as Shape3D)).toBeLessThan(0.01);
+        // pod żadnym przełącznikiem (obrys korpusu, od pinów do płyty)
+        for (const k of keys) {
+          const box = makeBox([-7.5, -7.5, swLow - 0.01], [7.5, 7.5, 0]).rotate(k.rot, [0, 0, 0], [0, 0, 1]).translate(k.x, k.y, 0) as Shape3D;
+          expect(vol(all, box)).toBeLessThan(0.01);
+        }
+        // otwory na śruby wolne
+        for (const [x, y] of lay.screws)
+          expect(vol(all, makeCylinder(lay.screw.clearance / 2, 20, [x, y, lay.bottom - 1], [0, 0, 1]) as Shape3D)).toBeLessThan(0.01);
+      }, 300000);
+
+  for (const kind of ['fillet', 'chamfer'] as const)
+    test(`split 4x6+4: obudowa z kołnierzami (${kind}) poprawna, pełny pierścień przy każdym słupku`, async () => {
+      const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
+      const keys = splitLeft(SPLIT_4x6_4);
+      const island = islandFor(SPLIT_4x6_4, DEFAULT_ISLAND, 'left', 'hotswap', cell.height, SCREW_MARGIN)!;
+      const lay = caseLayout(keys, island, cell.height, DEFAULT_CASE);
+      const cp = { ...DEFAULT_CASE, bossFilletKind: kind };
+      const fr = bossFilletSize(cp, -cell.height - lay.floorTop);
+      expect(fr).toBe(1.5);
+      expect(DEFAULT_CASE.bossFilletKind).toBe('chamfer');
+      const plain = buildCase(keys, opts, island, cell.height, { ...cp, bossFillet: 0 }, lay);
+      const shell = buildCase(keys, opts, island, cell.height, cp, lay);
+      expect(isValidShape(shell)).toBe(true);
+      expect(shell.solids.length).toBe(1);
+      const vol = (a: Shape3D, t: Shape3D) => measureVolume(a.clone().intersect(t) as never);
+      // przybywa materiału (część kołnierzy wchodzi w gzyms przy ściance), nie więcej niż wszystkie kołnierze
+      const one = measureVolume(bossCollar(lay.screw.boss / 2, fr, kind, 0, 0, 0));
+      const added = measureVolume(shell) - measureVolume(plain);
+      expect(added).toBeGreaterThan(0);
+      expect(added).toBeLessThan(one * lay.screws.length + 1);
+      const r0 = lay.screw.boss / 2;
+      for (const [x, y] of lay.screws) {
+        const ring = makeCylinder(r0 + 0.3, 0.2, [x, y, lay.floorTop + 0.1], [0, 0, 1]).cut(makeCylinder(r0 + 0.05, 1, [x, y, lay.floorTop], [0, 0, 1])) as Shape3D;
+        expect(vol(shell, ring)).toBeCloseTo(measureVolume(ring), 2);
+      }
+    }, 300000);
 });
