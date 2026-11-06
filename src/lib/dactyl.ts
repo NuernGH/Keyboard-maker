@@ -149,7 +149,7 @@ const WALL_XY = 5;
 const WALL_Z = -15;
 const POST_ADJ = 0.05;
 /** zakładka tulei pod śrubę na ścianę (mm); średnica tulei z rozmiaru śruby (M3 Ø7,5, M2,5 Ø6,5) */
-const SCREW_BITE = 1.2;
+export const SCREW_BITE = 1.2;
 /** pół szerokości klawisza 1,5U (szeroki mały palec, dwa górne klawisze kciuka) */
 const HALF_15U = (1.5 * PITCH) / 2;
 
@@ -705,7 +705,7 @@ export function polyDist(q: [number, number], poly: [number, number][]): { d: nu
 }
 
 /** Przesuwa punkt tak, by leżał w wielokącie dokładnie `depth` mm od najbliższego brzegu. */
-function settleInside(q: [number, number], poly: [number, number][], depth: number): [number, number] {
+export function settleInside(q: [number, number], poly: [number, number][], depth: number): [number, number] {
   let p = q;
   for (let it = 0; it < 20; it++) {
     const { d, c } = polyDist(p, poly);

@@ -22,6 +22,8 @@ export interface DactylInput {
   floor: number;
   /** rozmiar śrub dna; brak = M3 */
   screwSize?: ScrewSize;
+  /** fazka ostrych krawędzi wierzchu skorupy (mm); brak = 1, 0 = bez */
+  chamfer?: number;
 }
 
 export interface BuildInput {

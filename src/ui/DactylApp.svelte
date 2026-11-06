@@ -72,6 +72,8 @@
       smoothCorners: 'zaokrąglone narożniki',
       smoothFull: 'gładkie',
       wall: 'Ściana (mm)',
+      chamfer: 'Fazka krawędzi (mm)',
+      tipChamfer: 'Ostre krawędzie wierzchu (uskoki przy kciuku, grzbiety) ścięte pod 45°. 0 = bez fazki.',
       floor: 'Dno (mm)',
       controller: 'Kontroler przy tylnej ścianie',
       ctrlCol: 'Nad kolumną',
@@ -116,6 +118,8 @@
       smoothCorners: 'rounded corners',
       smoothFull: 'smooth',
       wall: 'Wall (mm)',
+      chamfer: 'Edge chamfer (mm)',
+      tipChamfer: 'Sharp top edges (steps at the thumb, ridges) cut at 45°. 0 = no chamfer.',
       floor: 'Bottom (mm)',
       controller: 'Controller at the back wall',
       ctrlCol: 'Above column',
@@ -148,6 +152,7 @@
   let ctrlOn = $state(true);
   let ctrl = $state<ControllerParams>({ ...DEFAULT_DACTYL_CONTROLLER });
   let floor = $state(4);
+  let chamfer = $state(1);
   let screwSize = $state<ScrewSize>('M3');
   let explode = $state(20);
   let showCaps = $state(true);
@@ -197,6 +202,7 @@
       controller: ctrlOn ? ($state.snapshot(ctrl) as ControllerParams) : null,
       floor,
       screwSize,
+      chamfer,
     };
   }
   const keyOf = (i: DactylInput) => JSON.stringify({ ...i, cellStep: undefined, side: undefined });
@@ -595,6 +601,7 @@
         <label data-tip={tx('tipTent')}>{tx('tent')} <input type="number" min="0" max="45" step="1" bind:value={p.tent} /></label>
         <label>{tx('height')} <input type="number" min="0" max="40" step="1" bind:value={p.zOffset} /></label>
         <label>{tx('wall')} <input type="number" min="2" max="5" step="0.5" bind:value={p.wallThickness} /></label>
+        <label data-tip={tx('tipChamfer')}>{tx('chamfer')} <input type="number" min="0" max="2" step="0.5" bind:value={chamfer} /></label>
       </div>
       <span class="label" data-tip={tx('tipThumb')}>{tx('thumbShift')}</span>
       <div class="grid3">
