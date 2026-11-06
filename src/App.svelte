@@ -340,7 +340,7 @@
 </script>
 
 {#if templateId === 'dactyl'}
-<DactylApp bind:lang onTemplate={applyTemplate} />
+<DactylApp bind:lang onTemplate={applyTemplate} {switchMesh} />
 {:else}
 <Tooltip />
 <div class="app">

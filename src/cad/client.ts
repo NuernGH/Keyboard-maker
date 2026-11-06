@@ -12,14 +12,31 @@ export class CadClient {
   private pending = new Map<number, { resolve: (r: Response) => void; reject: (e: Error) => void }>();
 
   constructor() {
-    this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
-    this.worker.onmessage = (e: MessageEvent<Response>) => {
+    this.worker = this.spawn();
+  }
+
+  private spawn(): Worker {
+    const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+    worker.onmessage = (e: MessageEvent<Response>) => {
       const p = this.pending.get(e.data.id);
       if (!p) return;
       this.pending.delete(e.data.id);
       if (e.data.type === 'error') p.reject(new Error(e.data.message));
       else p.resolve(e.data);
     };
+    return worker;
+  }
+
+  /**
+   * Nowy worker w miejsce starego. OpenCascade (WASM) nie oddaje całej pamięci po dużych
+   * operacjach logicznych, więc po kilku dużych bryłach (Dactyl) zaczynamy od czystej pamięci.
+   * Zlecenia w toku kończą się błędem.
+   */
+  restart() {
+    this.worker.terminate();
+    for (const p of this.pending.values()) p.reject(new Error('restart'));
+    this.pending.clear();
+    this.worker = this.spawn();
   }
 
   private call(req: DistributiveOmit<Request, 'id'>): Promise<Response> {

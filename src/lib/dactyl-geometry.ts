@@ -16,7 +16,10 @@ export function hullSolid(points: V3[]): Shape3D {
   for (const q of points) if (!uniq.some((u) => Math.abs(u[0] - q[0]) + Math.abs(u[1] - q[1]) + Math.abs(u[2] - q[2]) < 1e-6)) uniq.push(q);
   const faces = qh(uniq);
   const polys = faces.map((f) => makePolygon(f.map((i) => uniq[i])));
-  return makeSolid(polys) as unknown as Shape3D;
+  const solid = makeSolid(polys) as unknown as Shape3D;
+  // ściany po zszyciu są już w bryle; uchwyty JS zwalniamy od razu (pamięć WASM przy setkach otoczek)
+  for (const p of polys) p.delete();
+  return solid;
 }
 
 /** Przekształca bryłę układem klawisza. */
@@ -93,14 +96,22 @@ export const DEFAULT_DACTYL_BUILD: DactylBuild = { floor: 4, bossHeight: 7, cont
 export function shellBody(model: DactylModel, b: DactylBuild): Shape3D {
   // płaskie otoczki (wszystkie punkty w jednej płaszczyźnie, np. przy cienkiej komórce bez hot-swap)
   // nie mają objętości i psują łączenie, więc je pomijamy
-  const solids = model.hulls.map(hullSolid).filter((h) => measureVolume(h) > 0.01 && isValidShape(h));
+  const solids: Shape3D[] = [];
+  for (const h of model.hulls.map(hullSolid)) {
+    if (measureVolume(h) > 0.01 && isValidShape(h)) solids.push(h);
+    else h.delete();
+  }
   for (const [x, y] of model.screws)
     solids.push(makeCylinder(model.screw.boss / 2, b.bossHeight, [x, y, 0], [0, 0, 1]) as Shape3D);
   if (b.controller) solids.push(...b.controller.shellAdd.map(boxOf));
-  let body = fuseMany(solids);
+  const fused = fuseMany(solids);
+  for (const s of solids) s.delete();
   // podłoga: wszystko poniżej z = 0 odcinamy
-  const bb = body.boundingBox.bounds;
-  body = body.intersect(makeBox([bb[0][0] - 5, bb[0][1] - 5, 0], [bb[1][0] + 5, bb[1][1] + 5, bb[1][2] + 5])) as Shape3D;
+  const bb = fused.boundingBox.bounds;
+  const cut = makeBox([bb[0][0] - 5, bb[0][1] - 5, 0], [bb[1][0] + 5, bb[1][1] + 5, bb[1][2] + 5]);
+  const body = fused.intersect(cut) as Shape3D;
+  fused.delete();
+  cut.delete();
   return body;
 }
 
@@ -117,7 +128,10 @@ export function buildDactylShell(model: DactylModel, cell: Cell, b: DactylBuild 
   for (const [x, y] of model.screws)
     tools.push(makeCylinder(model.screw.pilot / 2, b.bossHeight - 1 + 0.5, [x, y, -0.5], [0, 0, 1]) as Shape3D);
   if (b.controller) tools.push(...b.controller.shellCut.map(boxOf));
-  return singleSolid(unifyFaces(cutMany(body, tools)));
+  const cut = cutMany(body, tools);
+  body.delete();
+  for (const t of tools) t.delete();
+  return singleSolid(unifyFaces(cut));
 }
 
 const FLOOR_FUZZ = 1e-3;
@@ -134,6 +148,18 @@ function polyPrism(poly: [number, number][], z0: number, z1: number): Shape3D {
  * krawędzi (pętla), połączone w 3D (2D suma wielu wielokątów dawała w OpenCascade złe bryły).
  */
 export function floorSlab(model: DactylModel, z0: number, z1: number): Shape3D {
+  // wygładzone ściany: obrys jest już wielokątem po kolei wzdłuż obwodu
+  if (model.outline) {
+    const poly = model.outline.outer;
+    let area = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length];
+      area += a[0] * b[1] - a[1] * b[0];
+    }
+    const s = polyPrism(poly, z0, z1);
+    // zły (np. samoprzecinający się) obrys daje bryłę o innej objętości: wtedy po staremu
+    if (isValidShape(s) && Math.abs(measureVolume(s) - (Math.abs(area) / 2) * (z1 - z0)) < 0.01 * measureVolume(s)) return s;
+  }
   const parts = model.floorQuads.map(hull2d).filter((h) => h.length >= 3).map((h) => polyPrism(h, z0, z1));
   parts.unshift(polyPrism(floorLoop(model), z0, z1));
   return fuseMany(parts, FLOOR_FUZZ);

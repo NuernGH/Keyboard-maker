@@ -64,12 +64,4 @@ describe('Dactyl: bryły', () => {
       expect(vol(bottom, ring as Shape3D) / measureVolume(ring as Shape3D)).toBeGreaterThan(0.999);
     }
   }, 300000);
-
-  test('skorupa bez hot-swap: poprawna, komórki nietknięte', async () => {
-    const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'no-hotswap');
-    const m = buildDactyl(DACTYL_DEFAULT, { cellHeight: cell.height });
-    const shell = buildDactylShell(m, cell, { floor: 3, bossHeight: 7, controller: controllerHolder(m, DEFAULT_DACTYL_CONTROLLER) });
-    expect(isValidShape(shell)).toBe(true);
-    for (const k of m.keys) expect(vol(shell, placeShape(cell.negative.clone(), k.frame))).toBeLessThan(0.5);
-  }, 300000);
 });

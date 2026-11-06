@@ -17,6 +17,18 @@ import {
   polyDist,
 } from '../src/lib/dactyl';
 
+function selfCross(p: [number, number][]): number {
+  const cr = (o: number[], a: number[], b: number[]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  let n = 0;
+  for (let i = 0; i < p.length; i++)
+    for (let j = i + 2; j < p.length; j++) {
+      if (i === 0 && j === p.length - 1) continue;
+      const a = p[i], b = p[i + 1], c = p[j], d = p[(j + 1) % p.length];
+      if (cr(a, b, c) * cr(a, b, d) < 0 && cr(c, d, a) * cr(c, d, b) < 0) n++;
+    }
+  return n;
+}
+
 /** buildDM z /mnt/project-files/dactyl/plan-dactyl.html (three.js), bez lustra. */
 function referenceDM(s: { rows: number; cols: number; alpha: number; beta: number; tent: number }) {
   const d = Math.PI / 180, X = new THREE.Vector3(1, 0, 0), Y = new THREE.Vector3(0, 1, 0), Z = new THREE.Vector3(0, 0, 1);
@@ -82,8 +94,11 @@ describe('Dactyl: rozmieszczenie', () => {
   for (const size of ['M3', 'M2.5'] as const)
   test(`pętla podłogi zamknięta, śruby ${size} w środku przy ścianie`, () => {
     const sp = SCREW_SPECS[size];
-    for (const p of [DACTYL_DEFAULT, { ...DACTYL_DEFAULT, rows: 4 }, { ...DACTYL_DEFAULT, cols: 5, widePinky: false }]) {
+    const bases = [DACTYL_DEFAULT, { ...DACTYL_DEFAULT, rows: 4 }, { ...DACTYL_DEFAULT, cols: 5, widePinky: false }];
+    for (const p of (['off', 'corners', 'smooth'] as const).flatMap((w) => bases.map((b) => ({ ...b, wallSmooth: w })))) {
       const m = buildDactyl(p, { cellHeight: 8.58, screwSize: size });
+      // wygładzone ściany: obrys dna bez samoprzecięć
+      if (m.outline) for (const poly of [m.outline.outer, m.outline.inner]) expect(selfCross(poly)).toBe(0);
       expect(m.screw).toEqual(sp);
       const loop = floorLoop(m);
       expect(loop.length).toBeGreaterThan(20);
