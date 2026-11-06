@@ -162,6 +162,8 @@ export const PAD = { gap: 0.2, pinBand: 4, end: 4, usbInset: 0.5 };
  */
 export function controllerPads(island: IslandGeom | null, floorTop: number): Box[] {
   if (!island) return [];
+  // luz wg dopasowania kontrolera (ujemny = podkładka zachodzi na płytkę i ją zaciska)
+  const gap = island.padGap ?? PAD.gap;
   const boards = island.ghosts.filter((g) => g.kind === 'nano');
   const pads: Box[] = boards
     .filter((g) => !g.flip)
@@ -169,7 +171,7 @@ export function controllerPads(island: IslandGeom | null, floorTop: number): Box
       const along = b.y1 - b.y0 >= b.x1 - b.x0 ? 'y' : 'x';
       const ix = along === 'y' ? PAD.pinBand : PAD.end;
       const iy = along === 'y' ? PAD.end : PAD.pinBand;
-      return { x0: b.x0 + ix, x1: b.x1 - ix, y0: b.y0 + iy, y1: b.y1 - iy, z0: floorTop - 0.01, z1: b.z0 - PAD.gap };
+      return { x0: b.x0 + ix, x1: b.x1 - ix, y0: b.y0 + iy, y1: b.y1 - iy, z0: floorTop - 0.01, z1: b.z0 - gap };
     });
   if (boards.some((g) => g.flip)) {
     const b = boards.find((g) => g.flip)!.box;
@@ -179,7 +181,7 @@ export function controllerPads(island: IslandGeom | null, floorTop: number): Box
       const x1 = Math.min(u.x1, b.x1) - PAD.usbInset;
       const y0 = Math.max(u.y0, b.y0) + PAD.usbInset;
       const y1 = Math.min(u.y1, b.y1) - PAD.usbInset;
-      pads.push({ x0, x1, y0, y1, z0: floorTop - 0.01, z1: u.z0 - PAD.gap });
+      pads.push({ x0, x1, y0, y1, z0: floorTop - 0.01, z1: u.z0 - gap });
     }
   }
   return pads.filter((b) => b.z1 > b.z0 + 0.3 && b.x1 > b.x0 && b.y1 > b.y0);

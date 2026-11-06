@@ -43,6 +43,12 @@ Dactyl: rozmieszczenie klawiszy (`apply-key-geometry`, 6 pozycji kciuka), mostki
 
 Testy sprawdzają, że siatka 2×2 ma dokładnie objętość czterech komórek (wymiary 1:1), że bryła przechodzi `BRepCheck_Analyzer` i że STEP po ponownym wczytaniu ma tę samą objętość.
 
+## Własny kontroler
+
+W „Elektronika → Kontroler” można wybrać „Własny (z modelu)…” i wgrać model STEP albo STL płytki. Generator kładzie model płasko, robi z niego mapę wysokości widzianą z góry (siatka 0,2 mm) i odczytuje: obrys, grubość płytki, wysokość z elementami, gniazda USB (szerokość, środki, spód, ile wystają), rzędy pinów i parę otworów montażowych. Liczby trafiają do formularza do sprawdzenia; przyciski „Odwróć góra/dół”, „Obróć o 90°” i „USB z drugiej strony” poprawiają zgadywanie. STL nie ma jednostek (domyślnie mm, do wyboru cm/cale/m). Model zostaje w przeglądarce; zapisywane są tylko liczby (w przeglądarce albo jako plik .json).
+
+„Dopasowanie w pionie” (Standard / Ciasno / Docisk / Własne) ustawia luz nad elementami (strop kieszeni) i luz podkładki z dna obudowy, a przy odwróconym kontrolerze luz podestu pod gniazdem USB. Docisk = podkładka zachodzi 0,2 mm i po przykręceniu dna zaciska płytkę.
+
 ## Struktura
 
 | Ścieżka | Co to |
@@ -50,6 +56,8 @@ Testy sprawdzają, że siatka 2×2 ma dokładnie objętość czterech komórek (
 | `src/lib/layout.ts` | model układu (klawisze w mm), szablon 4×6 + 4, lustro, test nakładania |
 | `src/lib/cell-spec.ts` | stałe i typy komórki (bez zależności od CAD) |
 | `src/lib/island.ts` | wymiary i wycięcia wyspy na elektronikę (bez CAD) |
+| `src/lib/controller-measure.ts` | pomiar własnego kontrolera z modelu STEP/STL (mapa wysokości: płytka, gniazda USB, rzędy pinów, otwory) |
+| `src/ui/CustomController.svelte` | panel własnego kontrolera: wgranie modelu, poprawki orientacji, formularz, zapis .json |
 | `src/lib/geometry.ts` | geometria w replicad / OpenCascade: komórka, obrys, płyta |
 | `src/lib/dactyl.ts` | Dactyl: rozmieszczenie, słupki, mostki, ściany, śruby, kolizje (bez CAD) |
 | `src/lib/dactyl-geometry.ts`, `src/lib/dactyl-parts.ts` | Dactyl w OpenCascade: skorupa, dno, uchwyt kontrolera |

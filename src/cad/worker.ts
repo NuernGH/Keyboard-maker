@@ -2,7 +2,7 @@
 // Web Worker z jądrem CAD. UI nie zawiesza się podczas operacji logicznych.
 import opencascade from 'replicad-opencascadejs';
 import wasmUrl from 'replicad-opencascadejs/wasm?url';
-import { setOC, type Shape3D } from 'replicad';
+import { setOC, importSTEP, type Shape3D } from 'replicad';
 import { buildPlate, buildCase, buildWedge, screwPilots, loadCell, platePiece, casePiece, type Cell } from '../lib/geometry';
 import type { Request, Response, BuildInput, DactylInput } from './protocol';
 import { buildDactyl } from '../lib/dactyl';
@@ -128,10 +128,12 @@ self.onmessage = async (e: MessageEvent<Request>) => {
     const shape =
       req.type === 'switch'
         ? (await init(), await loadSwitch({ step: new Blob([req.step]), up: req.up }))
+        : req.type === 'step-mesh'
+          ? (await init(), (await importSTEP(new Blob([req.step]))) as Shape3D)
         : req.type === 'dactyl-mesh' || req.type === 'dactyl-export'
           ? await dactylFor(req.input)
           : await plateFor(req.input);
-    if (req.type === 'mesh' || req.type === 'switch' || req.type === 'dactyl-mesh') {
+    if (req.type === 'mesh' || req.type === 'switch' || req.type === 'step-mesh' || req.type === 'dactyl-mesh') {
       const m = shape.mesh({ tolerance: 0.05, angularTolerance: 0.3 });
       const vertices = new Float32Array(m.vertices);
       const normals = new Float32Array(m.normals);

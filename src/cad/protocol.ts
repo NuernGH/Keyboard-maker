@@ -47,6 +47,8 @@ export type Request =
   | { id: number; type: 'mesh'; input: BuildInput }
   /** model przełącznika do podglądu (STEP, oś „do góry” w pliku) */
   | { id: number; type: 'switch'; step: ArrayBuffer; up: UpAxis }
+  /** dowolny model STEP zamieniony na trójkąty (np. własny kontroler do pomiaru) */
+  | { id: number; type: 'step-mesh'; step: ArrayBuffer }
   | { id: number; type: 'export'; format: 'stl' | 'step'; input: BuildInput }
   | { id: number; type: 'dactyl-mesh'; input: DactylInput }
   | { id: number; type: 'dactyl-export'; format: 'stl' | 'step'; input: DactylInput };

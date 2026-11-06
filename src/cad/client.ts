@@ -53,6 +53,11 @@ export class CadClient {
     return (await this.call({ type: 'switch', step, up })) as MeshResponse;
   }
 
+  /** siatka modelu STEP bez zmian położenia (np. własny kontroler do pomiaru) */
+  async stepMesh(step: ArrayBuffer): Promise<MeshResponse> {
+    return (await this.call({ type: 'step-mesh', step })) as MeshResponse;
+  }
+
   async exportFile(input: BuildInput, format: 'stl' | 'step'): Promise<ArrayBuffer> {
     const r = await this.call({ type: 'export', format, input });
     if (r.type !== 'file') throw new Error('Nieoczekiwana odpowiedź workera');
