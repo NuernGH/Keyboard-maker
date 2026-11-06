@@ -620,7 +620,7 @@ function islandGeomFor(
 }
 
 /** Obrys samej siatki klawiszy (bez dodatkowych klawiszy, żeby nie przesuwały wyspy). */
-function gridBounds(p: SplitParams) {
+export function gridBounds(p: SplitParams) {
   const pts = splitLeft(p)
     .filter((k) => !k.id.startsWith('e-'))
     .flatMap(keyCorners);
@@ -727,6 +727,22 @@ function edgeIsland(
   const z = ctrlZ(ctrl, ctrlRoof(mod && !tilt, ctrl, flip, pins), flip, fitGaps(ip).top);
   const cuts: Box[] = [];
   const ghosts: GhostPart[] = [];
+  // położenie wyspy wzdłuż siatki: wg wyrównania (kierunek USB go nie zmienia, z wyjątkiem niżej)
+  const { kx0, kx1, ky0, ky1 } = gridBounds(p);
+  const cx0 = alongCenter(kx0, kx1, L, ip.align) + ip.offsetX;
+  const sx = dir === 'left' ? -1 : dir === 'right' ? 1 : ip.align === 'start' ? -1 : 1;
+  // USB do środka klawiatury (wyspa nie stoi przy tej krawędzi): obok wyspy jest brzeg obudowy,
+  // więc kontroler idzie do tylnej krawędzi wyspy (wtyk nad obudową), a śruby klina na środek
+  // głębokości, po drugiej stronie kieszeni
+  // Za długi kontroler (np. ESP32-S3) nie zostawia miejsca na śruby klina obok kieszeni:
+  // wtedy jak dawniej wyspa dosuwa się do krawędzi klawiatury po stronie USB.
+  const reach = ctrl.h + ctrl.usbOverhang - L / 2 - margin + CTRL_CLEARANCE; // wewnętrzny koniec kieszeni za środkiem
+  const inwardFits = reach + 1.5 + WEDGE.head + 3 <= slotX1 + 4.5;
+  const atUsbEdge = (c: number) => (sx < 0 ? c - L / 2 <= kx0 + 0.01 : c + L / 2 >= kx1 - 0.01);
+  const toUsbEdge = along && !atUsbEdge(cx0) && !inwardFits;
+  const cx = toUsbEdge ? alongCenter(kx0, kx1, L, sx < 0 ? 'start' : 'end') + ip.offsetX : cx0;
+  const inward = along && !atUsbEdge(cx);
+  let backScrewX: number | null = null;
   if (!along) {
     // gniazdo USB równo z krawędzią płyty (wyspa + margines), kontroler wysoko pod wierzchem
     const edgeY = T + margin;
@@ -742,11 +758,12 @@ function edgeIsland(
       ...usbGhosts(ctrl, ccx, nTop, edgeY, z),
     );
   } else {
-    const sx = dir === 'left' ? -1 : dir === 'right' ? 1 : ip.align === 'start' ? -1 : 1;
     const edgeX = L / 2 + margin;
     const nEnd = edgeX - ctrl.usbOverhang; // koniec płytki od strony USB (|x|)
     const nStart = nEnd - ctrl.h;
-    const cy = 1 + cw / 2;
+    const cy = inward ? TW - 1 - cw / 2 : 1 + cw / 2;
+    // pierwsza śruba klina tuż za wewnętrznym końcem kieszeni (od strony bez USB)
+    if (inward) backScrewX = -sx * (reach + 1.5 + WEDGE.head / 2);
     const X = (a: number, b: number): [number, number] => (sx > 0 ? [a, b] : [-b, -a]);
     const [px0, px1] = X(nStart - CTRL_CLEARANCE, nEnd + CTRL_CLEARANCE);
     cuts.push(box(px0, cy - cw / 2, -D - 1, px1, cy + cw / 2, z.pocketTop));
@@ -806,9 +823,14 @@ function edgeIsland(
       // dwie śruby: w połowie głębokości klina (tam jest najgrubszy pod gniazdem modułu),
       // jedna za kieszenią kontrolera, druga za przepustami pinów; przy kontrolerze wzdłuż wyspy
       // w pasie przy tylnej krawędzi, za kieszenią kontrolera
-      const sy = along ? TW - WEDGE_SCREW_BAND / 2 : TW / 2;
+      const sy = along && !inward ? TW - WEDGE_SCREW_BAND / 2 : TW / 2;
       // długi kontroler w poprzek zajmuje lewą część wyspy aż do przepustów: lewa śruba tuż za kieszenią
-      const xs = longBack ? [ccx + cw / 2 + 5.5, slotX1 + 4.5] : [mL + 4.5, slotX1 + 4.5];
+      const xs =
+        backScrewX !== null
+          ? [backScrewX, -sx * (slotX1 + 4.5)]
+          : longBack
+            ? [ccx + cw / 2 + 5.5, slotX1 + 4.5]
+            : [mL + 4.5, slotX1 + 4.5];
       for (const sx of xs) {
         wScrews.push([sx, sy]);
         const c = WEDGE.clearance / 2;
@@ -831,10 +853,6 @@ function edgeIsland(
   }
 
   // przeniesienie na siatkę: nad nią (y w górę) albo pod nią (y w dół)
-  const { kx0, kx1, ky0, ky1 } = gridBounds(p);
-  // USB w lewo/prawo: wyspa dosunięta do tej krawędzi klawiatury, żeby gniazdo wyszło na brzeg płyty
-  const align = along && dir === 'left' ? 'start' : along && dir === 'right' ? 'end' : ip.align;
-  const cx = alongCenter(kx0, kx1, L, align) + ip.offsetX;
   // oś obrotu klina: krawędź wyspy przy klawiszach; pod siatką y jest odbite, więc kąt zmienia znak
   const hingeY = (pos === 'top' ? ky1 : ky0) + ip.offsetY;
   const tiltOut = (b: Box): Box['tilt'] =>
