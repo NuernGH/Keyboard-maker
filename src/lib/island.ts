@@ -55,13 +55,21 @@ export const CONTROLLERS: Record<ControllerId, Controller> = {
   // nice!nano v2 wg modelu Woovie (CC0): płytka 17,78 × 33,10 × 0,8, USB-C 8,99 × 3,2 we wcięciu płytki,
   // spodem równo ze spodem płytki, wystaje 1,52. Grubość płytki i wysokość USB do sprawdzenia suwmiarką.
   nicenano: { name: 'nice!nano v2', w: 17.78, h: 33.1, height: 3.2, usbOverhang: 1.52, usbW: 10, usbH: 5.4, pcb: 0.8, usbZ0: 0, model: 'controllers/nice-nano-v2.stl' },
-  'promicro-c': { name: 'Pro Micro USB-C', w: 18.3, h: 29.5, height: 4.7, usbOverhang: 6.7, usbW: 10, usbH: 5.4 },
-  'promicro-micro': { name: 'Pro Micro micro-USB', w: 17.8, h: 29.2, height: 4.3, usbOverhang: 5.4, usbW: 9, usbH: 4.6 },
+  // Pro Micro USB-C (model GrabCAD od Marcina, zgodny z modelem qwelyt/waddle): płytka 18,3 × 34,7 × 1,5,
+  // USB-C na płytce, wystaje 1,5, razem 4,66.
+  'promicro-c': { name: 'Pro Micro USB-C', w: 18.3, h: 34.7, height: 4.7, usbOverhang: 1.5, usbW: 10, usbH: 5.4, pcb: 1.5 },
+  // Pro Micro micro-USB (modele GrabCAD i Joe Scotto): płytka 17,8 × 33,0, micro-USB na płytce, wystaje 1,57, razem 4,25.
+  'promicro-micro': { name: 'Pro Micro micro-USB', w: 17.8, h: 33.0, height: 4.3, usbOverhang: 1.6, usbW: 9, usbH: 4.6 },
   kb2040: { name: 'Adafruit KB2040', w: 17.8, h: 33.0, height: 4.8, usbOverhang: 1.2, usbW: 10, usbH: 5.4 },
-  s2mini: { name: 'Wemos S2 mini', w: 25.4, h: 34.3, height: 4.1, usbOverhang: 0, usbW: 10, usbH: 5.0 },
-  // ESP32-S3-DevKitC-1: płytka 25,4 × 62,74 mm (z modelu producenta), dwa gniazda USB na krótkim boku
-  // (USB natywne i USB-UART). Rozstaw gniazd to szacunek do sprawdzenia na płytce.
-  esp32s3: { name: 'ESP32-S3-DevKitC-1 (2 × USB)', w: 25.4, h: 62.74, height: 5.0, usbOverhang: 1.0, usbW: 10, usbH: 5.4, ports: [-6.35, 6.35] },
+  // Wemos S2 mini (model GrabCAD od Marcina, obrys z rysunku wemos.cc): płytka 25,4 × 34,3 × 0,9, USB-C równo
+  // z krawędzią, łapki 0,35 pod płytką (liczymy od spodu płytki), góra gniazda 4,12 nad spodem płytki.
+  s2mini: { name: 'Wemos S2 mini', w: 25.4, h: 34.3, height: 4.2, usbOverhang: 0, usbW: 10, usbH: 5.0, pcb: 0.9, usbZ0: 0 },
+  // ESP32-S3 DevKit, klon z dwoma USB-C (wersja Marcina, model GrabCAD „ESP32-S3-WROOM-1 Devkit”, N16R8):
+  // płytka 28,3 × 57,0 × 1,5, rzędy pinów co 25,4; moduł z anteną wystaje 6,4 za drugi koniec płytki, więc
+  // długość h liczy płytkę z modułem (63,4). Dwa USB-C (GCT USB4105) na płytce, środki −6,2 i +6,1,
+  // wystają 0,73, góra 4,81 nad spodem płytki (wierzch modułu 5,45 mieści się w kieszeni: height + 0,6).
+  // Oryginał Espressif v1.1 (25,4 × 62,74, dwa micro-USB) ma inne wymiary.
+  esp32s3: { name: 'ESP32-S3 DevKit (2 × USB-C)', w: 28.3, h: 63.4, height: 4.9, usbOverhang: 0.8, usbW: 10, usbH: 5.4, pcb: 1.5, ports: [-6.2, 6.1] },
 };
 
 export interface IslandParams {
@@ -217,7 +225,14 @@ const usbGhosts = (c: Controller, cx: number, nTop: number, edge: number, zN: nu
  * Gdy nad nim leży płasko moduł OLED, schodzi pod gniazdo modułu.
  */
 export const CTRL_ROOF = 2.5;
-const ctrlRoof = (moduleFlatAbove: boolean) => (moduleFlatAbove ? MODULE.pcb + MODULE.underClearance + 1.4 : CTRL_ROOF);
+const ctrlRoof = (moduleFlatAbove: boolean, c?: Controller) => {
+  if (!moduleFlatAbove) return CTRL_ROOF;
+  const roof = MODULE.pcb + MODULE.underClearance + 1.4;
+  // szeroki kontroler (np. ESP32-S3 28,3 mm) sięga pod otwory na śruby modułu (rozstaw 29 mm):
+  // wtedy kontroler schodzi niżej, pod końce otworów pilotowych
+  const wide = c && c.w / 2 + CTRL_CLEARANCE > MODULE_HOLES.dx / 2 - MODULE_HOLES.pilot / 2 - 0.5;
+  return wide ? Math.max(roof, MODULE.pcb + MODULE_HOLES.depth + 0.5) : roof;
+};
 /** Spód płytki kontrolera (z) przy danym dachu; luz 0,6 mm nad elementami. */
 const ctrlBottom = (c: Controller, roof: number) => -roof - 0.6 - c.height;
 
@@ -243,7 +258,7 @@ export function islandFor(
   // moduł płasko nad kontrolerem: przy klinie moduł jest na osobnej części, wyspa zostaje płaska
   const flatModule = mod && !((ip.position === 'top' || ip.position === 'bottom') && (ip.tilt ?? 0) > 0);
   // głębokość: tyle co płyta, chyba że kontroler pod płaskim modułem potrzebuje więcej
-  const D = Math.max(ip.depth, cellHeight, -ctrlBottom(ctrl, ctrlRoof(flatModule)));
+  const D = Math.max(ip.depth, cellHeight, -ctrlBottom(ctrl, ctrlRoof(flatModule, ctrl)));
   const pos = ip.position ?? 'inner';
   // długi kontroler (np. ESP32-S3) nie mieści się w poprzek poziomej wyspy z modułem: USB wtedy z końca
   const edgeFits = !mod || ctrl.h + ctrl.usbOverhang + CTRL_CLEARANCE + 1 <= ISLAND_W;
@@ -289,7 +304,7 @@ export function islandFor(
   const edgeY = y1 + margin;
   const nTop = edgeY - ctrl.usbOverhang;
   const nBot = nTop - ctrl.h;
-  const zN = Math.max(-D, ctrlBottom(ctrl, ctrlRoof(mod)));
+  const zN = Math.max(-D, ctrlBottom(ctrl, ctrlRoof(mod, ctrl)));
   const pocketTop = zN + ctrl.height + 0.6;
   const ctrlCuts: Box[] = [
     // kieszeń kontrolera od spodu
@@ -452,7 +467,7 @@ function edgeIsland(
   const edgeY = T + margin;
   const nTop = edgeY - ctrl.usbOverhang;
   const nBot = nTop - ctrl.h;
-  const zN = Math.max(-D, ctrlBottom(ctrl, ctrlRoof(mod && !tilt)));
+  const zN = Math.max(-D, ctrlBottom(ctrl, ctrlRoof(mod && !tilt, ctrl)));
   const pocketTop = zN + ctrl.height + 0.6;
   const cuts: Box[] = [
     box(ccx - cw / 2, nBot - CTRL_CLEARANCE, -D - 1, ccx + cw / 2, nTop + CTRL_CLEARANCE, pocketTop),

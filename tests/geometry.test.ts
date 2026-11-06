@@ -215,9 +215,9 @@ describe('macropad: USB długą krawędzią', () => {
         else expect(usb.y0).toBeCloseTo(g.rect.y0, 6);
         // w wyspie obróconej (ESP32-S3) kolejność: gniazdo modułu, miejsce na luty, kieszeń
         const pocket = g.cuts[controller === 'esp32s3' ? 2 : 0];
-        // kieszeń kontrolera nie rusza otworów pod śruby
+        // kieszeń kontrolera nie rusza otworów pod śruby (szeroki kontroler może być pod nimi, niżej)
         for (const h of g.cuts.filter((c) => c.round))
-          expect(h.x1 <= pocket.x0 || h.x0 >= pocket.x1 || h.y1 <= pocket.y0 || h.y0 >= pocket.y1).toBe(true);
+          expect(h.x1 <= pocket.x0 || h.x0 >= pocket.x1 || h.y1 <= pocket.y0 || h.y0 >= pocket.y1 || h.z0 >= pocket.z1).toBe(true);
         // od strony klawiszy zostaje ścianka
         if (controller === 'esp32s3') { /* wyspa obrócona, ścianka sprawdzona wyżej */ }
         else if (position === 'top') expect(pocket.y0).toBeGreaterThan(g.rect.y0);
@@ -279,10 +279,18 @@ describe('ESP32-S3 z dwoma gniazdami USB', () => {
       const usb = g.ghosts.filter((p) => p.kind === 'usb');
       expect(usb.length).toBe(2);
       for (const u of usb) expect(u.box.y1).toBeCloseTo(g.rect.y1, 6);
+      // gniazda na −6,2 i +6,1 od środka płytki (klon z dwoma USB-C)
+      const cx = (g.rect.x0 + g.rect.x1) / 2;
+      const centers = usb.map((u) => (u.box.x0 + u.box.x1) / 2 - cx).sort((a, b) => a - b);
+      expect(centers[0]).toBeCloseTo(-6.2, 6);
+      expect(centers[1]).toBeCloseTo(6.1, 6);
       const pocket = g.cuts[moduleSide === 'left' ? 2 : 0];
+      // kieszeń mieści płytkę z wystającym modułem (63,4) i szerokość 28,3
+      expect(pocket.y1 - pocket.y0).toBeGreaterThanOrEqual(63.4);
+      expect(pocket.x1 - pocket.x0).toBeGreaterThanOrEqual(28.3);
       expect(pocket.y0).toBeGreaterThan(g.rect.y0);
       for (const h of g.cuts.filter((c) => c.round))
-        expect(h.x1 <= pocket.x0 || h.x0 >= pocket.x1 || h.y1 <= pocket.y0 || h.y0 >= pocket.y1).toBe(true);
+        expect(h.x1 <= pocket.x0 || h.x0 >= pocket.x1 || h.y1 <= pocket.y0 || h.y0 >= pocket.y1 || h.z0 >= pocket.z1).toBe(true);
       const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
       const plate = buildPlate(splitLeft(SPLIT_4x6_4), cell, undefined, g);
       expect(isValidShape(plate)).toBe(true);
