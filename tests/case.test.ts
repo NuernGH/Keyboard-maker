@@ -14,7 +14,7 @@ const opts = { fillGaps: 4, margin: SCREW_MARGIN };
 const cases = [
   { name: 'split 4x6+4 lewa', p: SPLIT_4x6_4, side: 'left' as const, ip: DEFAULT_ISLAND },
   { name: 'split 4x6+4 prawa', p: SPLIT_4x6_4, side: 'right' as const, ip: DEFAULT_ISLAND },
-  { name: 'macropad 3x3, wyspa u góry', p: TEMPLATES.find((t) => t.id === 'macropad-3x3')!.params, side: 'left' as const, ip: { ...DEFAULT_ISLAND, position: 'top' as const } },
+  { name: 'macropad 3x3, wyspa u góry', p: TEMPLATES.find((t) => t.id === 'macropad-3x3')!.params, side: 'left' as const, ip: { ...DEFAULT_ISLAND, position: 'top' as const, flip: false } },
 ];
 
 describe('spód obudowy', () => {
@@ -53,12 +53,29 @@ describe('spód obudowy', () => {
         const clash = plate.clone().intersect(shell.clone());
         expect(measureVolume(clash as never)).toBeLessThan(0.01);
         expect(lay.screwLength).toBeGreaterThan(0);
-        // podkładka dociska kontroler: kończy się 0,2 mm pod płytką
-        expect(lay.pads.length).toBe(1);
         const board = island!.ghosts.find((g) => g.kind === 'nano')!.box;
-        expect(board.z0 - lay.pads[0].z1).toBeCloseTo(0.2, 6);
-        expect(lay.pads[0].x0).toBeGreaterThan(board.x0);
-        expect(lay.pads[0].x1).toBeLessThan(board.x1);
+        if (c.ip.flip === false) {
+          // podkładka dociska kontroler: kończy się 0,2 mm pod płytką
+          expect(lay.pads.length).toBe(1);
+          expect(board.z0 - lay.pads[0].z1).toBeCloseTo(0.2, 6);
+          expect(lay.pads[0].x0).toBeGreaterThan(board.x0);
+          expect(lay.pads[0].x1).toBeLessThan(board.x1);
+        } else {
+          // odwrócony kontroler jest przyklejony pod płytą, płaska strona na stropie kieszeni;
+          // podest z dna podpiera tylko gniazdo USB (0,2 mm pod nim), w obrysie płytki
+          const usbs = island!.ghosts.filter((g) => g.kind === 'usb').map((g) => g.box);
+          expect(lay.pads.length).toBe(usbs.length);
+          for (const [i, u] of usbs.entries()) {
+            const pad = lay.pads[i];
+            expect(u.z0 - pad.z1).toBeCloseTo(0.2, 6);
+            expect(pad.x0).toBeGreaterThanOrEqual(Math.max(u.x0, board.x0));
+            expect(pad.x1).toBeLessThanOrEqual(Math.min(u.x1, board.x1));
+            expect(pad.y0).toBeGreaterThanOrEqual(Math.max(u.y0, board.y0));
+            expect(pad.y1).toBeLessThanOrEqual(Math.min(u.y1, board.y1));
+          }
+          const pocket = island!.cuts.find((k) => k.x0 <= board.x0 && k.x1 >= board.x1 && k.y0 <= board.y0 && k.y1 >= board.y1 && k.z0 < board.z0)!;
+          expect(pocket.z1).toBeCloseTo(board.z1, 6);
+        }
         // wtyk USB-C z obudową (12,4 × 6,5 mm) na wysokości gniazda: od krawędzi płyty na zewnątrz
         // przechodzi przez płytę i ściankę bez kolizji (gniazdo nice!nano leży nisko, we wcięciu płytki)
         const usb = island!.ghosts.find((g) => g.kind === 'usb')!.box;

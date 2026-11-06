@@ -28,10 +28,13 @@ export function loadControllerModel(path: string): Promise<THREE.BufferGeometry 
 
 /**
  * Macierz, która kładzie model na płytce `board` (pudełko płytki w XY, spód na z0).
+ * Y = 0 w modelu to spód płytki (gniazdo USB może wystawać niżej, np. nice!nano o 0,2 mm).
  * Gniazdo USB jest po stronie dłuższej osi pudełka, w kierunku `usb` (środek gniazda);
  * bez niego po stronie +Y. Obrót jest właściwy (bez odbicia), płytka jest symetryczna.
+ * `flip`: płytka odwrócona elementami w dół (obrót o 180° wokół osi wzdłuż płytki),
+ * spód płytki z modelu leży wtedy na wierzchu pudełka.
  */
-export function placeOnBoard(geo: THREE.BufferGeometry, board: Box, usb?: Box): THREE.Matrix4 {
+export function placeOnBoard(geo: THREE.BufferGeometry, board: Box, usb?: Box, flip = false): THREE.Matrix4 {
   const bb = geo.boundingBox!;
   const w = bb.max.x - bb.min.x;
   const alongY = board.y1 - board.y0 >= board.x1 - board.x0;
@@ -44,12 +47,13 @@ export function placeOnBoard(geo: THREE.BufferGeometry, board: Box, usb?: Box): 
   }
   // kierunek wzdłuż płytki (do USB), w górę, w poprzek = góra × wzdłuż
   const d = alongY ? new THREE.Vector3(0, sign, 0) : new THREE.Vector3(sign, 0, 0);
-  const up = new THREE.Vector3(0, 0, 1);
+  const up = new THREE.Vector3(0, 0, flip ? -1 : 1);
   const a = new THREE.Vector3().crossVectors(up, d);
   // dalszy od USB koniec płytki, na środku szerokości
+  const zb = flip ? board.z1 : board.z0;
   const far = alongY
-    ? new THREE.Vector3(cx, sign > 0 ? board.y0 : board.y1, board.z0)
-    : new THREE.Vector3(sign > 0 ? board.x0 : board.x1, cy, board.z0);
-  const o = far.clone().addScaledVector(a, -(bb.min.x + w / 2)).addScaledVector(up, -bb.min.y).addScaledVector(d, -bb.min.z);
+    ? new THREE.Vector3(cx, sign > 0 ? board.y0 : board.y1, zb)
+    : new THREE.Vector3(sign > 0 ? board.x0 : board.x1, cy, zb);
+  const o = far.clone().addScaledVector(a, -(bb.min.x + w / 2)).addScaledVector(up, 0).addScaledVector(d, -bb.min.z);
   return new THREE.Matrix4().set(a.x, up.x, d.x, o.x, a.y, up.y, d.y, o.y, a.z, up.z, d.z, o.z, 0, 0, 0, 1);
 }

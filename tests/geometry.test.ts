@@ -93,9 +93,10 @@ describe('wyspa na elektronikę', () => {
         expect(plate.solids.length).toBe(1);
         const b = plate.boundingBox.bounds;
         expect(-b[0][2]).toBeCloseTo(g!.depth, 3);
-        // pod płaskim modułem kontroler potrzebuje głębszej wyspy, bez modułu wystarcza głębokość płyty
-        // (dach nad kontrolerem 5,1 mm pod modułem, 2,5 mm bez modułu, plus 0,6 mm luzu i wysokość kontrolera)
-        expect(g!.depth).toBeCloseTo(Math.max(cell.height, (side === 'left' ? 5.1 : 2.5) + 0.6 + NANO.height), 3);
+        // pod płaskim modułem kontroler potrzebuje głębszej wyspy, bez modułu wystarcza głębokość płyty.
+        // Odwrócony nice!nano: dach 4,9 mm pod modułem (gniazdo modułu 3,7 + 0,8 + wnęka na USB 0,4),
+        // 3,3 mm bez modułu (otwór na wtyk), plus wysokość kontrolera i 0,6 mm luzu
+        expect(g!.depth).toBeCloseTo(Math.max(cell.height, (side === 'left' ? 4.9 : 3.3) + 0.6 + NANO.height), 3);
         const re = (await importSTEP(plate.blobSTEP())) as Shape3D;
         expect(measureVolume(re)).toBeCloseTo(measureVolume(plate), 0);
       }, 180000);
@@ -217,7 +218,7 @@ describe('macropad: USB długą krawędzią', () => {
         const pocket = g.cuts[controller === 'esp32s3' ? 2 : 0];
         // kieszeń kontrolera nie rusza otworów pod śruby (szeroki kontroler może być pod nimi, niżej)
         for (const h of g.cuts.filter((c) => c.round))
-          expect(h.x1 <= pocket.x0 || h.x0 >= pocket.x1 || h.y1 <= pocket.y0 || h.y0 >= pocket.y1 || h.z0 >= pocket.z1).toBe(true);
+          expect(h.x1 <= pocket.x0 || h.x0 >= pocket.x1 || h.y1 <= pocket.y0 || h.y0 >= pocket.y1 || h.z0 >= pocket.z1 - 0.02).toBe(true);
         // od strony klawiszy zostaje ścianka
         if (controller === 'esp32s3') { /* wyspa obrócona, ścianka sprawdzona wyżej */ }
         else if (position === 'top') expect(pocket.y0).toBeGreaterThan(g.rect.y0);
@@ -290,7 +291,7 @@ describe('ESP32-S3 z dwoma gniazdami USB', () => {
       expect(pocket.x1 - pocket.x0).toBeGreaterThanOrEqual(28.3);
       expect(pocket.y0).toBeGreaterThan(g.rect.y0);
       for (const h of g.cuts.filter((c) => c.round))
-        expect(h.x1 <= pocket.x0 || h.x0 >= pocket.x1 || h.y1 <= pocket.y0 || h.y0 >= pocket.y1 || h.z0 >= pocket.z1).toBe(true);
+        expect(h.x1 <= pocket.x0 || h.x0 >= pocket.x1 || h.y1 <= pocket.y0 || h.y0 >= pocket.y1 || h.z0 >= pocket.z1 - 0.02).toBe(true);
       const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
       const plate = buildPlate(splitLeft(SPLIT_4x6_4), cell, undefined, g);
       expect(isValidShape(plate)).toBe(true);

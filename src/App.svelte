@@ -525,7 +525,16 @@
           {#if (island.position === 'top' || island.position === 'bottom') && island.moduleSide !== 'none'}
           <label data-tip={t(lang, 'tipTilt')}>{t(lang, 'tilt')} <input type="number" min="0" max="60" step="5" bind:value={island.tilt} /></label>
           {/if}
-          {#if island.position === 'top' || island.position === 'bottom'}
+          {#if (island.position === 'top' || island.position === 'bottom') && island.moduleSide !== 'none' && (island.tilt ?? 0) > 0}
+          <label data-tip={t(lang, 'tipUsbDir')}>{t(lang, 'usbDir')}
+            <select bind:value={island.usbDir}>
+              <option value="auto">{t(lang, 'usbDirAuto')}</option>
+              <option value="left">{t(lang, 'usbDirLeft')}</option>
+              <option value="right">{t(lang, 'usbDirRight')}</option>
+              <option value="back">{t(lang, 'usbDirBack')}</option>
+            </select>
+          </label>
+          {:else if island.position === 'top' || island.position === 'bottom'}
           <label data-tip={t(lang, 'tipUsbOut')}>{t(lang, 'usbOut')}
             <select bind:value={island.usbOut}>
               <option value="edge">{t(lang, 'usbEdge')}</option>
@@ -543,6 +552,12 @@
               <option value="none">{t(lang, 'none')}</option>
             </select>
           </label>
+          {/if}
+          <label class="check" data-tip={t(lang, 'tipCtrlFlip')}><input type="checkbox" checked={island.flip ?? true} onchange={(e) => (island.flip = e.currentTarget.checked)} /> {t(lang, 'ctrlFlip')}</label>
+          {#if island.flip ?? true}
+          <label class="check" data-tip={t(lang, 'tipCtrlPins')}><input type="checkbox" bind:checked={island.pins} /> {t(lang, 'ctrlPins')}</label>
+          {:else}
+          <span></span>
           {/if}
           <label data-tip={t(lang, 'tipIslandDepth')}>{t(lang, 'islandDepth')} <input type="number" min="0" step="0.5" bind:value={island.depth} /></label>
           <span></span>
