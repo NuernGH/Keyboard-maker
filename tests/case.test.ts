@@ -253,6 +253,29 @@ describe('wzmocnienie u podstawy słupków śrub', () => {
           expect(vol(all, makeCylinder(lay.screw.clearance / 2, 20, [x, y, lay.bottom - 1], [0, 0, 1]) as Shape3D)).toBeLessThan(0.01);
       }, 300000);
 
+  for (const b of boards)
+    test(`${b.name}: kołnierze nie wystają poza zewnętrzny obrys obudowy`, async () => {
+      const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
+      const keys = splitLeft(b.p);
+      const island = islandFor(b.p, b.ip, 'left', 'hotswap', cell.height, SCREW_MARGIN)!;
+      const lay = caseLayout(keys, island, cell.height, DEFAULT_CASE);
+      const cp = { ...DEFAULT_CASE, bossFillet: BOSS_FILLET.max };
+      expect(bossFilletSize(cp, -cell.height - lay.floorTop)).toBeGreaterThan(0);
+      const shell = buildCase(keys, b.o, island, cell.height, cp, lay);
+      expect(isValidShape(shell)).toBe(true);
+      expect(shell.solids.length).toBe(1);
+      const outer = footprint(keys, b.o, island).offset(cp.gap + cp.wall).sketchOnPlane('XY', lay.bottom - 1).extrude(-lay.bottom + 2) as Shape3D;
+      const bb = shell.boundingBox.bounds;
+      const around = makeBox([bb[0][0] - 5, bb[0][1] - 5, bb[0][2] - 1], [bb[1][0] + 5, bb[1][1] + 5, bb[1][2] + 1]).cut(outer) as Shape3D;
+      expect(measureVolume(shell.clone().intersect(around) as never)).toBeLessThan(0.001);
+      // kołnierz zostaje od strony wnętrza: pełny pierścień tuż nad dnem przy każdym słupku z dala od ścianki
+      const r0 = lay.screw.boss / 2;
+      for (const [x, y] of lay.screws) {
+        const ring = makeCylinder(r0 + 0.3, 0.2, [x, y, lay.floorTop + 0.1], [0, 0, 1]).cut(makeCylinder(r0 + 0.05, 1, [x, y, lay.floorTop], [0, 0, 1])).intersect(outer) as Shape3D;
+        expect(measureVolume(shell.clone().intersect(ring) as never)).toBeCloseTo(measureVolume(ring), 2);
+      }
+    }, 300000);
+
   for (const kind of ['fillet', 'chamfer'] as const)
     test(`split 4x6+4: obudowa z kołnierzami (${kind}) poprawna, pełny pierścień przy każdym słupku`, async () => {
       const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');

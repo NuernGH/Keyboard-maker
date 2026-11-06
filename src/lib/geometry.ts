@@ -346,11 +346,19 @@ export function buildCase(
   const sp = layout.screw ?? screwSpec(cp.screwSize);
   const standH = -cellHeight - floorTop;
   const fr = bossFilletSize(cp, standH);
+  const collars: Shape3D[] = [];
   for (const [x, y] of layout.screws)
     if (standH > 0.01) {
       body = body.fuse(makeCylinder(sp.boss / 2, standH + 0.01, [x, y, floorTop - 0.01], [0, 0, 1]) as Shape3D) as Shape3D;
-      if (fr > 0) body = body.fuse(bossCollar(sp.boss / 2, fr, cp.bossFilletKind ?? 'chamfer', x, y, floorTop)) as Shape3D;
+      if (fr > 0) collars.push(bossCollar(sp.boss / 2, fr, cp.bossFilletKind ?? 'chamfer', x, y, floorTop));
     }
+  if (collars.length) {
+    // słupek przy zaokrąglonym narożniku: kołnierz przechodzi przez ściankę, więc przycinamy go
+    // do zewnętrznego obrysu (to, co w ściance, zlewa się z nią; z zewnątrz ścianka zostaje gładka)
+    const clip = outer.sketchOnPlane('XY', floorTop - 1).extrude(fr + 2) as Shape3D;
+    const all = collars.slice(1).reduce((u, c) => u.fuse(c) as Shape3D, collars[0]);
+    body = body.fuse(all.intersect(clip) as Shape3D) as Shape3D;
+  }
   for (const b of layout.pads ?? []) body = body.fuse(makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1])) as Shape3D;
   // podpory pod płytą: od dna do 0,1 mm pod spód płyty
   const supH = -cellHeight - SUPPORT.gap - floorTop;
