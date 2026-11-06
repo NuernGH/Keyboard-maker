@@ -39,11 +39,11 @@ export interface CaseParams {
    */
   chamfer?: number;
   /**
-   * Wzmocnienie u podstawy słupków pod śruby: zaokrąglenie (lub faza 45°) między słupkiem a dnem,
+   * Wzmocnienie u podstawy słupków pod śruby: faza 45° (lub zaokrąglenie) między słupkiem a dnem,
    * mm (0 = bez). Słupek nie urywa się przy dokręcaniu. Przycinane przez bossFilletSize.
    */
   bossFillet?: number;
-  /** kształt wzmocnienia: zaokrąglenie (domyślnie) albo faza 45° */
+  /** kształt wzmocnienia: faza 45° (domyślnie, wybór Marcina) albo zaokrąglenie */
   bossFilletKind?: 'fillet' | 'chamfer';
 }
 
@@ -60,7 +60,7 @@ export const DEFAULT_CASE: CaseParams = {
   ledge: 4.5,
   chamfer: 1,
   bossFillet: 1.5,
-  bossFilletKind: 'fillet',
+  bossFilletKind: 'chamfer',
 };
 
 /** Faza górnej krawędzi: najmniej płaskiej góry ścianki, która zostaje przy płycie (mm). */

@@ -237,6 +237,7 @@ describe('wzmocnienie u podstawy słupków śrub', () => {
       const cp = { ...DEFAULT_CASE, bossFilletKind: kind };
       const fr = bossFilletSize(cp, -cell.height - lay.floorTop);
       expect(fr).toBe(1.5);
+      expect(DEFAULT_CASE.bossFilletKind).toBe('chamfer');
       const plain = buildCase(keys, opts, island, cell.height, { ...cp, bossFillet: 0 }, lay);
       const shell = buildCase(keys, opts, island, cell.height, cp, lay);
       expect(isValidShape(shell)).toBe(true);

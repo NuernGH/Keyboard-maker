@@ -349,7 +349,7 @@ export function buildCase(
   for (const [x, y] of layout.screws)
     if (standH > 0.01) {
       body = body.fuse(makeCylinder(sp.boss / 2, standH + 0.01, [x, y, floorTop - 0.01], [0, 0, 1]) as Shape3D) as Shape3D;
-      if (fr > 0) body = body.fuse(bossCollar(sp.boss / 2, fr, cp.bossFilletKind ?? 'fillet', x, y, floorTop)) as Shape3D;
+      if (fr > 0) body = body.fuse(bossCollar(sp.boss / 2, fr, cp.bossFilletKind ?? 'chamfer', x, y, floorTop)) as Shape3D;
     }
   for (const b of layout.pads ?? []) body = body.fuse(makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1])) as Shape3D;
   // podpory pod płytą: od dna do 0,1 mm pod spód płyty
