@@ -202,6 +202,52 @@ describe('bryły 60%', () => {
     expect(vol(plate, [nano.x0, nano.y0, -2.4], [nano.x1, nano.y1, -0.1])).toBeGreaterThan(0.9 * (nano.x1 - nano.x0) * (nano.y1 - nano.y0) * 2.3);
   }, 240000);
 
+  test('ESP32-S3 z klinem: płytka wzdłuż wyspy, USB z krótkiego końca, klin działa', async () => {
+    const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
+    const keys = splitLeft(tpl);
+    const island = islandFor(tpl, { ...ip, controller: 'esp32s3', tilt: 25 }, 'left', 'hotswap', cell.height, SCREW_MARGIN)!;
+    const w = island.wedge!;
+    expect(w.deg).toBe(25);
+    expect(island.depth).toBeCloseTo(cell.height, 6);
+    const usbs = island.ghosts.filter((g) => g.kind === 'usb').map((g) => g.box);
+    const nano = island.ghosts.find((g) => g.kind === 'nano')!.box;
+    expect(usbs.length).toBe(2);
+    // płytka wzdłuż wyspy, oba gniazda równo z prawą krawędzią płyty (wyspa wyrównana do prawej)
+    expect(nano.x1 - nano.x0).toBeGreaterThan(nano.y1 - nano.y0);
+    const edge = island.rect.x1 + SCREW_MARGIN;
+    for (const u of usbs) expect(u.x1).toBeCloseTo(edge, 6);
+    // śruby klina poza kieszenią kontrolera
+    for (const [x, y] of w.screws) expect(y - 2.5).toBeGreaterThan(nano.y1 + 0.3);
+    // nice!nano z USB z końca wyspy: też klin i płytka wzdłuż
+    const end = islandFor(tpl, { ...ip, usbOut: 'end', tilt: 25 }, 'left', 'hotswap', cell.height, SCREW_MARGIN)!;
+    expect(end.wedge?.deg).toBe(25);
+    const en = end.ghosts.find((g) => g.kind === 'nano')!.box;
+    expect(en.x1 - en.x0).toBeGreaterThan(en.y1 - en.y0);
+    const cl = caseLayout(keys, island, cell.height, DEFAULT_CASE, null, 'cherry');
+    const plate = buildPlate(keys, cell, opts, island, screwPilots(cl.screws, cell.height, cl.pilotDepth));
+    const shell = buildCase(keys, opts, island, cell.height, DEFAULT_CASE, cl);
+    const wedge = buildWedge(island);
+    for (const s of [plate, shell, wedge]) expect(isValidShape(s)).toBe(true);
+    expect(wedge.solids.length).toBe(1);
+    expect(plate.boundingBox.bounds[1][2]).toBeLessThan(0.01);
+    const vol = (a: Shape3D, b: [number, number, number], c: [number, number, number]) =>
+      measureVolume(a.intersect(makeBox(b, c)));
+    expect(measureVolume(wedge.intersect(plate))).toBeLessThan(0.01);
+    for (const g of [nano, ...usbs]) {
+      expect(vol(plate, [g.x0, g.y0, g.z0], [g.x1, g.y1, g.z1])).toBeLessThan(0.01);
+      expect(vol(shell, [g.x0, g.y0, g.z0], [g.x1, g.y1, g.z1])).toBeLessThan(0.01);
+    }
+    // wtyki (12,4 × 6,5) od krawędzi płyty na zewnątrz przez ściankę obudowy
+    for (const u of usbs) {
+      const cy = (u.y0 + u.y1) / 2;
+      const cz = (u.z0 + u.z1) / 2;
+      const p0: [number, number, number] = [edge + 0.05, cy - 6.2, cz - 3.25];
+      const p1: [number, number, number] = [edge + 15, cy + 6.2, cz + 3.25];
+      expect(vol(plate, p0, p1)).toBeLessThan(0.01);
+      expect(vol(shell, p0, p1)).toBeLessThan(0.01);
+    }
+  }, 300000);
+
   test('kanały na przewody w komórce hot-swap: otwarte na boki X i od spodu, wyspa bez wnęki', async () => {
     const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
     const h = cell.size / 2;

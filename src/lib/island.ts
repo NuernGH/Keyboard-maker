@@ -236,6 +236,14 @@ const ctrlRoof = (moduleFlatAbove: boolean, c?: Controller) => {
 /** Spód płytki kontrolera (z) przy danym dachu; luz 0,6 mm nad elementami. */
 const ctrlBottom = (c: Controller, roof: number) => -roof - 0.6 - c.height;
 
+/** Kontroler w poprzek wyspy z modułem, USB w długiej krawędzi. */
+const fitsAcross = (c: Controller) => c.h + c.usbOverhang + CTRL_CLEARANCE + 1 <= ISLAND_W;
+/** Wolny pas wzdłuż tylnej krawędzi wyspy na śruby klina, gdy kontroler leży wzdłuż. */
+const WEDGE_SCREW_BAND = 8;
+/** Kontroler wzdłuż płaskiej wyspy pod klinem, USB z krótkiego końca. */
+const fitsAlong = (c: Controller) =>
+  c.h + c.usbOverhang + 2 * CTRL_CLEARANCE + 2 <= ISLAND_H && c.w + 2 * CTRL_CLEARANCE + 1 + WEDGE_SCREW_BAND <= ISLAND_W;
+
 const mirrorBox = (b: Box): Box => ({ ...b, x0: -b.x1, x1: -b.x0 });
 
 /**
@@ -260,9 +268,12 @@ export function islandFor(
   // głębokość: tyle co płyta, chyba że kontroler pod płaskim modułem potrzebuje więcej
   const D = Math.max(ip.depth, cellHeight, -ctrlBottom(ctrl, ctrlRoof(flatModule, ctrl)));
   const pos = ip.position ?? 'inner';
-  // długi kontroler (np. ESP32-S3) nie mieści się w poprzek poziomej wyspy z modułem: USB wtedy z końca
-  const edgeFits = !mod || ctrl.h + ctrl.usbOverhang + CTRL_CLEARANCE + 1 <= ISLAND_W;
-  if ((pos === 'top' || pos === 'bottom') && (ip.usbOut ?? 'edge') === 'edge' && edgeFits) {
+  // długi kontroler (np. ESP32-S3) nie mieści się w poprzek poziomej wyspy z modułem: USB wtedy z końca.
+  // Przy klinie moduł jest na osobnej części, więc kontroler może leżeć wzdłuż płaskiej wyspy.
+  const wedgeAlong = mod && (ip.tilt ?? 0) > 0 && fitsAlong(ctrl);
+  const edgeFits = !mod || fitsAcross(ctrl) || wedgeAlong;
+  // z klinem także przy wyjściu USB z końca: kontroler wzdłuż wyspy (wyspa zostaje płaska)
+  if ((pos === 'top' || pos === 'bottom') && (((ip.usbOut ?? 'edge') === 'edge' && edgeFits) || wedgeAlong)) {
     const g = edgeIsland(p, ip, ctrl, mod, D, variant, cellHeight, pos, margin);
     if (side === 'left') return g;
     return {
@@ -463,20 +474,47 @@ function edgeIsland(
     ccx = Math.max(slotX0 - 1 - cw / 2, leftLimit + cw / 2);
   }
   const tilt = mod ? Math.max(0, Math.min(60, ip.tilt ?? 0)) : 0;
-  // gniazdo USB równo z krawędzią płyty (wyspa + margines), kontroler wysoko pod wierzchem
-  const edgeY = T + margin;
-  const nTop = edgeY - ctrl.usbOverhang;
-  const nBot = nTop - ctrl.h;
+  // długi kontroler pod klinem leży wzdłuż wyspy, przy krawędzi od klawiszy, USB z krótkiego końca
+  // (od strony bliższej krawędzi klawiatury); przy tylnej krawędzi zostaje pas na śruby klina
+  const along = mod && tilt > 0 && (!fitsAcross(ctrl) || ip.usbOut === 'end');
   const zN = Math.max(-D, ctrlBottom(ctrl, ctrlRoof(mod && !tilt, ctrl)));
   const pocketTop = zN + ctrl.height + 0.6;
-  const cuts: Box[] = [
-    box(ccx - cw / 2, nBot - CTRL_CLEARANCE, -D - 1, ccx + cw / 2, nTop + CTRL_CLEARANCE, pocketTop),
-    ...usbSlots(ctrl, ccx, nTop, edgeY, D, zN),
-  ];
-  const ghosts: GhostPart[] = [
-    { kind: 'nano', box: box(ccx - ctrl.w / 2, nBot, zN, ccx + ctrl.w / 2, nTop, zN + pcbOf(ctrl)), model: ctrl.model },
-    ...usbGhosts(ctrl, ccx, nTop, edgeY, zN),
-  ];
+  const cuts: Box[] = [];
+  const ghosts: GhostPart[] = [];
+  if (!along) {
+    // gniazdo USB równo z krawędzią płyty (wyspa + margines), kontroler wysoko pod wierzchem
+    const edgeY = T + margin;
+    const nTop = edgeY - ctrl.usbOverhang;
+    const nBot = nTop - ctrl.h;
+    cuts.push(
+      box(ccx - cw / 2, nBot - CTRL_CLEARANCE, -D - 1, ccx + cw / 2, nTop + CTRL_CLEARANCE, pocketTop),
+      ...usbSlots(ctrl, ccx, nTop, edgeY, D, zN),
+    );
+    ghosts.push(
+      { kind: 'nano', box: box(ccx - ctrl.w / 2, nBot, zN, ccx + ctrl.w / 2, nTop, zN + pcbOf(ctrl)), model: ctrl.model },
+      ...usbGhosts(ctrl, ccx, nTop, edgeY, zN),
+    );
+  } else {
+    const sx = ip.align === 'start' ? -1 : 1;
+    const edgeX = L / 2 + margin;
+    const nEnd = edgeX - ctrl.usbOverhang; // koniec płytki od strony USB (|x|)
+    const nStart = nEnd - ctrl.h;
+    const cy = 1 + cw / 2;
+    const X = (a: number, b: number): [number, number] => (sx > 0 ? [a, b] : [-b, -a]);
+    const [px0, px1] = X(nStart - CTRL_CLEARANCE, nEnd + CTRL_CLEARANCE);
+    cuts.push(box(px0, cy - cw / 2, -D - 1, px1, cy + cw / 2, pocketTop));
+    const [bx0, bx1] = X(nStart, nEnd);
+    ghosts.push({ kind: 'nano', box: box(bx0, cy - ctrl.w / 2, zN, bx1, cy + ctrl.w / 2, zN + pcbOf(ctrl)), model: ctrl.model });
+    for (const dy of ctrl.ports ?? [0]) {
+      const [sx0, sx1] = X(nEnd - 2, edgeX + 1);
+      cuts.push(box(sx0, cy + dy - ctrl.usbW / 2, -D - 1, sx1, cy + dy + ctrl.usbW / 2, zN + ctrl.usbH));
+      const [gx0, gx1] = X(nEnd - 6.5, edgeX);
+      ghosts.push({
+        kind: 'usb',
+        box: box(gx0, cy + dy - 4.5, zN + usbBottomOf(ctrl), gx1, cy + dy + 4.5, zN + Math.min(ctrl.height, ctrl.usbH - 0.4)),
+      });
+    }
+  }
   // elementy modułu w układzie pochylonym (przy tilt = 0 bez zmian)
   // przy klinie moduł leży na nim: wszystko, co dotyczy modułu, wycinamy z klina, nie z wyspy
   const zb0 = tilt ? WEDGE.base : 0;
@@ -514,8 +552,9 @@ function edgeIsland(
     }
     if (tilt) {
       // dwie śruby: w połowie głębokości klina (tam jest najgrubszy pod gniazdem modułu),
-      // jedna za kieszenią kontrolera, druga za przepustami pinów
-      const sy = T / 2;
+      // jedna za kieszenią kontrolera, druga za przepustami pinów; przy kontrolerze wzdłuż wyspy
+      // w pasie przy tylnej krawędzi, za kieszenią kontrolera
+      const sy = along ? T - WEDGE_SCREW_BAND / 2 : T / 2;
       for (const sx of [mL + 4.5, slotX1 + 4.5]) {
         wScrews.push([sx, sy]);
         const c = WEDGE.clearance / 2;
