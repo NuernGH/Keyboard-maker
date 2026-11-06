@@ -19,7 +19,7 @@
   import DactylApp from './ui/DactylApp.svelte';
   import { CONTROLLERS, DEFAULT_ISLAND, islandFor, controllerOf, type IslandParams, type CtrlFit } from './lib/island';
   import CustomController from './ui/CustomController.svelte';
-  import { DEFAULT_CASE, SCREW_MARGIN, caseLayout, type CaseParams } from './lib/case';
+  import { DEFAULT_CASE, SCREW_MARGIN, STANDARD_LENGTHS, caseLayout, type CaseParams } from './lib/case';
   import { DEFAULT_PRINT, planSplit, pieceOf, type PrintParams, type PrintSplit } from './lib/split';
 
   type Side = 'left' | 'right';
@@ -161,6 +161,9 @@
     return inp && m && m.key === inputKey(inp) ? m.mesh : null;
   };
   let screwInfo = $derived(caseOn ? caseLayout(leftKeys, islandGeom('left'), cellHeight, caseP, split, plate.stabs ?? 'cherry') : null);
+  // wybrana śruba nie pasuje: eksport zablokowany, dopóki nie zmienisz dna albo długości
+  let exportBlocked = $derived(!!screwInfo?.screwWarn);
+  const mmTxt = (v: number) => (lang === 'pl' ? String(v).replace('.', ',') : String(v));
   const inputKey = (i: BuildInput) => JSON.stringify({ ...i, cellStep: undefined });
 
   let halves = $derived.by<PreviewHalf[]>(() => {
@@ -253,6 +256,7 @@
   }
 
   async function exportFile(s: Side, format: 'stl' | 'step', part: Part = 'plate', piece?: 0 | 1) {
+    if (exportBlocked) return;
     const inp = inputFor(s, part, piece);
     if (!inp) return;
     status = t(lang, 'computing');
@@ -616,6 +620,12 @@
               <option value="M2.5">M2,5</option>
             </select>
           </label>
+          <label data-tip={t(lang, 'tipScrewLength')}>{t(lang, 'screwLength')}
+            <select bind:value={caseP.screwLength}>
+              <option value={0}>{t(lang, 'screwLengthAuto')}</option>
+              {#each STANDARD_LENGTHS as l (l)}<option value={l}>{l} mm</option>{/each}
+            </select>
+          </label>
           <label data-tip={t(lang, 'tipCaseGap')}>{t(lang, 'caseGap')} <input type="number" min="0" step="0.1" bind:value={caseP.gap} /></label>
           <label data-tip={t(lang, 'tipLedge')}>{t(lang, 'ledge')} <input type="number" min="0" max="5.5" step="0.5" bind:value={caseP.ledge} /></label>
           <label data-tip={t(lang, 'tipChamfer')}>{t(lang, 'chamfer')} <input type="number" min="0" max="2" step="0.5" bind:value={caseP.chamfer} /></label>
@@ -629,7 +639,15 @@
           <label class="check" data-tip={t(lang, 'tipSupports')}><input type="checkbox" bind:checked={caseP.supports} /> {t(lang, 'supports')}</label>
           <label data-tip={t(lang, 'tipExplode')}>{t(lang, 'explode')} <input type="number" min="0" step="5" bind:value={caseP.explode} /></label>
         </div>
-        {#if screwInfo}<p class="muted">{t(lang, 'screwInfo').replace('{n}', String(screwInfo.screws.length)).replace('{s}', lang === 'pl' ? screwInfo.screw.size.replace('.', ',') : screwInfo.screw.size).replace('{l}', String(screwInfo.screwLength))}{#if screwInfo.supports.length} {t(lang, 'supportInfo').replace('{n}', String(screwInfo.supports.length))}{/if}</p>{/if}
+        {#if screwInfo}<p class="muted">{t(lang, 'screwInfo').replace('{n}', String(screwInfo.screws.length)).replace('{s}', lang === 'pl' ? screwInfo.screw.size.replace('.', ',') : screwInfo.screw.size).replace('{l}', String(screwInfo.screwLength))}{#if screwInfo.supports.length}{' '}{t(lang, 'supportInfo').replace('{n}', String(screwInfo.supports.length))}{/if}{' '}{t(lang, 'screwFits').replace('{l}', screwInfo.screwFits.length ? screwInfo.screwFits.join(', ') + ' mm' : '—')}</p>
+          {#if screwInfo.screwWarn?.kind === 'long'}
+            {@const w = screwInfo.screwWarn}
+            <p class="warn">{t(lang, 'screwTooLong').replace('{l}', String(screwInfo.screwLength)).replace('{f}', mmTxt(w.floor))}
+              <button onclick={() => (caseP.floor = w.floor)}>{t(lang, 'screwSetFloor').replace('{f}', mmTxt(w.floor))}</button></p>
+          {:else if screwInfo.screwWarn?.kind === 'short'}
+            <p class="warn">{t(lang, 'screwTooShort').replace('{l}', String(screwInfo.screwLength))}</p>
+          {/if}
+        {/if}
       {/if}
     </section>
 
@@ -663,13 +681,14 @@
 
     <section>
       <h2>{t(lang, 'export')}</h2>
+      {#if exportBlocked}<p class="warn">{t(lang, 'exportBlockedScrew')}</p>{/if}
       {#each sides.length === 1 && single ? (['left'] as const) : (['left', 'right'] as const) as s (s)}
         {#each pieces as pc (pc ?? -1)}
         {@const pcName = pc === undefined ? '' : ` ${pc + 1}/2`}
         <div class="row">
           <span class="side">{single ? t(lang, 'plate') : t(lang, s)}{pcName}</span>
-          <button onclick={() => exportFile(s, 'stl', 'plate', pc)} disabled={!cellStep} data-tip={t(lang, 'tipStl')}>STL</button>
-          <button onclick={() => exportFile(s, 'step', 'plate', pc)} disabled={!cellStep} data-tip={t(lang, 'tipStep')}>STEP</button>
+          <button onclick={() => exportFile(s, 'stl', 'plate', pc)} disabled={!cellStep || exportBlocked} data-tip={t(lang, 'tipStl')}>STL</button>
+          <button onclick={() => exportFile(s, 'step', 'plate', pc)} disabled={!cellStep || exportBlocked} data-tip={t(lang, 'tipStep')}>STEP</button>
         </div>
         {/each}
         {#if caseOn}
@@ -677,16 +696,16 @@
           {@const pcName = pc === undefined ? '' : ` ${pc + 1}/2`}
           <div class="row">
             <span class="side">{single ? t(lang, 'caseBottom') : `${t(lang, 'caseBottom')}: ${t(lang, s).toLowerCase()}`}{pcName}</span>
-            <button onclick={() => exportFile(s, 'stl', 'case', pc)} disabled={!cellStep} data-tip={t(lang, 'tipStl')}>STL</button>
-            <button onclick={() => exportFile(s, 'step', 'case', pc)} disabled={!cellStep} data-tip={t(lang, 'tipStep')}>STEP</button>
+            <button onclick={() => exportFile(s, 'stl', 'case', pc)} disabled={!cellStep || exportBlocked} data-tip={t(lang, 'tipStl')}>STL</button>
+            <button onclick={() => exportFile(s, 'step', 'case', pc)} disabled={!cellStep || exportBlocked} data-tip={t(lang, 'tipStep')}>STEP</button>
           </div>
           {/each}
         {/if}
         {#if islandGeom(s)?.wedge}
           <div class="row">
             <span class="side">{single ? t(lang, 'wedgePart') : `${t(lang, 'wedgePart')}: ${t(lang, s).toLowerCase()}`}</span>
-            <button onclick={() => exportFile(s, 'stl', 'wedge')} disabled={!cellStep} data-tip={t(lang, 'tipStl')}>STL</button>
-            <button onclick={() => exportFile(s, 'step', 'wedge')} disabled={!cellStep} data-tip={t(lang, 'tipStep')}>STEP</button>
+            <button onclick={() => exportFile(s, 'stl', 'wedge')} disabled={!cellStep || exportBlocked} data-tip={t(lang, 'tipStl')}>STL</button>
+            <button onclick={() => exportFile(s, 'step', 'wedge')} disabled={!cellStep || exportBlocked} data-tip={t(lang, 'tipStep')}>STEP</button>
           </div>
         {/if}
       {/each}

@@ -369,7 +369,7 @@ export function buildCase(
   if (ledge) body = body.fuse(ledge) as Shape3D;
   const tools: Shape3D[] = [];
   // łeb M3 (3,2 mm) bywa głębszy niż dno, wtedy wybranie wchodzi w słupek; bez słupka zostaw 0,6 mm dna
-  const headDepth = Math.min(sp.headDepth, cp.floor - 0.6 + Math.max(standH, 0));
+  const headDepth = layout.headDepth ?? Math.min(sp.headDepth, cp.floor - 0.6 + Math.max(standH, 0));
   for (const [x, y] of layout.screws) {
     tools.push(makeCylinder(sp.clearance / 2, -bottom + 1, [x, y, bottom - 0.5], [0, 0, 1]) as Shape3D);
     tools.push(makeCylinder(sp.head / 2, headDepth + 0.5, [x, y, bottom - 0.5], [0, 0, 1]) as Shape3D);
