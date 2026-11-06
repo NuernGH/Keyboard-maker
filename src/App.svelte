@@ -19,6 +19,8 @@
   import DactylApp from './ui/DactylApp.svelte';
   import { CONTROLLERS, DEFAULT_ISLAND, islandFor, controllerOf, type IslandParams, type CtrlFit } from './lib/island';
   import CustomController from './ui/CustomController.svelte';
+  import WiringPanel from './ui/WiringPanel.svelte';
+  import { splitWiringInput } from './lib/wiring-doc';
   import { DEFAULT_CASE, SCREW_MARGIN, STANDARD_LENGTHS, caseLayout, type CaseParams } from './lib/case';
   import { DEFAULT_PRINT, planSplit, pieceOf, type PrintParams, type PrintSplit } from './lib/split';
 
@@ -296,7 +298,7 @@
       }
       return;
     }
-    const blob = new Blob([data], { type: name.endsWith('.stl') ? 'model/stl' : 'model/step' });
+    const blob = new Blob([data], { type: name.endsWith('.html') ? 'text/html' : name.endsWith('.stl') ? 'model/stl' : 'model/step' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = name;
@@ -340,6 +342,18 @@
 
   const anyBusy = $derived(sides.some((s) => pieces.some((pc) => busy[job(s, 'plate', pc)] || busy[job(s, 'case', pc)]) || busy[job(s, 'wedge')]));
   const mm = (v: number) => Math.round(v);
+  /** wejście instrukcji okablowania z bieżących ustawień */
+  const wiringInput = () =>
+    splitWiringInput({
+      params: $state.snapshot(params) as SplitParams,
+      island: $state.snapshot(island) as IslandParams,
+      variant,
+      cellHeight,
+      margin: plateMargin,
+      stabs: plate.stabs ?? 'cherry',
+      lang,
+      layout: TEMPLATES.find((x) => x.id === templateId)?.name[lang] ?? templateId,
+    });
   const allExact = $derived(halves.every((h) => h.mesh && (!h.caseOn || h.caseMesh)));
 </script>
 
@@ -710,6 +724,8 @@
         {/if}
       {/each}
     </section>
+
+    <WiringPanel {lang} input={wiringInput} fileBase={templateId} save={saveFile} />
 
     <footer class="muted">
       <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noreferrer">{t(lang, 'license')}</a>
