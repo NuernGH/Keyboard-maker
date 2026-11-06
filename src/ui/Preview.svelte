@@ -149,7 +149,7 @@
           const usb = half.island.ghosts.find((g) => g.kind === 'usb');
           const cm = new THREE.Mesh(geo, ghostMats.nano);
           cm.matrixAutoUpdate = false;
-          cm.matrix.copy(placeOnBoard(geo, board.box, usb?.box));
+          cm.matrix.copy(placeOnBoard(geo, board.box, usb?.box, board.flip));
           hg.add(cm);
         }
         for (const gp of half.island.ghosts) {

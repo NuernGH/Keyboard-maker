@@ -40,6 +40,13 @@ export interface Controller {
   usbZ0?: number;
   /** model do podglądu w public/ (X w poprzek, Y w górę, Z wzdłuż płytki, USB po stronie +Z) */
   model?: string;
+  /**
+   * Rzędy pinów (z modeli): odległości środków rzędów od osi płytki i zakres od pierwszego do ostatniego
+   * pinu, mierzony od krawędzi płytki z USB. Domyślnie jeden rząd 1,27 mm od każdego dłuższego boku na całej długości.
+   */
+  pins?: { x: number[]; y0: number; y1: number };
+  /** otwory montażowe: x od osi płytki (dla obu stron ±x), y od krawędzi płytki z USB, średnica */
+  holes?: { x: number; y: number; d: number }[];
 }
 
 export const pcbOf = (c: Controller) => c.pcb ?? 1.6;
@@ -49,6 +56,10 @@ export const usbBottomOf = (c: Controller) => c.usbZ0 ?? pcbOf(c);
 export const usbCenterOf = (c: Controller) => (usbBottomOf(c) + c.height) / 2;
 /** Wtyk kabla USB-C razem z obudową (mm), z zapasem na grubsze kable. */
 export const USB_PLUG = { w: 12.5, h: 7 };
+/** Otwór na wtyk w ściance sięga tyle nad środek gniazda (jak przy płytce leżącej elementami do góry). */
+const usbAbove = (c: Controller) => Math.max(c.usbH - usbCenterOf(c), USB_PLUG.h / 2 + 0.2);
+/** Rzędy pinów kontrolera (z domyślnymi dla płytek bez pomiaru). */
+export const pinsOf = (c: Controller) => c.pins ?? { x: [c.w / 2 - 1.27], y0: 1.27, y1: c.h - 1.27 };
 
 /** Uproszczone wymiary kontrolerów (zmierzone z modeli, zaokrąglone w górę). */
 export const CONTROLLERS: Record<ControllerId, Controller> = {
@@ -56,7 +67,11 @@ export const CONTROLLERS: Record<ControllerId, Controller> = {
   // płytka 1,2. Zgodne z modelem Joe Scotto: płytka 33,0, USB-C wystaje 0,8. Gniazdo osadzone we wcięciu
   // płytki (mid-mount), wystaje ok. 0,2 pod spód płytki, więc góra gniazda 3,1 nad spodem płytki.
   // Podgląd: model Woovie (CC0) przeskalowany do tych wymiarów.
-  nicenano: { name: 'nice!nano v2', w: 17.8, h: 33.0, height: 3.1, usbOverhang: 0.8, usbW: 10, usbH: 5.4, pcb: 1.2, usbZ0: -0.2, model: 'controllers/nice-nano-v2.stl' },
+  // Piny (model Joe Scotto): rzędy ±7,62, od 3,8 do 31,7 mm od krawędzi z USB.
+  nicenano: {
+    name: 'nice!nano v2', w: 17.8, h: 33.0, height: 3.1, usbOverhang: 0.8, usbW: 10, usbH: 5.4, pcb: 1.2, usbZ0: -0.2,
+    model: 'controllers/nice-nano-v2.stl', pins: { x: [7.62], y0: 3.79, y1: 31.73 },
+  },
   // Pro Micro USB-C (model GrabCAD od Marcina, zgodny z modelem qwelyt/waddle): płytka 18,3 × 34,7 × 1,5,
   // USB-C na płytce, wystaje 1,5, razem 4,66.
   'promicro-c': { name: 'Pro Micro USB-C', w: 18.3, h: 34.7, height: 4.7, usbOverhang: 1.5, usbW: 10, usbH: 5.4, pcb: 1.5 },
@@ -65,13 +80,22 @@ export const CONTROLLERS: Record<ControllerId, Controller> = {
   kb2040: { name: 'Adafruit KB2040', w: 17.8, h: 33.0, height: 4.8, usbOverhang: 1.2, usbW: 10, usbH: 5.4 },
   // Wemos S2 mini (model GrabCAD od Marcina, obrys z rysunku wemos.cc): płytka 25,4 × 34,3 × 0,9, USB-C równo
   // z krawędzią, łapki 0,35 pod płytką (liczymy od spodu płytki), góra gniazda 4,12 nad spodem płytki.
-  s2mini: { name: 'Wemos S2 mini', w: 25.4, h: 34.3, height: 4.2, usbOverhang: 0, usbW: 10, usbH: 5.0, pcb: 0.9, usbZ0: 0 },
+  // Piny: dwa podwójne rzędy (±8,91 i ±11,45), od 8,7 do 26,5 mm od krawędzi z USB; dwa otwory Ø2,0
+  // przy drugim końcu (±10,2, 30,45 od krawędzi z USB) na wkręty M2.
+  s2mini: {
+    name: 'Wemos S2 mini', w: 25.4, h: 34.3, height: 4.2, usbOverhang: 0, usbW: 10, usbH: 5.0, pcb: 0.9, usbZ0: 0,
+    pins: { x: [8.91, 11.45], y0: 8.67, y1: 26.45 }, holes: [{ x: 10.2, y: 30.45, d: 2.0 }],
+  },
   // ESP32-S3 DevKit, klon z dwoma USB-C (wersja Marcina, model GrabCAD „ESP32-S3-WROOM-1 Devkit”, N16R8):
   // płytka 28,3 × 57,0 × 1,5, rzędy pinów co 25,4; moduł z anteną wystaje 6,4 za drugi koniec płytki, więc
   // długość h liczy płytkę z modułem (63,4). Dwa USB-C (GCT USB4105) na płytce, środki −6,2 i +6,1,
   // wystają 0,73, góra 4,81 nad spodem płytki (wierzch modułu 5,45 mieści się w kieszeni: height + 0,6).
   // Oryginał Espressif v1.1 (25,4 × 62,74, dwa micro-USB) ma inne wymiary.
-  esp32s3: { name: 'ESP32-S3 DevKit (2 × USB-C)', w: 28.3, h: 63.4, height: 4.9, usbOverhang: 0.8, usbW: 10, usbH: 5.4, pcb: 1.5, ports: [-6.2, 6.1] },
+  // Piny: rzędy ±12,7, od 1,85 do 55,2 mm od krawędzi z USB.
+  esp32s3: {
+    name: 'ESP32-S3 DevKit (2 × USB-C)', w: 28.3, h: 63.4, height: 4.9, usbOverhang: 0.8, usbW: 10, usbH: 5.4, pcb: 1.5, ports: [-6.2, 6.1],
+    pins: { x: [12.7], y0: 1.85, y1: 55.19 },
+  },
 };
 
 export interface IslandParams {
@@ -98,6 +122,14 @@ export interface IslandParams {
    * a ekran i pokrętło patrzą na piszącego.
    */
   tilt?: number;
+  /**
+   * Kontroler odwrócony: płaska strona płytki (bez elementów) przylega do płyty od spodu i jest
+   * przyklejona (albo przykręcona, gdy płytka ma otwory, np. S2 mini). Elementy i gniazdo USB w dół.
+   * Domyślnie włączone; false = elementami do góry, dociśnięty podkładką z dna obudowy.
+   */
+  flip?: boolean;
+  /** przylutowane goldpiny: przy odwróconym kontrolerze rowki w płycie na końcówki pinów */
+  pins?: boolean;
 }
 
 export const DEFAULT_ISLAND: IslandParams = {
@@ -110,6 +142,8 @@ export const DEFAULT_ISLAND: IslandParams = {
   position: 'inner',
   usbOut: 'edge',
   align: 'center',
+  flip: true,
+  pins: false,
 };
 
 export const ISLAND_W = 38;
@@ -158,6 +192,8 @@ export interface GhostPart {
   box: Box;
   /** model kontrolera do podglądu (zamiast pudełek płytki i gniazda) */
   model?: string;
+  /** płytka kontrolera odwrócona: elementy w dół, płaska strona na górze pudełka */
+  flip?: boolean;
 }
 
 export interface IslandGeom {
@@ -213,12 +249,12 @@ const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: num
 });
 
 /** Otwory w ściance na każde gniazdo USB kontrolera (płytka na środku `cx`, ścianka na `edge`). */
-const usbSlots = (c: Controller, cx: number, nTop: number, edge: number, D: number, zN: number): Box[] =>
-  (c.ports ?? [0]).map((dx) => box(cx + dx - c.usbW / 2, nTop - 2, -D - 1, cx + dx + c.usbW / 2, edge + 1, zN + c.usbH));
-const usbGhosts = (c: Controller, cx: number, nTop: number, edge: number, zN: number): GhostPart[] =>
+const usbSlots = (c: Controller, cx: number, nTop: number, edge: number, D: number, z: CtrlZ): Box[] =>
+  (c.ports ?? [0]).map((dx) => box(cx + dx - c.usbW / 2, nTop - 2, -D - 1, cx + dx + c.usbW / 2, edge + 1, z.slotTop));
+const usbGhosts = (c: Controller, cx: number, nTop: number, edge: number, z: CtrlZ): GhostPart[] =>
   (c.ports ?? [0]).map((dx) => ({
     kind: 'usb' as const,
-    box: box(cx + dx - 4.5, nTop - 6.5, zN + usbBottomOf(c), cx + dx + 4.5, edge, zN + Math.min(c.height, c.usbH - 0.4)),
+    box: box(cx + dx - 4.5, nTop - 6.5, z.usb[0], cx + dx + 4.5, edge, z.usb[1]),
   }));
 
 /**
@@ -227,16 +263,112 @@ const usbGhosts = (c: Controller, cx: number, nTop: number, edge: number, zN: nu
  * Gdy nad nim leży płasko moduł OLED, schodzi pod gniazdo modułu.
  */
 export const CTRL_ROOF = 2.5;
-const ctrlRoof = (moduleFlatAbove: boolean, c?: Controller) => {
-  if (!moduleFlatAbove) return CTRL_ROOF;
-  const roof = MODULE.pcb + MODULE.underClearance + 1.4;
-  // szeroki kontroler (np. ESP32-S3 28,3 mm) sięga pod otwory na śruby modułu (rozstaw 29 mm):
-  // wtedy kontroler schodzi niżej, pod końce otworów pilotowych
-  const wide = c && c.w / 2 + CTRL_CLEARANCE > MODULE_HOLES.dx / 2 - MODULE_HOLES.pilot / 2 - 0.5;
-  return wide ? Math.max(roof, MODULE.pcb + MODULE_HOLES.depth + 0.5) : roof;
+/** Rowki na końcówki goldpinów (głębokość w płycie, pół szerokości wokół środka rzędu). */
+export const PIN_GROOVE = { depth: 2.5, half: 1.3 };
+/** Wkręty M2 przez otwory płytki kontrolera: otwór pilotowy w płycie. */
+export const CTRL_SCREW = { pilot: 1.7, depth: 3.5 };
+/** Najcieńszy materiał nad wycięciem w dachu kieszeni (mm). */
+const ROOF_SKIN = 1.0;
+
+/** Szeroki kontroler (np. ESP32-S3 28,3 mm) sięga pod otwory na śruby modułu (rozstaw 29 mm). */
+const wideCtrl = (c: Controller) => c.w / 2 + CTRL_CLEARANCE > MODULE_HOLES.dx / 2 - MODULE_HOLES.pilot / 2 - 0.5;
+
+/** Jak wysoko nad płaską stroną odwróconej płytki sięgają wycięcia w dachu (rowki, wkręty, gniazdo USB). */
+const flipUp = (c: Controller, pins: boolean) =>
+  Math.max(pins ? PIN_GROOVE.depth : 0, c.holes?.length ? CTRL_SCREW.depth : 0, usbBottomOf(c) < 0 ? -usbBottomOf(c) + 0.2 : 0);
+
+const ctrlRoof = (moduleFlatAbove: boolean, c: Controller, flip = false, pins = false) => {
+  if (!flip) {
+    if (!moduleFlatAbove) return CTRL_ROOF;
+    const roof = MODULE.pcb + MODULE.underClearance + 1.4;
+    // szeroki kontroler schodzi niżej, pod końce otworów pilotowych modułu
+    return wideCtrl(c) ? Math.max(roof, MODULE.pcb + MODULE_HOLES.depth + 0.5) : roof;
+  }
+  // odwrócony: płytka przyklejona pod dachem; dach musi zmieścić rowki, wkręty i otwór na wtyk
+  // (wtyk jest wyżej niż przy płytce elementami do góry, bo gniazdo jest tuż pod płaską stroną)
+  const up = flipUp(c, pins);
+  let roof = Math.max(CTRL_ROOF, up + ROOF_SKIN, usbAbove(c) - usbCenterOf(c) + 0.8);
+  if (moduleFlatAbove) {
+    roof = Math.max(roof, MODULE.pcb + MODULE.underClearance + 0.8 + up);
+    if (wideCtrl(c)) roof = Math.max(roof, MODULE.pcb + MODULE_HOLES.depth + 0.5 + up);
+  }
+  return roof;
 };
-/** Spód płytki kontrolera (z) przy danym dachu; luz 0,6 mm nad elementami. */
-const ctrlBottom = (c: Controller, roof: number) => -roof - 0.6 - c.height;
+
+/** Położenie kontrolera w pionie (z = 0 to wierzch płyty). */
+interface CtrlZ {
+  flip: boolean;
+  /** płytka: spód i wierzch */
+  board: [number, number];
+  /** gniazdo USB (podgląd) */
+  usb: [number, number];
+  /** górna krawędź otworu na wtyk w ściance */
+  slotTop: number;
+  /** strop kieszeni od spodu */
+  pocketTop: number;
+  /** najniższy punkt kontrolera z luzem (do głębokości wyspy) */
+  lowest: number;
+  /** płaska strona odwróconej płytki */
+  face: number;
+}
+
+function ctrlZ(c: Controller, roof: number, flip: boolean): CtrlZ {
+  const usbTop = Math.min(c.height, c.usbH - 0.4);
+  if (!flip) {
+    // płytka elementami do góry, luz 0,6 mm nad elementami
+    const zN = -roof - 0.6 - c.height;
+    return {
+      flip,
+      board: [zN, zN + pcbOf(c)],
+      usb: [zN + usbBottomOf(c), zN + usbTop],
+      slotTop: zN + c.usbH,
+      pocketTop: zN + c.height + 0.6,
+      lowest: zN,
+      face: zN,
+    };
+  }
+  const zF = -roof;
+  return {
+    flip,
+    board: [zF - pcbOf(c), zF],
+    usb: [zF - usbTop, zF - usbBottomOf(c)],
+    slotTop: zF - usbCenterOf(c) + usbAbove(c),
+    pocketTop: zF,
+    lowest: zF - c.height - 0.6,
+    face: zF,
+  };
+}
+
+/**
+ * Wycięcia w dachu nad odwróconą płytką, w układzie płytki: u w poprzek od osi, v od krawędzi z USB
+ * w głąb płytki. `at` zamienia (u0, u1, v0, v1, z0, z1) na pudełko w układzie wyspy.
+ */
+function flipCuts(
+  c: Controller,
+  z: CtrlZ,
+  pins: boolean,
+  at: (u0: number, u1: number, v0: number, v1: number, z0: number, z1: number) => Box,
+): Box[] {
+  if (!z.flip) return [];
+  const out: Box[] = [];
+  const f = z.face;
+  // gniazdo USB wystające ponad płaską stronę (nice!nano 0,2 mm): wnęka z luzem 0,2
+  if (usbBottomOf(c) < 0)
+    for (const dx of c.ports ?? [0]) out.push(at(dx - 4.8, dx + 4.8, -c.usbOverhang - 0.5, 7.5, f - 0.01, f - usbBottomOf(c) + 0.2));
+  if (pins) {
+    const p = pinsOf(c);
+    const inner = Math.min(...p.x) - PIN_GROOVE.half;
+    const outer = c.w / 2 + CTRL_CLEARANCE;
+    for (const s of [-1, 1])
+      out.push(at(s * inner, s * outer, p.y0 - PIN_GROOVE.half, p.y1 + PIN_GROOVE.half, f - 0.01, f + PIN_GROOVE.depth));
+  }
+  for (const h of c.holes ?? [])
+    for (const s of [-1, 1]) {
+      const r = CTRL_SCREW.pilot / 2;
+      out.push({ ...at(s * h.x - r, s * h.x + r, h.y - r, h.y + r, f - 0.01, f + CTRL_SCREW.depth), round: true });
+    }
+  return out;
+}
 
 /** Kontroler w poprzek wyspy z modułem, USB w długiej krawędzi. */
 const fitsAcross = (c: Controller) => c.h + c.usbOverhang + CTRL_CLEARANCE + 1 <= ISLAND_W;
@@ -268,7 +400,9 @@ export function islandFor(
   // moduł płasko nad kontrolerem: przy klinie moduł jest na osobnej części, wyspa zostaje płaska
   const flatModule = mod && !((ip.position === 'top' || ip.position === 'bottom') && (ip.tilt ?? 0) > 0);
   // głębokość: tyle co płyta, chyba że kontroler pod płaskim modułem potrzebuje więcej
-  const D = Math.max(ip.depth, cellHeight, -ctrlBottom(ctrl, ctrlRoof(flatModule, ctrl)));
+  const flip = ip.flip ?? true;
+  const pins = flip && !!ip.pins;
+  const D = Math.max(ip.depth, cellHeight, -ctrlZ(ctrl, ctrlRoof(flatModule, ctrl, flip, pins), flip).lowest);
   const pos = ip.position ?? 'inner';
   // długi kontroler (np. ESP32-S3) nie mieści się w poprzek poziomej wyspy z modułem: USB wtedy z końca.
   // Przy klinie moduł jest na osobnej części, więc kontroler może leżeć wzdłuż płaskiej wyspy.
@@ -276,7 +410,7 @@ export function islandFor(
   const edgeFits = !mod || fitsAcross(ctrl) || wedgeAlong;
   // z klinem także przy wyjściu USB z końca: kontroler wzdłuż wyspy (wyspa zostaje płaska)
   if ((pos === 'top' || pos === 'bottom') && (((ip.usbOut ?? 'edge') === 'edge' && edgeFits) || wedgeAlong)) {
-    const g = edgeIsland(p, ip, ctrl, mod, D, variant, cellHeight, pos, margin);
+    const g = edgeIsland(p, ip, ctrl, mod, D, variant, cellHeight, pos, margin, flip, pins);
     if (side === 'left') return g;
     return {
       rect: { ...g.rect, x0: -g.rect.x1, x1: -g.rect.x0 },
@@ -317,17 +451,20 @@ export function islandFor(
   const edgeY = y1 + margin;
   const nTop = edgeY - ctrl.usbOverhang;
   const nBot = nTop - ctrl.h;
-  const zN = Math.max(-D, ctrlBottom(ctrl, ctrlRoof(mod, ctrl)));
-  const pocketTop = zN + ctrl.height + 0.6;
+  // moduł leży tu zawsze płasko nad kontrolerem (także przy pochyleniu, gdy nie ma klina)
+  const z = ctrlZ(ctrl, ctrlRoof(mod, ctrl, flip, pins), flip);
+  const Di = Math.max(D, -z.lowest);
   const ctrlCuts: Box[] = [
     // kieszeń kontrolera od spodu
-    box(cx - cw / 2, nBot - CTRL_CLEARANCE, -D - 1, cx + cw / 2, nTop + CTRL_CLEARANCE, pocketTop),
+    box(cx - cw / 2, nBot - CTRL_CLEARANCE, -Di - 1, cx + cw / 2, nTop + CTRL_CLEARANCE, z.pocketTop),
     // otwory na gniazda USB w górnej ściance wyspy
-    ...usbSlots(ctrl, cx, nTop, edgeY, D, zN),
+    ...usbSlots(ctrl, cx, nTop, edgeY, Di, z),
+    // odwrócona płytka: rowki na piny, otwory na wkręty, wnęka na gniazdo
+    ...flipCuts(ctrl, z, pins, (u0, u1, v0, v1, z0, z1) => box(cx + u0, nTop - v0, z0, cx + u1, nTop - v1, z1)),
   ];
   const ctrlGhosts: GhostPart[] = [
-    { kind: 'nano', box: box(cx - ctrl.w / 2, nBot, zN, cx + ctrl.w / 2, nTop, zN + pcbOf(ctrl)), model: ctrl.model },
-    ...usbGhosts(ctrl, cx, nTop, edgeY, zN),
+    { kind: 'nano', box: box(cx - ctrl.w / 2, nBot, z.board[0], cx + ctrl.w / 2, nTop, z.board[1]), model: ctrl.model, flip },
+    ...usbGhosts(ctrl, cx, nTop, edgeY, z),
   ];
 
   const cuts: Box[] = [];
@@ -356,7 +493,7 @@ export function islandFor(
     // przepusty na piny modułu: listwa 9 pinów przy dłuższym boku, 31–53 mm od góry modułu
     for (const s of [-1, 1]) {
       const px = cx + s * 15.5;
-      cuts.push(box(px - 1.6, mTop - 53.5, -D - 1, px + 1.6, mTop - 31, 1));
+      cuts.push(box(px - 1.6, mTop - 53.5, -Di - 1, px + 1.6, mTop - 31, 1));
     }
     ghosts.push(
       ...ctrlGhosts,
@@ -373,13 +510,13 @@ export function islandFor(
   // przy wyspie przewód schodzi w dół, w miejsce na kable pod płytą, więc wyspa nie potrzebuje wnęki.
   void variant;
 
-  let g: IslandGeom = { rect: { x0, y0, x1, y1 }, depth: D, cuts, ghosts };
+  let g: IslandGeom = { rect: { x0, y0, x1, y1 }, depth: Di, cuts, ghosts };
   if (local) g = place(g, pos, p, ip);
   if (side === 'left') return g;
   const { x0: gx0, x1: gx1 } = g.rect;
   return {
     rect: { ...g.rect, x0: -gx1, x1: -gx0 },
-    depth: D,
+    depth: Di,
     cuts: g.cuts.map(mirrorBox),
     ghosts: g.ghosts.map((gp) => ({ ...gp, box: mirrorBox(gp.box) })),
   };
@@ -459,6 +596,8 @@ function edgeIsland(
   cellHeight: number,
   pos: 'top' | 'bottom',
   margin = 0,
+  flip = false,
+  pins = false,
 ): IslandGeom {
   const cw = ctrl.w + 2 * CTRL_CLEARANCE;
   const L = mod ? ISLAND_H : cw + 2 * SMALL_WALL;
@@ -479,8 +618,7 @@ function edgeIsland(
   // długi kontroler pod klinem leży wzdłuż wyspy, przy krawędzi od klawiszy, USB z krótkiego końca
   // (od strony bliższej krawędzi klawiatury); przy tylnej krawędzi zostaje pas na śruby klina
   const along = mod && tilt > 0 && (!fitsAcross(ctrl) || ip.usbOut === 'end');
-  const zN = Math.max(-D, ctrlBottom(ctrl, ctrlRoof(mod && !tilt, ctrl)));
-  const pocketTop = zN + ctrl.height + 0.6;
+  const z = ctrlZ(ctrl, ctrlRoof(mod && !tilt, ctrl, flip, pins), flip);
   const cuts: Box[] = [];
   const ghosts: GhostPart[] = [];
   if (!along) {
@@ -489,12 +627,13 @@ function edgeIsland(
     const nTop = edgeY - ctrl.usbOverhang;
     const nBot = nTop - ctrl.h;
     cuts.push(
-      box(ccx - cw / 2, nBot - CTRL_CLEARANCE, -D - 1, ccx + cw / 2, nTop + CTRL_CLEARANCE, pocketTop),
-      ...usbSlots(ctrl, ccx, nTop, edgeY, D, zN),
+      box(ccx - cw / 2, nBot - CTRL_CLEARANCE, -D - 1, ccx + cw / 2, nTop + CTRL_CLEARANCE, z.pocketTop),
+      ...usbSlots(ctrl, ccx, nTop, edgeY, D, z),
+      ...flipCuts(ctrl, z, pins, (u0, u1, v0, v1, z0, z1) => box(ccx + u0, nTop - v0, z0, ccx + u1, nTop - v1, z1)),
     );
     ghosts.push(
-      { kind: 'nano', box: box(ccx - ctrl.w / 2, nBot, zN, ccx + ctrl.w / 2, nTop, zN + pcbOf(ctrl)), model: ctrl.model },
-      ...usbGhosts(ctrl, ccx, nTop, edgeY, zN),
+      { kind: 'nano', box: box(ccx - ctrl.w / 2, nBot, z.board[0], ccx + ctrl.w / 2, nTop, z.board[1]), model: ctrl.model, flip },
+      ...usbGhosts(ctrl, ccx, nTop, edgeY, z),
     );
   } else {
     const sx = ip.align === 'start' ? -1 : 1;
@@ -504,17 +643,20 @@ function edgeIsland(
     const cy = 1 + cw / 2;
     const X = (a: number, b: number): [number, number] => (sx > 0 ? [a, b] : [-b, -a]);
     const [px0, px1] = X(nStart - CTRL_CLEARANCE, nEnd + CTRL_CLEARANCE);
-    cuts.push(box(px0, cy - cw / 2, -D - 1, px1, cy + cw / 2, pocketTop));
+    cuts.push(box(px0, cy - cw / 2, -D - 1, px1, cy + cw / 2, z.pocketTop));
+    cuts.push(
+      ...flipCuts(ctrl, z, pins, (u0, u1, v0, v1, z0, z1) => {
+        const [a, b] = X(nEnd - v1, nEnd - v0);
+        return box(a, cy + u0, z0, b, cy + u1, z1);
+      }),
+    );
     const [bx0, bx1] = X(nStart, nEnd);
-    ghosts.push({ kind: 'nano', box: box(bx0, cy - ctrl.w / 2, zN, bx1, cy + ctrl.w / 2, zN + pcbOf(ctrl)), model: ctrl.model });
+    ghosts.push({ kind: 'nano', box: box(bx0, cy - ctrl.w / 2, z.board[0], bx1, cy + ctrl.w / 2, z.board[1]), model: ctrl.model, flip });
     for (const dy of ctrl.ports ?? [0]) {
       const [sx0, sx1] = X(nEnd - 2, edgeX + 1);
-      cuts.push(box(sx0, cy + dy - ctrl.usbW / 2, -D - 1, sx1, cy + dy + ctrl.usbW / 2, zN + ctrl.usbH));
+      cuts.push(box(sx0, cy + dy - ctrl.usbW / 2, -D - 1, sx1, cy + dy + ctrl.usbW / 2, z.slotTop));
       const [gx0, gx1] = X(nEnd - 6.5, edgeX);
-      ghosts.push({
-        kind: 'usb',
-        box: box(gx0, cy + dy - 4.5, zN + usbBottomOf(ctrl), gx1, cy + dy + 4.5, zN + Math.min(ctrl.height, ctrl.usbH - 0.4)),
-      });
+      ghosts.push({ kind: 'usb', box: box(gx0, cy + dy - 4.5, z.usb[0], gx1, cy + dy + 4.5, z.usb[1]) });
     }
   }
   // elementy modułu w układzie pochylonym (przy tilt = 0 bez zmian)

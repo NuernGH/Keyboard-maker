@@ -155,12 +155,13 @@ export const PAD = { gap: 0.2, pinBand: 4, end: 4 };
 
 /**
  * Podkładka pod kontrolerem: od dna do 0,2 mm pod płytką, węższa o pasy z pinami i lutami
- * na dłuższych bokach, krótsza o 4 mm z każdego końca.
+ * na dłuższych bokach, krótsza o 4 mm z każdego końca. Odwrócony kontroler jest przyklejony
+ * (albo przykręcony) pod płytą, a pod nim są elementy, więc nie dostaje podkładki.
  */
 export function controllerPads(island: IslandGeom | null, floorTop: number): Box[] {
   if (!island) return [];
   return island.ghosts
-    .filter((g) => g.kind === 'nano')
+    .filter((g) => g.kind === 'nano' && !g.flip)
     .map(({ box: b }) => {
       const along = b.y1 - b.y0 >= b.x1 - b.x0 ? 'y' : 'x';
       const ix = along === 'y' ? PAD.pinBand : PAD.end;

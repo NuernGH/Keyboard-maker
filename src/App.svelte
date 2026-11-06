@@ -544,6 +544,12 @@
             </select>
           </label>
           {/if}
+          <label class="check" data-tip={t(lang, 'tipCtrlFlip')}><input type="checkbox" checked={island.flip ?? true} onchange={(e) => (island.flip = e.currentTarget.checked)} /> {t(lang, 'ctrlFlip')}</label>
+          {#if island.flip ?? true}
+          <label class="check" data-tip={t(lang, 'tipCtrlPins')}><input type="checkbox" bind:checked={island.pins} /> {t(lang, 'ctrlPins')}</label>
+          {:else}
+          <span></span>
+          {/if}
           <label data-tip={t(lang, 'tipIslandDepth')}>{t(lang, 'islandDepth')} <input type="number" min="0" step="0.5" bind:value={island.depth} /></label>
           <span></span>
           <label data-tip={t(lang, 'tipIslandX')}>{t(lang, 'thumbX')} <input type="number" step="0.5" bind:value={island.offsetX} /></label>
