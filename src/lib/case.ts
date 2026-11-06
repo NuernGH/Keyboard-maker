@@ -6,7 +6,7 @@
 
 import { PITCH, type Key } from './layout';
 import { stabOffset } from './cell-spec';
-import type { Box, IslandGeom } from './island';
+import { USB_PLUG, type Box, type IslandGeom } from './island';
 import { DOVETAIL, distToSeam, seamScrewTargets, type PrintSplit } from './split';
 
 export interface CaseParams {
@@ -257,6 +257,16 @@ export function usbCaseCuts(island: IslandGeom | null, cp: CaseParams): Box[] {
   const ext = cp.gap + cp.wall + 2;
   const plug = 2; // wtyk z obudową jest większy niż gniazdo
   const out: Box[] = [];
+  // najniższy spód wtyku: środek gniazda USB minus połowa wysokości obudowy wtyku
+  const plugBottom = Math.min(
+    ...island.ghosts.filter((g) => g.kind === 'usb').map((g) => (g.box.z0 + g.box.z1) / 2 - USB_PLUG.h / 2),
+    Infinity,
+  );
+  // najwyższy wierzch wtyku
+  const plugTop = Math.max(
+    ...island.ghosts.filter((g) => g.kind === 'usb').map((g) => (g.box.z0 + g.box.z1) / 2 + USB_PLUG.h / 2),
+    -Infinity,
+  );
   for (const c of island.cuts) {
     if (c.round) continue;
     const up = c.y1 > r.y1 + 1e-6;
@@ -266,9 +276,13 @@ export function usbCaseCuts(island: IslandGeom | null, cp: CaseParams): Box[] {
     // tylko otwory od spodu wyspy, wychodzące jedną stroną (pas pod gniazda hot-swap wychodzi dwiema)
     if (!(up || down || right || left) || (up && down) || (left && right)) continue;
     if (c.z0 > -island.depth - 0.5) continue;
-    const z0 = c.z0;
+    // ścianka wycięta też pod spodem wyspy, jeśli wtyk z obudową sięga niżej niż otwór w płycie
+    // (gniazdo osadzone we wcięciu płytki leży nisko, np. nice!nano v2)
+    const z0 = Math.min(c.z0, plugBottom);
     // cienki pasek nad otworem by się łamał: wtedy wycięcie otwarte od góry
-    const z1 = c.z1 + plug > -1.5 ? 0 : c.z1 + plug;
+    // (górę wycięcia wyznacza wierzch obudowy wtyku na wysokości gniazda)
+    const top = Number.isFinite(plugTop) ? plugTop : c.z1 + plug;
+    const z1 = top > -1.5 ? 0 : top;
     // otwór w płycie kończy się 1 mm za jej krawędzią (gniazdo USB równo z krawędzią płyty),
     // więc ściankę wycinamy od krawędzi płyty na zewnątrz, z miejscem na obudowę wtyku
     if (up || down)

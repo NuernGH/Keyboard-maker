@@ -31,11 +31,30 @@ export interface Controller {
   usbH: number;
   /** środki gniazd USB względem środka płytki (mm); domyślnie jedno gniazdo na środku */
   ports?: number[];
+  /** grubość płytki (mm), domyślnie 1,6 */
+  pcb?: number;
+  /**
+   * spód gniazda USB nad spodem płytki (mm); domyślnie gniazdo leży na płytce (= pcb),
+   * 0 = gniazdo osadzone we wcięciu płytki (mid-mount), spodem równo ze spodem płytki
+   */
+  usbZ0?: number;
+  /** model do podglądu w public/ (X w poprzek, Y w górę, Z wzdłuż płytki, USB po stronie +Z) */
+  model?: string;
 }
+
+export const pcbOf = (c: Controller) => c.pcb ?? 1.6;
+/** spód gniazda USB nad spodem płytki */
+export const usbBottomOf = (c: Controller) => c.usbZ0 ?? pcbOf(c);
+/** środek gniazda USB nad spodem płytki */
+export const usbCenterOf = (c: Controller) => (usbBottomOf(c) + c.height) / 2;
+/** Wtyk kabla USB-C razem z obudową (mm), z zapasem na grubsze kable. */
+export const USB_PLUG = { w: 12.5, h: 7 };
 
 /** Uproszczone wymiary kontrolerów (zmierzone z modeli, zaokrąglone w górę). */
 export const CONTROLLERS: Record<ControllerId, Controller> = {
-  nicenano: { name: 'nice!nano v2', w: 18, h: 33.3, height: 4.8, usbOverhang: 1.0, usbW: 10, usbH: 5.4 },
+  // nice!nano v2 wg modelu Woovie (CC0): płytka 17,78 × 33,10 × 0,8, USB-C 8,99 × 3,2 we wcięciu płytki,
+  // spodem równo ze spodem płytki, wystaje 1,52. Grubość płytki i wysokość USB do sprawdzenia suwmiarką.
+  nicenano: { name: 'nice!nano v2', w: 17.78, h: 33.1, height: 3.2, usbOverhang: 1.52, usbW: 10, usbH: 5.4, pcb: 0.8, usbZ0: 0, model: 'controllers/nice-nano-v2.stl' },
   'promicro-c': { name: 'Pro Micro USB-C', w: 18.3, h: 29.5, height: 4.7, usbOverhang: 6.7, usbW: 10, usbH: 5.4 },
   'promicro-micro': { name: 'Pro Micro micro-USB', w: 17.8, h: 29.2, height: 4.3, usbOverhang: 5.4, usbW: 9, usbH: 4.6 },
   kb2040: { name: 'Adafruit KB2040', w: 17.8, h: 33.0, height: 4.8, usbOverhang: 1.2, usbW: 10, usbH: 5.4 },
@@ -127,6 +146,8 @@ export interface Box {
 export interface GhostPart {
   kind: 'nano' | 'usb' | 'pcb' | 'display' | 'encoder' | 'knob';
   box: Box;
+  /** model kontrolera do podglądu (zamiast pudełek płytki i gniazda) */
+  model?: string;
 }
 
 export interface IslandGeom {
@@ -187,7 +208,7 @@ const usbSlots = (c: Controller, cx: number, nTop: number, edge: number, D: numb
 const usbGhosts = (c: Controller, cx: number, nTop: number, edge: number, zN: number): GhostPart[] =>
   (c.ports ?? [0]).map((dx) => ({
     kind: 'usb' as const,
-    box: box(cx + dx - 4.5, nTop - 6.5, zN + 1.6, cx + dx + 4.5, edge, zN + Math.min(c.height, c.usbH - 0.4)),
+    box: box(cx + dx - 4.5, nTop - 6.5, zN + usbBottomOf(c), cx + dx + 4.5, edge, zN + Math.min(c.height, c.usbH - 0.4)),
   }));
 
 /**
@@ -277,7 +298,7 @@ export function islandFor(
     ...usbSlots(ctrl, cx, nTop, edgeY, D, zN),
   ];
   const ctrlGhosts: GhostPart[] = [
-    { kind: 'nano', box: box(cx - ctrl.w / 2, nBot, zN, cx + ctrl.w / 2, nTop, zN + 1.6) },
+    { kind: 'nano', box: box(cx - ctrl.w / 2, nBot, zN, cx + ctrl.w / 2, nTop, zN + pcbOf(ctrl)), model: ctrl.model },
     ...usbGhosts(ctrl, cx, nTop, edgeY, zN),
   ];
 
@@ -438,7 +459,7 @@ function edgeIsland(
     ...usbSlots(ctrl, ccx, nTop, edgeY, D, zN),
   ];
   const ghosts: GhostPart[] = [
-    { kind: 'nano', box: box(ccx - ctrl.w / 2, nBot, zN, ccx + ctrl.w / 2, nTop, zN + 1.6) },
+    { kind: 'nano', box: box(ccx - ctrl.w / 2, nBot, zN, ccx + ctrl.w / 2, nTop, zN + pcbOf(ctrl)), model: ctrl.model },
     ...usbGhosts(ctrl, ccx, nTop, edgeY, zN),
   ];
   // elementy modułu w układzie pochylonym (przy tilt = 0 bez zmian)

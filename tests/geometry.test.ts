@@ -94,7 +94,8 @@ describe('wyspa na elektronikę', () => {
         const b = plate.boundingBox.bounds;
         expect(-b[0][2]).toBeCloseTo(g!.depth, 3);
         // pod płaskim modułem kontroler potrzebuje głębszej wyspy, bez modułu wystarcza głębokość płyty
-        expect(g!.depth).toBeCloseTo(side === 'left' ? 10.5 : Math.max(cell.height, 7.9), 3);
+        // (dach nad kontrolerem 5,1 mm pod modułem, 2,5 mm bez modułu, plus 0,6 mm luzu i wysokość kontrolera)
+        expect(g!.depth).toBeCloseTo(Math.max(cell.height, (side === 'left' ? 5.1 : 2.5) + 0.6 + NANO.height), 3);
         const re = (await importSTEP(plate.blobSTEP())) as Shape3D;
         expect(measureVolume(re)).toBeCloseTo(measureVolume(plate), 0);
       }, 180000);
