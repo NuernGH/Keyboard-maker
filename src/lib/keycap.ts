@@ -132,10 +132,11 @@ export function legendPart(p: KeycapParams, lg: KeycapLegend): Shape3D | null {
  * Bryły wycinające legendę z góry nakładki: rowek głębokości `lg.depth` wzdłuż góry (przy misie wzdłuż jej
  * powierzchni). Ten sam kształt daje gniazdo i wkład legendy wtopionej.
  */
-function topLegendTools(p: KeycapParams, type: CapType, lg: KeycapLegend): Shape3D[] {
+function topLegendTools(p: KeycapParams, type: CapType, lg: KeycapLegend, dx = 0): Shape3D[] {
   const L = capLevels(p);
-  const prism = contourPrism(lg.contours, L.topLow - lg.depth - 0.5, L.topEdge + 1);
-  if (!prism) return [];
+  const base = contourPrism(lg.contours, L.topLow - lg.depth - 0.5, L.topEdge + 1);
+  if (!base) return [];
+  const prism = dx ? (base.translate(dx, 0, 0) as Shape3D) : base;
   // warstwa pod płaską górą (przy misie: rogi poza czaszą kuli, gdzie góra zostaje płaska)
   const tools: Shape3D[] = [prism.clone().intersect(makeBox([-99, -99, L.topEdge - lg.depth], [99, 99, L.topEdge + 1])) as Shape3D];
   if (p.top === 'dish') {
@@ -168,8 +169,26 @@ export function applyLegend(p: KeycapParams, type: CapType, cap: Shape3D, lg: Ke
     const part = contourPrism(lg.contours, L.topEdge - 0.05, L.topEdge + lg.raise);
     return part ? fuseMany([out, part]) : out;
   }
-  const tools = topLegendTools(p, type, lg);
-  return tools.length ? cutMany(out, tools) : out;
+  return withNudge((dx) => {
+    const tools = topLegendTools(p, type, lg, dx);
+    return tools.length ? cutMany(out, tools) : out;
+  });
+}
+
+/**
+ * OpenCascade czasem nie radzi sobie, gdy krawędź litery wypada dokładnie na szwie misy (klawisze 1,75U+:
+ * dwie kule i walec), np. „Back” na 2U. Wtedy próbujemy jeszcze raz z literami przesuniętymi o kilka
+ * mikrometrów — niewidoczne w druku, a omija styk.
+ */
+function withNudge<T>(run: (dx: number) => T): T {
+  let err: unknown;
+  for (const dx of [0, 0.003, -0.003, 0.011])
+    try {
+      return run(dx);
+    } catch (e) {
+      err = e;
+    }
+  throw err;
 }
 
 /**
@@ -178,9 +197,11 @@ export function applyLegend(p: KeycapParams, type: CapType, cap: Shape3D, lg: Ke
  */
 export function inlayPart(p: KeycapParams, type: CapType, cap: Shape3D, lg: KeycapLegend): Shape3D | null {
   if (!lg.contours.length) return null;
-  const parts = topLegendTools(p, type, lg).map((t) => cap.clone().intersect(t) as Shape3D);
-  if (!parts.length) return null;
-  return parts.length === 1 ? parts[0] : fuseMany(parts);
+  return withNudge((dx) => {
+    const parts = topLegendTools(p, type, lg, dx).map((t) => cap.clone().intersect(t) as Shape3D);
+    if (!parts.length) return null;
+    return parts.length === 1 ? parts[0] : fuseMany(parts);
+  });
 }
 
 export interface KeycapOptions {

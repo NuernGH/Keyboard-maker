@@ -6,9 +6,10 @@
 -->
 <script lang="ts">
   import type { Lang } from './i18n';
-  import type { CadClient } from '../cad/client';
+  import { CadClient } from '../cad/client';
   import type { PreviewMesh } from './Preview.svelte';
   import { zipStore } from '../lib/zip';
+  import { build3mf, packOnBed, type BedObject } from '../lib/threemf';
   import { hasLegend, placedContours, thinCheck, DEFAULT_LEGEND, LEGEND_MIN_STROKE, THIN_WARN } from '../lib/legend';
   import type { KeycapLegend } from '../lib/keycap';
   import { legendFont } from './font';
@@ -38,6 +39,7 @@
     params = $bindable(),
     show = $bindable(),
     meshes = $bindable(),
+    bed = [245, 245],
   }: {
     lang: Lang;
     keys: { w: number; h: number }[];
@@ -50,6 +52,8 @@
     params: KeycapParams;
     show: boolean;
     meshes: Record<string, PreviewMesh>;
+    /** stół drukarki (mm): układ nakładek w pliku 3MF */
+    bed?: [number, number];
   } = $props();
 
   const L = {
@@ -70,6 +74,11 @@
       pcs: 'szt.',
       stems: 'gniazda',
       exportAll: 'Wszystkie typy (ZIP)',
+      export3mf: '3MF · wszystkie na stole',
+      export3mfInlay: '3MF · wszystkie na stole, litery filamentem 2 (AMS)',
+      note3mf: 'Jeden plik 3MF: wszystkie nakładki ułożone na stole {bed} mm, każda jako osobny obiekt. Otwórz w QIDI Studio / OrcaSlicer / Bambu Studio.',
+      note3mfInlay: 'Przy legendzie wtopionej każda nakładka z opisem ma dwie części: nakładkę (filament 1) i litery (filament 2). W slicerze ustaw tylko kolory filamentów 1 i 2 w AMS.',
+      bedOver: 'Nie wszystko mieści się na stole {bed} mm: część nakładek leży obok; w slicerze użyj „Rozłóż” (Arrange), rozdzieli je na kilka płyt.',
       calibration: 'Plik kalibracji luzu',
       calibrationNote: 'Cztery gniazda z luzem 0,2 / 0,25 / 0,3 / 0,35 mm (1–4 otworki na podstawce) i piąte, sprawdzone (kreska na podstawce: krzyż 4,2 × 1,4, walec Ø5,72). Wydrukuj, nałóż na przełącznik i wybierz to, które trzyma pewnie, ale bez siłowania.',
       socket: 'Wymiary gniazda',
@@ -93,6 +102,9 @@
       capSideOverhang: 'Boki mają mniejszą zbieżność niż 22,5°: wnętrze będzie miało nawis większy niż 45°. Zmniejsz bok góry albo wysokość.',
       levels: 'Dolna krawędź {z0} mm nad płytą (po wciśnięciu {zp} mm), góra {top} mm.',
       computing: 'Liczę…',
+      letters: 'litery',
+      progress: 'Liczę nakładkę {i} z {n}: {k}',
+      packing: 'Zapisuję plik…',
       capTooTall: 'Za wysoka: dolna krawędź po wciśnięciu uderzyłaby w kołnierz przełącznika. Przycięto do {h} mm.',
       capThinWall: 'Ścianka przy suficie wnętrza cieńsza niż 0,8 mm: zwiększ bok góry albo zmniejsz wysokość.',
       capCavityTight: 'Wnętrze za ciasne na obudowę przełącznika po wciśnięciu: zmniejsz ściankę.',
@@ -116,6 +128,11 @@
       pcs: 'pcs',
       stems: 'stems',
       exportAll: 'All types (ZIP)',
+      export3mf: '3MF · all on the bed',
+      export3mfInlay: '3MF · all on the bed, letters in filament 2 (AMS)',
+      note3mf: 'One 3MF file: all caps laid out on the {bed} mm bed, each as its own object. Open it in QIDI Studio / OrcaSlicer / Bambu Studio.',
+      note3mfInlay: 'With inlaid legends every cap with a legend has two parts: the cap (filament 1) and the letters (filament 2). In the slicer just set the colours of AMS filaments 1 and 2.',
+      bedOver: 'Not everything fits on the {bed} mm bed: some caps lie beside it; use Arrange in the slicer to spread them over several plates.',
       calibration: 'Clearance test file',
       calibrationNote: 'Four stems with 0.2 / 0.25 / 0.3 / 0.35 mm clearance (1–4 dots on the base) and a fifth, proven one (a line on the base: cross 4.2 × 1.4, stem Ø5.72). Print, try on a switch and pick the one that holds firmly without forcing.',
       socket: 'Socket size',
@@ -139,6 +156,9 @@
       capSideOverhang: 'Sides taper less than 22.5°: the cavity roof overhang will exceed 45°. Reduce the top size or height.',
       levels: 'Bottom edge {z0} mm above plate ({zp} mm when pressed), top {top} mm.',
       computing: 'Computing…',
+      letters: 'letters',
+      progress: 'Computing cap {i} of {n}: {k}',
+      packing: 'Writing the file…',
       capTooTall: 'Too tall: the bottom edge would hit the switch flange when pressed. Clamped to {h} mm.',
       capThinWall: 'Wall at the cavity ceiling thinner than 0.8 mm: increase top size or reduce height.',
       capCavityTight: 'Cavity too tight for the switch housing when pressed: reduce the wall.',
@@ -215,11 +235,43 @@
   /** nazwa pliku z tekstu legendy (bez znaków niedozwolonych w nazwach plików) */
   const safe = (v: string) => v.replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 24) || 'x';
 
+  /**
+   * Osobny worker do eksportu: OpenCascade nie oddaje pamięci po operacjach logicznych, a nakładki z legendą
+   * to dziesiątki takich brył (przy 60% z literami AMS ponad 120), więc co {@link BODIES_PER_WORKER} brył
+   * zaczynamy od świeżego workera. Podgląd liczy dalej na swoim workerze, bez przerw.
+   */
+  const BODIES_PER_WORKER = 16;
+  function exportWorker() {
+    let cad: CadClient | null = null;
+    let used = 0;
+    return {
+      get(): CadClient {
+        if (!cad) cad = new CadClient();
+        else if (used >= BODIES_PER_WORKER) {
+          cad.restart();
+          used = 0;
+        }
+        used++;
+        return cad;
+      },
+      close() {
+        cad?.dispose();
+        cad = null;
+      },
+    };
+  }
+
   let thinWarn = $state('');
+  /** postęp eksportu: która bryła z ilu (nakładka, litery, typ bez legendy, wkładka) */
+  let progress = $state<{ i: number; n: number; label: string } | null>(null);
+  const step = (label: string) => {
+    if (progress) progress = { ...progress, i: progress.i + 1, label };
+  };
   async function exportAll(format: 'stl' | 'step') {
     busy = true;
     error = '';
     thinWarn = '';
+    const ex = exportWorker();
     try {
       const files: { name: string; data: Uint8Array<ArrayBuffer> }[] = [];
       const map = params.legends ?? {};
@@ -232,6 +284,7 @@
         const m = legendMethod(p);
         const rest = keys.filter((_, i) => !withText.includes(i));
         const thinKeys: string[] = [];
+        progress = { i: 0, n: withText.length * (m === 'inlay' ? 2 : 1) + capSet(rest, stabs).length + (sideInsert ? 2 : 0), label: '' };
         for (const i of withText) {
           const type = capType(keys[i], stabs);
           const set = $state.snapshot(map[refs[i]]);
@@ -239,18 +292,21 @@
           const legend: KeycapLegend = { contours: placed.top, front: placed.front, method: m, depth: lp.depth, raise: lp.raise };
           const thinShare = Math.max(thinCheck(placed.top, LEGEND_MIN_STROKE[m]).fraction, thinCheck(placed.front, LEGEND_MIN_STROKE.groove).fraction);
           if (thinShare > THIN_WARN) thinKeys.push(`${set.main ?? refs[i]} ${Math.round(thinShare * 100)} %`);
-          const data = await client().keycapExport({ ...input(type, 'print'), legend }, format);
           const label = set.main ?? set.shift ?? set.fn ?? set.altgr ?? refs[i];
+          step(label);
+          const data = await ex.get().keycapExport({ ...input(type, 'print'), legend }, format);
           const base = `${fileBase}-keycap-${String(i + 1).padStart(2, '0')}-${safe(label)}-${type.id}`;
           files.push({ name: `${base}.${format}`, data: new Uint8Array(data) });
           // legenda wtopiona: druga część (litery) w tym samym położeniu, do przypisania drugiego filamentu
           if (m === 'inlay' && placed.top.length) {
-            const inl = await client().keycapExport({ ...input(type, 'print'), legend, part: 'legend' }, format);
+            step(`${label} (${tx('letters')})`);
+            const inl = await ex.get().keycapExport({ ...input(type, 'print'), legend, part: 'legend' }, format);
             files.push({ name: `${base}-legend.${format}`, data: new Uint8Array(inl) });
           }
         }
         for (const { type, count } of capSet(rest, stabs)) {
-          const data = await client().keycapExport(input(type, 'print'), format);
+          step(type.id);
+          const data = await ex.get().keycapExport(input(type, 'print'), format);
           files.push({ name: `${fileBase}-keycap-${type.id}-x${count}.${format}`, data: new Uint8Array(data) });
         }
         if (thinKeys.length) thinWarn = tx('thinExport').replace('{k}', thinKeys.join(', '));
@@ -266,22 +322,118 @@
               : 'Inlaid legend (AMS): every key with a legend has two files, the cap and "-legend" (the letters). Load both at once, accept a single object with multiple parts in the slicer, then assign the second filament to the letters. Both files share the same position, so the letters sit in their pockets. Fn legends on the front wall stay paint grooves.\n';
           files.push({ name: lang === 'pl' ? 'CZYTAJ-AMS.txt' : 'README-AMS.txt', data: new TextEncoder().encode(note) as Uint8Array<ArrayBuffer> });
         }
-      } else
+      } else {
+        progress = { i: 0, n: set.length + (sideInsert ? 2 : 0), label: '' };
         for (const { type, count } of set) {
-          const data = await client().keycapExport(input(type, 'print'), format);
+          step(type.id);
+          const data = await ex.get().keycapExport(input(type, 'print'), format);
           files.push({ name: `${fileBase}-keycap-${type.id}-x${count}.${format}`, data: new Uint8Array(data) });
         }
+      }
       if (sideInsert)
         for (const [pose, n, name] of [['insert', inserts.plain, 'stem-insert'], ['insert-turned', inserts.turned, 'stem-insert-turned']] as const)
           if (n > 0) {
-            const data = await client().keycapExport({ params: snap(), cap: null, pose }, format);
+            step(name);
+            const data = await ex.get().keycapExport({ params: snap(), cap: null, pose }, format);
             files.push({ name: `${fileBase}-${name}-x${n}.${format}`, data: new Uint8Array(data) });
           }
+      if (progress) progress = { ...progress, label: tx('packing') };
       await save(`${fileBase}-keycaps-${format}.zip`, await zipStore(files).arrayBuffer());
     } catch (e) {
       error = (e as Error).message;
     } finally {
       busy = false;
+      progress = null;
+      ex.close();
+    }
+  }
+
+  let bedNote = $state('');
+  /**
+   * Jeden plik 3MF: wszystkie nakładki (z legendą każda osobno, reszta tyle razy, ile sztuk danego typu)
+   * w pozycji druku, ułożone na stole. Legenda wtopiona: litery jako druga część z filamentem 2.
+   */
+  async function export3mf() {
+    busy = true;
+    error = '';
+    thinWarn = '';
+    bedNote = '';
+    const ex = exportWorker();
+    try {
+      const map = params.legends ?? {};
+      const p = snap();
+      const lp = params.legend ?? { ...DEFAULT_LEGEND, method: 'color' as const };
+      const m = legendMethod(p);
+      const withText = refs.map((r, i) => (hasLegend(map[r]) ? i : -1)).filter((i) => i >= 0);
+      const font = withText.length ? await legendFont() : null;
+      const items: { name: string; parts: BedObject['parts']; size: { w: number; h: number } }[] = [];
+      const thinKeys: string[] = [];
+      const rest = keys.filter((_, i) => !withText.includes(i));
+      progress = { i: 0, n: withText.length * (m === 'inlay' ? 2 : 1) + capSet(rest, stabs).length + (sideInsert ? 2 : 0), label: '' };
+      const part = (name: string, extruder: number, r: { vertices: Float32Array; triangles: Uint32Array }) => ({ name, extruder, vertices: r.vertices, triangles: r.triangles });
+      for (const i of withText) {
+        const type = capType(keys[i], stabs);
+        const set = $state.snapshot(map[refs[i]]);
+        const placed = placedContours(font!, layoutKeyLegends(font!, set, { ...p, legend: lp }, type.w, type.h));
+        const legend: KeycapLegend = { contours: placed.top, front: placed.front, method: m, depth: lp.depth, raise: lp.raise };
+        const thinShare = Math.max(thinCheck(placed.top, LEGEND_MIN_STROKE[m]).fraction, thinCheck(placed.front, LEGEND_MIN_STROKE.groove).fraction);
+        if (thinShare > THIN_WARN) thinKeys.push(`${set.main ?? refs[i]} ${Math.round(thinShare * 100)} %`);
+        const label = set.main ?? set.shift ?? set.fn ?? set.altgr ?? refs[i];
+        step(label);
+        const cap = await ex.get().keycapMeshFine({ ...input(type, 'print'), legend });
+        const parts = [part(`${label} – nakładka`, 1, cap)];
+        if (m === 'inlay' && placed.top.length) step(`${label} (${tx('letters')})`);
+        if (m === 'inlay' && placed.top.length) parts.push(part(`${label} – litery`, 2, await ex.get().keycapMeshFine({ ...input(type, 'print'), legend, part: 'legend' })));
+        items.push({ name: `${String(i + 1).padStart(2, '0')} ${label}`, parts, size: { w: 0, h: 0 } });
+      }
+      for (const { type, count } of capSet(rest, stabs)) {
+        step(type.id);
+        const cap = await ex.get().keycapMeshFine(input(type, 'print'));
+        for (let k = 0; k < count; k++) items.push({ name: `${type.id} ${k + 1}`, parts: [part(type.id, 1, cap)], size: { w: 0, h: 0 } });
+      }
+      if (sideInsert)
+        for (const [pose, cnt, name] of [['insert', inserts.plain, 'stem-insert'], ['insert-turned', inserts.turned, 'stem-insert-turned']] as const)
+          if (cnt > 0) {
+            step(name);
+            const ins = await ex.get().keycapMeshFine({ params: p, cap: null, pose });
+            for (let k = 0; k < cnt; k++) items.push({ name: `${name} ${k + 1}`, parts: [part(name, 1, ins)], size: { w: 0, h: 0 } });
+          }
+      // każdy obiekt wyśrodkowany w XY na swoim obrysie (części przesunięte razem), potem ułożony na stole
+      const objects: BedObject[] = [];
+      for (const it of items) {
+        let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+        for (const pt of it.parts)
+          for (let j = 0; j < pt.vertices.length; j += 3) {
+            x0 = Math.min(x0, pt.vertices[j]);
+            x1 = Math.max(x1, pt.vertices[j]);
+            y0 = Math.min(y0, pt.vertices[j + 1]);
+            y1 = Math.max(y1, pt.vertices[j + 1]);
+          }
+        const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+        it.parts = it.parts.map((pt) => {
+          const v = Float32Array.from(pt.vertices);
+          for (let j = 0; j < v.length; j += 3) {
+            v[j] -= cx;
+            v[j + 1] -= cy;
+          }
+          return { ...pt, vertices: v };
+        });
+        it.size = { w: x1 - x0, h: y1 - y0 };
+      }
+      const [bx, by] = bed;
+      const pack = packOnBed(items.map((it) => it.size), bx, by);
+      items.forEach((it, i) => objects.push({ name: it.name, parts: it.parts, x: pack.centers[i][0], y: pack.centers[i][1] }));
+      if (!pack.fits) bedNote = tx('bedOver').replace('{bed}', `${bx} × ${by}`);
+      if (thinKeys.length) thinWarn = tx('thinExport').replace('{k}', thinKeys.join(', '));
+      if (progress) progress = { ...progress, label: tx('packing') };
+      const blob = await build3mf(objects);
+      await save(`${fileBase}-keycaps${m === 'inlay' ? '-ams' : ''}.3mf`, await blob.arrayBuffer());
+    } catch (e) {
+      error = (e as Error).message;
+    } finally {
+      busy = false;
+      progress = null;
+      ex.close();
     }
   }
 
@@ -367,6 +519,17 @@
     <button disabled={busy} onclick={() => exportAll('stl')}>STL · {tx('exportAll')}</button>
     <button disabled={busy} onclick={() => exportAll('step')}>STEP</button>
   </div>
+  <div class="row">
+    <button disabled={busy} onclick={export3mf}>{tx(legendMethod(params) === 'inlay' ? 'export3mfInlay' : 'export3mf')}</button>
+  </div>
+  {#if progress}
+    <div class="progress" role="status">
+      <progress max={progress.n} value={Math.max(0, progress.i - 1)}></progress>
+      <span>{progress.label === tx('packing') ? tx('packing') : tx('progress').replace('{i}', String(progress.i)).replace('{n}', String(progress.n)).replace('{k}', progress.label)}</span>
+    </div>
+  {/if}
+  <p class="muted">{tx('note3mf').replace('{bed}', `${bed[0]} × ${bed[1]}`)}{#if legendMethod(params) === 'inlay'} {tx('note3mfInlay')}{/if}</p>
+  {#if bedNote}<p class="warn">{bedNote}</p>{/if}
   {#if sideInsert}<p class="muted">{tx('inserts')}: {inserts.plain + inserts.turned} {tx('pcs')}</p>{/if}
   {#if params.orient === 'side'}
     <p class="muted">{tx('orientNoteSide')} {tx(params.sideStem === 'rib' ? 'ribNote' : 'insertNote')}</p>
@@ -378,12 +541,22 @@
     <button disabled={busy} onclick={() => exportCalibration('step')}>STEP</button>
   </div>
   <p class="muted">{tx('calibrationNote')}</p>
-  {#if busy}<p class="muted">{tx('computing')}</p>{/if}
+  {#if busy && !progress}<p class="muted">{tx('computing')}</p>{/if}
   {#if error}<p class="warn">{error}</p>{/if}
   {#if thinWarn}<p class="warn">{thinWarn}</p>{/if}
 </section>
 
 <style>
+  .progress {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 6px 0;
+    font-size: 0.9em;
+  }
+  .progress progress {
+    width: 100%;
+  }
   /* te same style co sekcje panelu w App.svelte (style Svelte są lokalne dla komponentu) */
   section {
     padding: 10px 0;

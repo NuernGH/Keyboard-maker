@@ -234,7 +234,9 @@ self.onmessage = async (e: MessageEvent<Request>) => {
       return;
     }
     if (req.type === 'mesh' || req.type === 'switch' || req.type === 'step-mesh' || req.type === 'dactyl-mesh' || req.type === 'keycap-mesh') {
-      const m = shape.mesh({ tolerance: 0.05, angularTolerance: 0.3 });
+      // do pliku (3MF) tak dokładnie jak STL
+      const fine = req.type === 'keycap-mesh' && req.fine;
+      const m = shape.mesh(fine ? { tolerance: 0.02, angularTolerance: 0.2 } : { tolerance: 0.05, angularTolerance: 0.3 });
       const vertices = new Float32Array(m.vertices);
       const normals = new Float32Array(m.normals);
       const triangles = new Uint32Array(m.triangles);

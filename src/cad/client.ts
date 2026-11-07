@@ -40,6 +40,13 @@ export class CadClient {
     this.worker = this.spawn();
   }
 
+  /** zamyka worker (klient jednorazowy, np. do eksportu); zlecenia w toku kończą się błędem */
+  dispose() {
+    this.worker.terminate();
+    for (const p of this.pending.values()) p.reject(new Error('restart'));
+    this.pending.clear();
+  }
+
   private call(req: DistributiveOmit<Request, 'id'>): Promise<Response> {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
@@ -90,6 +97,13 @@ export class CadClient {
 
   keycapMesh(input: KeycapInput): Promise<MeshResponse> {
     return this.cachedMesh('keycap-mesh', input, () => this.call({ type: 'keycap-mesh', input }));
+  }
+
+  /** dokładna siatka nakładki do pliku 3MF (jak STL), liczona zawsze od nowa */
+  async keycapMeshFine(input: KeycapInput): Promise<MeshResponse> {
+    const r = await this.call({ type: 'keycap-mesh', input, fine: true });
+    if (r.type !== 'mesh') throw new Error('Nieoczekiwana odpowiedź workera');
+    return r as MeshResponse;
   }
 
   async keycapExport(input: KeycapInput, format: 'stl' | 'step'): Promise<ArrayBuffer> {
