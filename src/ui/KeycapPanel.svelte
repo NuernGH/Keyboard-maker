@@ -61,7 +61,11 @@
       stems: 'gniazda',
       exportAll: 'Wszystkie typy (ZIP)',
       calibration: 'Plik kalibracji luzu',
-      calibrationNote: 'Cztery gniazda z luzem 0,2 / 0,25 / 0,3 / 0,35 mm (1–4 otworki na podstawce). Wydrukuj, nałóż na przełącznik i wpisz luz, który trzyma pewnie, ale bez siłowania.',
+      calibrationNote: 'Cztery gniazda z luzem 0,2 / 0,25 / 0,3 / 0,35 mm (1–4 otworki na podstawce) i piąte, sprawdzone (kreska na podstawce: krzyż 4,2 × 1,4, walec Ø5,72). Wydrukuj, nałóż na przełącznik i wybierz to, które trzyma pewnie, ale bez siłowania.',
+      socket: 'Wymiary gniazda',
+      socketCalc: 'krzyż MX + luz z listy',
+      socketProven: 'sprawdzone: krzyż 4,2 × 1,4, walec Ø5,72',
+      tipSocket: 'Sprawdzone wymiary pochodzą z nakładki, która pewnie wpina się na MX. Przy nich luz z listy jest pomijany.',
       orientNoteDish: 'Do druku: misa do góry, dolną krawędzią na stole; gniazdo wisi w środku, więc włącz podpory w slicerze (podpory w generatorze w etapie 4).',
       orientNoteFlat: 'Do druku: płaską górą na stole (do góry nogami), bez podpór.',
       stemsNote: 'Gniazda jak w płycie: stabilizator Cherry daje 3 gniazda, „dwa MX” tam, gdzie stoją przełączniki.',
@@ -103,7 +107,11 @@
       stems: 'stems',
       exportAll: 'All types (ZIP)',
       calibration: 'Clearance test file',
-      calibrationNote: 'Four stems with 0.2 / 0.25 / 0.3 / 0.35 mm clearance (1–4 dots on the base). Print, try on a switch and enter the clearance that holds firmly without forcing.',
+      calibrationNote: 'Four stems with 0.2 / 0.25 / 0.3 / 0.35 mm clearance (1–4 dots on the base) and a fifth, proven one (a line on the base: cross 4.2 × 1.4, stem Ø5.72). Print, try on a switch and pick the one that holds firmly without forcing.',
+      socket: 'Socket size',
+      socketCalc: 'MX cross + clearance from the list',
+      socketProven: 'proven: cross 4.2 × 1.4, stem Ø5.72',
+      tipSocket: 'The proven size comes from a keycap that snaps firmly onto MX. With it the clearance from the list is ignored.',
       orientNoteDish: 'For printing: dish up, bottom edge on the bed; the stem hangs inside, so enable supports in the slicer (generator supports come in stage 4).',
       orientNoteFlat: 'For printing: flat top on the bed (upside down), no supports.',
       stemsNote: 'Stems follow the plate: Cherry stabilizer gives 3 stems, "two MX" puts them where the switches are.',
@@ -272,8 +280,14 @@
   <label>{tx('radius')}
     <input type="number" min="0.2" max="4" step="0.1" bind:value={params.radius} />
   </label>
+  <label data-tip={tx('tipSocket')}>{tx('socket')}
+    <select value={params.socket ?? 'calc'} onchange={(e) => (params.socket = (e.currentTarget as HTMLSelectElement).value as 'calc' | 'proven')}>
+      <option value="calc">{tx('socketCalc')}</option>
+      <option value="proven">{tx('socketProven')}</option>
+    </select>
+  </label>
   <label data-tip={tx('tipClearance')}>{tx('clearance')}
-    <select bind:value={params.clearance}>
+    <select bind:value={params.clearance} disabled={params.socket === 'proven'}>
       {#each CALIBRATION_CLEARANCES as c (c)}<option value={c}>{num(c)}</option>{/each}
       {#if !CALIBRATION_CLEARANCES.includes(params.clearance)}<option value={params.clearance}>{num(params.clearance)}</option>{/if}
     </select>

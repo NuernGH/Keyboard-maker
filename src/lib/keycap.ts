@@ -9,9 +9,10 @@ import {
   CAP_LIMITS,
   MX,
   SIDE,
-  STEM,
+  PROVEN_SOCKET,
   capBottom,
   capLevels,
+  stemOd,
   topInset,
   type CapType,
   type KeycapParams,
@@ -33,12 +34,21 @@ export function keycapHull(p: KeycapParams, w: number, h: number): Shape3D {
   return frustum(bw, bh, p.radius, L.z0, bw - 2 * ins, bh - 2 * ins, p.radius, L.topEdge);
 }
 
-/** Wycięcie krzyża trzpienia (z luzem), środek w (x, y). `turned` obraca krzyż o 90° (trzpień stabilizatora w pionowym klawiszu). */
-function crossCut(p: KeycapParams, x: number, y: number, z0: number, z1: number, turned: boolean): Shape3D[] {
-  const c = p.clearance;
-  const len = MX.crossLen + c;
-  const ax = (turned ? MX.crossY : MX.crossX) + c; // grubość ramienia biegnącego wzdłuż X
-  const ay = (turned ? MX.crossX : MX.crossY) + c; // grubość ramienia biegnącego wzdłuż Y
+/**
+ * Wycięcie krzyża trzpienia, środek w (x, y). `turned` obraca krzyż o 90° (trzpień stabilizatora w pionowym
+ * klawiszu). Gniazdo `calc`: krzyż MX + luz; `proven`: gotowy otwór 4,2 × 1,4. `extra` poszerza otwór (fazka wejścia).
+ */
+function crossCut(p: KeycapParams, x: number, y: number, z0: number, z1: number, turned: boolean, extra = 0): Shape3D[] {
+  let len: number, ax: number, ay: number;
+  if (p.socket === 'proven') {
+    len = PROVEN_SOCKET.len + extra;
+    ax = ay = PROVEN_SOCKET.arm + extra;
+  } else {
+    const c = p.clearance + extra;
+    len = MX.crossLen + c;
+    ax = (turned ? MX.crossY : MX.crossX) + c; // grubość ramienia biegnącego wzdłuż X
+    ay = (turned ? MX.crossX : MX.crossY) + c; // grubość ramienia biegnącego wzdłuż Y
+  }
   return [
     makeBox([x - len / 2, y - ax / 2, z0], [x + len / 2, y + ax / 2, z1]),
     makeBox([x - ay / 2, y - len / 2, z0], [x + ay / 2, y + len / 2, z1]),
@@ -129,7 +139,7 @@ export function buildKeycap(p: KeycapParams, type: CapType, opts: KeycapOptions 
   const cuts: Shape3D[] = [];
   if (sockets === 'stems') {
     for (const s of spots) {
-      body = body.fuse(makeCylinder(STEM.od / 2, L.ceiling + 0.3 - L.stemBottom, [s.x, s.y, L.stemBottom], [0, 0, 1])) as Shape3D;
+      body = body.fuse(makeCylinder(stemOd(p) / 2, L.ceiling + 0.3 - L.stemBottom, [s.x, s.y, L.stemBottom], [0, 0, 1])) as Shape3D;
       cuts.push(...crossCut(p, s.x, s.y, L.stemBottom - 0.5, L.socketTop, s.turned));
     }
   } else if (sockets === 'holes') {
@@ -158,7 +168,7 @@ function rib(p: KeycapParams, type: CapType, x: number, y: number): Shape3D {
   const th = Math.atan(k);
   const c = Math.cos(th);
   const sn = Math.sin(th);
-  const u0 = uc - STEM.od / 2 + 0.15;
+  const u0 = uc - stemOd(p) / 2 + 0.15;
   const pts: [number, number][] = [];
   for (const zz of [L.stemBottom, L.ceiling]) {
     // przecięcie z wewnętrzną powierzchnią ścianki (zagłębione 0,2 mm)
@@ -185,13 +195,13 @@ function makeRibPrism(poly: [number, number][], x0: number, t: number): Shape3D 
 export function buildInsert(p: KeycapParams, turned = false): Shape3D {
   const L = capLevels(p);
   const pin = SIDE.pin;
-  let body = makeCylinder(STEM.od / 2, L.ceiling - L.stemBottom, [0, 0, L.stemBottom], [0, 0, 1]) as Shape3D;
+  let body = makeCylinder(stemOd(p) / 2, L.ceiling - L.stemBottom, [0, 0, L.stemBottom], [0, 0, 1]) as Shape3D;
   body = body.fuse(dShape(0, 0, pin.d, pin.flat, L.ceiling - 0.01, L.ceiling + insertPinLen(p))) as Shape3D;
   const m = SIDE.mouth;
   const cuts = [
     ...crossCut(p, 0, 0, L.stemBottom - 0.5, L.socketTop, turned),
     // sfazowanie wejścia (przy druku leży na stole, łagodzi „stopę słonia”)
-    ...crossCut({ ...p, clearance: p.clearance + 2 * m }, 0, 0, L.stemBottom - 0.5, L.stemBottom + m, turned),
+    ...crossCut(p, 0, 0, L.stemBottom - 0.5, L.stemBottom + m, turned, 2 * m),
   ];
   return cutMany(body, cuts);
 }
@@ -220,11 +230,12 @@ export function printPose(p: KeycapParams, cap: Shape3D, type?: CapType): Shape3
 }
 
 /**
- * Plik kalibracji luzu: cztery krótkie gniazda (to samo co w nakładce: walec i krzyż) na kwadratowych
- * podstawkach, połączone listwą. Drukuje się podstawkami na stole, bez podpór. Liczba otworków
- * na podstawce = numer luzu z listy (1 = najciaśniejszy).
+ * Plik kalibracji luzu: krótkie gniazda (to samo co w nakładce: walec i krzyż) na kwadratowych podstawkach,
+ * połączone listwą. Drukuje się podstawkami na stole, bez podpór. Liczba otworków na podstawce = numer luzu
+ * z listy (1 = najciaśniejszy). Ostatnie gniazdo (`proven`, kreska zamiast otworków) ma sprawdzone wymiary
+ * PROVEN_SOCKET.
  */
-export function buildCalibration(p: KeycapParams, clearances = CALIBRATION_CLEARANCES): Shape3D {
+export function buildCalibration(p: KeycapParams, clearances = CALIBRATION_CLEARANCES, proven = true): Shape3D {
   const L = capLevels(p);
   const base = 1.6;
   const size = 10;
@@ -233,14 +244,18 @@ export function buildCalibration(p: KeycapParams, clearances = CALIBRATION_CLEAR
   const socket = L.socketTop - L.stemBottom;
   let body: Shape3D | null = null;
   const cuts: Shape3D[] = [];
-  clearances.forEach((c, i) => {
+  const spots: { pp: KeycapParams; mark: (x: number) => Shape3D[] }[] = clearances.map((c, i) => ({
+    pp: { ...p, socket: 'calc', clearance: c },
+    mark: (x: number) => Array.from({ length: i + 1 }, (_, n) => makeCylinder(0.6, base + 2, [x - 3.6 + n * 2.4, -3.8, -1], [0, 0, 1]) as Shape3D),
+  }));
+  if (proven) spots.push({ pp: { ...p, socket: 'proven' }, mark: (x: number) => [makeBox([x - 3.6, -4.4, -1], [x + 3.6, -3.2, base + 1])] });
+  spots.forEach(({ pp, mark }, i) => {
     const x = i * step;
     let part = makeBox([x - size / 2, -size / 2, 0], [x + size / 2, size / 2, base]) as Shape3D;
-    part = part.fuse(makeCylinder(STEM.od / 2, stemH, [x, 0, base - 0.01], [0, 0, 1])) as Shape3D;
+    part = part.fuse(makeCylinder(stemOd(pp) / 2, stemH, [x, 0, base - 0.01], [0, 0, 1])) as Shape3D;
     body = body ? (body.fuse(part) as Shape3D) : part;
-    cuts.push(...crossCut({ ...p, clearance: c }, x, 0, base + stemH - socket, base + stemH + 1, false));
-    for (let n = 0; n <= i; n++) cuts.push(makeCylinder(0.6, base + 2, [x - 3.6 + n * 2.4, -3.8, -1], [0, 0, 1]));
+    cuts.push(...crossCut(pp, x, 0, base + stemH - socket, base + stemH + 1, false), ...mark(x));
   });
-  const bar = makeBox([0, -size / 2, 0], [(clearances.length - 1) * step, -size / 2 + 2.5, base]);
+  const bar = makeBox([0, -size / 2, 0], [(spots.length - 1) * step, -size / 2 + 2.5, base]);
   return cutMany((body as unknown as Shape3D).fuse(bar) as Shape3D, cuts);
 }

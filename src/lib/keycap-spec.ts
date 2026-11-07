@@ -72,6 +72,22 @@ export interface KeycapParams {
   orient: 'upright' | 'side';
   /** gniazdo przy druku na boku: A = żebro do odłamania, B = osobna wkładka wklejana w sufit */
   sideStem: 'rib' | 'insert';
+  /**
+   * wymiary gniazda: `calc` = krzyż MX powiększony o luz z listy, walec Ø5,5;
+   * `proven` = gotowe wymiary ze sprawdzonej, wpinającej się nakładki (PROVEN_SOCKET), luz pomijany
+   */
+  socket?: 'calc' | 'proven';
+}
+
+/**
+ * Gniazdo zmierzone w nakładce Marcina (keycap_Short_widerRing.STL), która pewnie wpina się na MX:
+ * otwór krzyża 4,2 × 1,4 mm (oba ramiona tak samo), walec Ø5,72. To wymiary otworu, bez dodatkowego luzu.
+ */
+export const PROVEN_SOCKET = { od: 5.72, len: 4.2, arm: 1.4 };
+
+/** Średnica walca gniazda dla wybranych wymiarów gniazda. */
+export function stemOd(p: Pick<KeycapParams, 'socket'>): number {
+  return p.socket === 'proven' ? PROVEN_SOCKET.od : STEM.od;
 }
 
 export const DEFAULT_KEYCAP: KeycapParams = {
@@ -86,6 +102,7 @@ export const DEFAULT_KEYCAP: KeycapParams = {
   gap: 1.05,
   orient: 'upright',
   sideStem: 'insert',
+  socket: 'calc',
 };
 
 /** Druk na boku: zbieżność boków (stopnie) i ścianka równoległa do zewnętrznej, by sufit wnętrza miał nawis 45°. */

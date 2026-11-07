@@ -20,6 +20,7 @@ import {
   pressedCavityClear,
   sideAngle,
   SIDE,
+  PROVEN_SOCKET,
   type KeycapParams,
 } from '../src/lib/keycap-spec';
 import { buildCase, buildWedge, cutMany, isValidShape, loadCell } from '../src/lib/geometry';
@@ -108,12 +109,12 @@ describe('nakładka: wymiary', () => {
     expect(a[1][2]).toBeCloseTo(capLevels(DEFAULT_KEYCAP).height, 2);
   });
 
-  test('plik kalibracji: 4 gniazda o rosnącym luzie, poprawna bryła', () => {
+  test('plik kalibracji: 4 gniazda o rosnącym luzie + sprawdzone gniazdo, poprawna bryła', () => {
     const cal = buildCalibration(DEFAULT_KEYCAP);
     expect(isValidShape(cal)).toBe(true);
     const bb = cal.boundingBox.bounds;
     expect(bb[0][2]).toBeCloseTo(0, 3);
-    expect(bb[1][0] - bb[0][0]).toBeLessThan(50);
+    expect(bb[1][0] - bb[0][0]).toBeLessThan(65);
     // szersze ramię krzyża przy większym luzie: pasek o szerokości pomiędzy luzami 1 i 4
     const L = capLevels(DEFAULT_KEYCAP);
     const zTip = 1.6 + L.ceiling - L.stemBottom;
@@ -121,6 +122,30 @@ describe('nakładka: wymiary', () => {
     const probe = (x: number) => meet(cal, makeBox([x - 1, -w / 2, zTip - 2], [x + 1, w / 2, zTip - 0.5]));
     expect(probe(0)).toBeGreaterThan(0.05);
     expect(probe(3 * 13)).toBeLessThan(0.001);
+    // piąte gniazdo: otwór 4,2 × 1,4 (koniec ramienia 4,5 już w materiale), walec Ø5,72
+    const x5 = 4 * 13;
+    const P = PROVEN_SOCKET;
+    expect(meet(cal, makeBox([x5 - P.len / 2 + 0.03, -P.arm / 2 + 0.03, zTip - 3], [x5 + P.len / 2 - 0.03, P.arm / 2 - 0.03, zTip - 0.1]))).toBeLessThan(0.001);
+    expect(meet(cal, makeBox([x5 + P.len / 2 + 0.03, -0.3, zTip - 3], [x5 + 2.25, 0.3, zTip - 0.1]))).toBeGreaterThan(0.01);
+    expect(meet(cal, makeBox([x5 + 2.75 + 0.03, -0.2, zTip - 1], [x5 + P.od / 2 - 0.03, 0.2, zTip - 0.5]))).toBeGreaterThan(0.005);
+  });
+
+  test('gniazdo „sprawdzone”: walec Ø5,72, krzyż 4,2 × 1,4 bez luzu z listy, nakładka i wkładka poprawne', () => {
+    const p = { ...DEFAULT_KEYCAP, socket: 'proven' as const, clearance: 0.35 };
+    const L = capLevels(p);
+    const P = PROVEN_SOCKET;
+    const cap = buildKeycap(p, capType({ w: 1, h: 1 }, 'cherry'));
+    expect(isValidShape(cap)).toBe(true);
+    const z = [L.stemBottom + 0.3, L.socketTop - 0.1] as const;
+    for (const turned of [false, true]) {
+      const ins = buildInsert(sideOf(p), turned);
+      expect(isValidShape(ins)).toBe(true);
+    }
+    // oba ramiona 1,4 wolne, ramię dłuższe niż 4,2 w materiale (luz 0,35 pominięty)
+    expect(meet(cap, makeBox([-P.len / 2 + 0.03, -P.arm / 2 + 0.03, z[0]], [P.len / 2 - 0.03, P.arm / 2 - 0.03, z[1]]))).toBeLessThan(0.001);
+    expect(meet(cap, makeBox([-P.arm / 2 + 0.03, -P.len / 2 + 0.03, z[0]], [P.arm / 2 - 0.03, P.len / 2 - 0.03, z[1]]))).toBeLessThan(0.001);
+    expect(meet(cap, makeBox([P.len / 2 + 0.03, -0.3, z[0]], [P.len / 2 + 0.3, 0.3, z[1]]))).toBeGreaterThan(0.01);
+    expect(meet(cap, makeBox([2.75 + 0.03, -0.2, z[0]], [P.od / 2 - 0.03, 0.2, z[1]]))).toBeGreaterThan(0.005);
   });
 });
 
