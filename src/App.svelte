@@ -36,6 +36,7 @@
   import KeymapPanel from './ui/KeymapPanel.svelte';
   import KeymapView, { type ViewHalf } from './ui/KeymapView.svelte';
   import { defaultKeymap, keymapLayout, type KeymapData } from './lib/keymap';
+  import { keymapLegends } from './lib/keymap-legends';
   import {
     base64ToBytes,
     bytesToBase64,
@@ -602,8 +603,9 @@
       })),
     };
   }
-  const km = $derived.by(() => {
-    if (tab !== 'keymap') return null;
+  const km = $derived.by(() => (tab === 'keymap' ? keymapState() : null));
+  /** keymapa w użyciu (własna albo domyślna) z kolejnością pozycji i celem eksportu */
+  function keymapState() {
     const inp = wiringInput();
     const layout = keymapLayout(inp, wiringAssignments(inp));
     const ansi60 = isAnsi60(params.rowLayout);
@@ -618,7 +620,7 @@
       fileName: s2 ? 's2mini_60.keymap' : `${templateId}.keymap`,
       title: s2 ? '60% ANSI na S2 mini: keymapa z Keyboard maker.' : `${name}: keymapa z Keyboard maker.`,
     };
-  });
+  }
   /** opisy klawiszy do nagłówka edytora: domyślna legenda */
   const kmNames = $derived(Object.fromEntries(Object.entries(defaultSets).map(([r, l]) => [r, l.main || (isAnsi60(params.rowLayout) && r.endsWith(':k-4-3') ? (lang === 'pl' ? 'Spacja' : 'Space') : '')])));
   const kmHalves = $derived.by<ViewHalf[]>(() => {
@@ -1110,7 +1112,7 @@
       bind:show={showCaps}
       bind:meshes={capMeshes}
     />
-    <LegendPanel {lang} keys={leftKeys.concat(single ? [] : rightKeys)} refs={capRefs} bind:params={keycap} bind:labels={capLabels} bind:selected={pickedKey} defaults={defaultSets} />
+    <LegendPanel {lang} keys={leftKeys.concat(single ? [] : rightKeys)} refs={capRefs} bind:params={keycap} bind:labels={capLabels} bind:selected={pickedKey} defaults={defaultSets} fromKeymap={() => keymapLegends(keymapState().data, capRefs)} />
     {/if}
     {#if tab === 'colors'}
     <ColorPanel
