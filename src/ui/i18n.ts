@@ -7,6 +7,7 @@ const dict = {
   tab_keycaps: { pl: 'Nakładki', en: 'Keycaps' },
   tab_colors: { pl: 'Kolory', en: 'Colours' },
   tab_wiring: { pl: 'Okablowanie', en: 'Wiring' },
+  tab_keymap: { pl: 'Keymapa', en: 'Keymap' },
   template: { pl: 'Szablon', en: 'Template' },
   cell: { pl: 'Komórka klawisza', en: 'Key cell' },
   variant: { pl: 'Wariant', en: 'Variant' },
