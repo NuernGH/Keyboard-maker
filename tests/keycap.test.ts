@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, test } from 'vitest';
 import { makeBox, makeCylinder, measureVolume, type Shape3D } from 'replicad';
 import { initOC, cellStep, switchStep } from './oc';
 import { loadSwitch } from '../src/lib/switch-model';
-import { buildKeycap, buildCalibration, keycapHull, printPose } from '../src/lib/keycap';
+import { buildKeycap, buildCalibration, buildInsert, insertPinLen, insertPrintPose, keycapHull, printPose } from '../src/lib/keycap';
 import {
   CALIBRATION_CLEARANCES,
   DEFAULT_KEYCAP,
@@ -16,6 +16,10 @@ import {
   capType,
   capWarnings,
   topPreset,
+  orientPreset,
+  pressedCavityClear,
+  sideAngle,
+  SIDE,
   type KeycapParams,
 } from '../src/lib/keycap-spec';
 import { buildCase, buildWedge, cutMany, isValidShape, loadCell } from '../src/lib/geometry';
@@ -34,6 +38,21 @@ const vol = (s: Shape3D) => {
 };
 const meet = (a: Shape3D, b: Shape3D) => vol(a.clone().intersect(b.clone()) as Shape3D);
 const FLAT: KeycapParams = { ...DEFAULT_KEYCAP, ...topPreset('flat') };
+const sideOf = (p: KeycapParams, sideStem: KeycapParams['sideStem'] = 'insert'): KeycapParams => ({ ...p, ...orientPreset(p, 'side'), sideStem });
+/** Pole (mm²) powierzchni zwróconych w dół bardziej niż `lim` od pionu, powyżej `above` mm nad stołem. */
+function overhangArea(s: Shape3D, above: number, lim = 45): number {
+  const m = s.mesh({ tolerance: 0.02, angularTolerance: 0.1 });
+  const c = -Math.cos((lim * Math.PI) / 180) - 0.02;
+  let area = 0;
+  for (let i = 0; i < m.triangles.length; i += 3) {
+    const [a, b, d] = [0, 1, 2].map((j) => { const k = m.triangles[i + j]; return [m.vertices[3 * k], m.vertices[3 * k + 1], m.vertices[3 * k + 2]]; });
+    const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [d[0] - a[0], d[1] - a[1], d[2] - a[2]];
+    const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    const len = Math.hypot(...n);
+    if (len > 1e-12 && n[2] / len < c && Math.min(a[2], b[2], d[2]) > above) area += len / 2;
+  }
+  return area;
+}
 const place = (s: Shape3D, k: Key, x = k.x, y = k.y, dz = 0) => s.clone().rotate(k.rot, [0, 0, 0], [0, 0, 1]).translate(x, y, dz) as Shape3D;
 
 beforeAll(async () => {
@@ -243,4 +262,114 @@ describe('nakładki w Dactylu', () => {
     for (const k of m.keys)
       for (const dz of [0, -MX.travel]) expect(meet(capAt(k, dz), shell), `${k.id} ${dz}`).toBeLessThan(0.001);
   }, 600000);
+});
+
+describe('druk na boku (bez podpór)', () => {
+  test('parametry: zbieżność 22,5°, góra 11,9, ścianka 0,85, wnętrze mieści obudowę po wciśnięciu', () => {
+    for (const base of [DEFAULT_KEYCAP, FLAT]) {
+      const p = sideOf(base);
+      expect(sideAngle(p)).toBeCloseTo(SIDE.taper, 1);
+      expect(p.topSize).toBeCloseTo(11.87, 2);
+      expect(pressedCavityClear(p)).toBeGreaterThanOrEqual(0.3);
+      expect(capWarnings(p)).toEqual([]);
+      // nad otworem na bolec wkładki zostaje min. 0,4 mm góry
+      expect(p.topThickness - insertPinLen(p)).toBeGreaterThanOrEqual(0.4 - 1e-9);
+    }
+    // powrót do druku normalnego przywraca domyślną górę i ściankę
+    const back = { ...sideOf(DEFAULT_KEYCAP), ...orientPreset(sideOf(DEFAULT_KEYCAP), 'upright') };
+    expect(back.topSize).toBe(DEFAULT_KEYCAP.topSize);
+    expect(back.wall).toBe(DEFAULT_KEYCAP.wall);
+  });
+
+  test('kompletna nakładka (z wkładką) bez kolizji z MX w spoczynku i po wciśnięciu', async () => {
+    const sw = await loadSwitch({ step: switchStep(), up: '+Y' });
+    const housing = sw.clone().intersect(makeBox([-20, -20, -20], [20, 20, MX.housingTop])) as Shape3D;
+    for (const base of [DEFAULT_KEYCAP, FLAT]) {
+      const cap = buildKeycap(sideOf(base), capType({ w: 1, h: 1 }, 'cherry'));
+      expect(isValidShape(cap)).toBe(true);
+      expect(meet(cap, sw)).toBeLessThan(0.001);
+      const down = cap.clone().translate(0, 0, -MX.travel) as Shape3D;
+      const shell = cutMany(down.clone(), [makeCylinder(STEM.od / 2 + 0.01, 20, [0, 0, -5], [0, 0, 1])]);
+      expect(meet(shell, housing)).toBeLessThan(0.001);
+    }
+  }, 120000);
+
+  for (const [name, t] of [
+    ['1U', capType({ w: 1, h: 1 }, 'cherry')],
+    ['2,25U ze stabilizatorem', capType({ w: 2.25, h: 1 }, 'cherry')],
+    ['pionowa 2U, dwa MX', capType({ w: 1, h: 2 }, 'mx')],
+  ] as const)
+    test(`${name}: na boku leży płasko, wnętrze bez nawisów > 45° (B), żebra pod gniazdami (A)`, () => {
+      const pB = sideOf(DEFAULT_KEYCAP, 'insert');
+      const shell = printPose(pB, buildKeycap(pB, t, { sockets: 'holes' }), t);
+      expect(isValidShape(shell)).toBe(true);
+      expect(shell.boundingBox.bounds[0][2]).toBeCloseTo(0, 3);
+      // przednia (dłuższa) ścianka na stole: duża powierzchnia styku
+      const [bw, bh] = [t.w * PITCH - 1.05, t.h * PITCH - 1.05];
+      const foot = vol(shell.clone().intersect(makeBox([-99, -99, 0], [99, 99, 0.2])) as Shape3D) / 0.2;
+      expect(foot).toBeGreaterThan(0.6 * Math.max(bw, bh) * 7.4 * 0.85);
+      // nawisy tylko przy zaokrąglonych krawędziach tuż przy stole
+      expect(overhangArea(shell, 1.0)).toBeLessThan(0.05);
+      // A: żebro dochodzi do ścianki na stole i podpiera najniższą linię walca
+      const pA = sideOf(DEFAULT_KEYCAP, 'rib');
+      const withRib = buildKeycap(pA, t, { ribs: true });
+      const without = buildKeycap(pA, t);
+      expect(isValidShape(withRib)).toBe(true);
+      const ribVol = vol(withRib) - vol(without);
+      expect(ribVol).toBeGreaterThan(t.stems.length * SIDE.rib * 4 * 3);
+      // krzyż w gnieździe nadal wolny (żebro nie wchodzi do środka)
+      const L = capLevels(pA);
+      const c = pA.clearance;
+      const along = t.w >= t.h;
+      for (const s of t.stems) {
+        const [x, y] = along ? [s.d, 0] : [0, s.d];
+        const arm = makeBox([x - (MX.crossLen + c) / 2 + 0.02, y - 0.3, L.stemBottom], [x + (MX.crossLen + c) / 2 - 0.02, y + 0.3, L.socketTop - 0.02]);
+        const arm2 = makeBox([x - 0.3, y - (MX.crossLen + c) / 2 + 0.02, L.stemBottom], [x + 0.3, y + (MX.crossLen + c) / 2 - 0.02, L.socketTop - 0.02]);
+        expect(meet(withRib, arm) + meet(withRib, arm2)).toBeLessThan(0.001);
+      }
+      // A w pozycji druku: najniższy punkt walca gniazda podparty (tuż pod nim jest materiał żebra)
+      const posed = printPose(pA, withRib, t);
+      expect(posed.boundingBox.bounds[0][2]).toBeCloseTo(0, 3);
+    }, 300000);
+
+  test('wkładka B: krzyż z luzem, bolec D pasuje w otwór, wkładka drukuje się bez podpór', () => {
+    const p = sideOf(DEFAULT_KEYCAP);
+    const L = capLevels(p);
+    const ins = buildInsert(p);
+    expect(isValidShape(ins)).toBe(true);
+    // złożona: wkładka w otworze skorupy nie zachodzi na skorupę (luz bolca), a razem dają kompletną nakładkę
+    const t = capType({ w: 1, h: 1 }, 'cherry');
+    const shell = buildKeycap(p, t, { sockets: 'holes' });
+    expect(meet(shell, ins)).toBeLessThan(0.001);
+    const full = buildKeycap(p, t);
+    const assembled = vol(shell) + vol(ins);
+    // pełna nakładka i złożenie różnią się tylko bolcem i luzem w otworze
+    expect(Math.abs(assembled - vol(full))).toBeLessThan(5);
+    // krzyż wolny na całej głębokości
+    const c = p.clearance;
+    const arm = makeBox([-(MX.crossLen + c) / 2 + 0.02, -(MX.crossX + c) / 2 + 0.02, L.stemBottom], [(MX.crossLen + c) / 2 - 0.02, (MX.crossX + c) / 2 - 0.02, L.socketTop - 0.02]);
+    expect(meet(ins, arm)).toBeLessThan(0.001);
+    const posed = insertPrintPose(p, ins);
+    expect(posed.boundingBox.bounds[0][2]).toBeCloseTo(0, 3);
+    // jedyne powierzchnie w dół to sufit krzyża (mostek ok. 1,5 mm) i stopień sfazowania wejścia
+    expect(overhangArea(posed, 0.05)).toBeLessThan(20);
+  });
+
+  test('wkładka B w pionowej nakładce: otwór D obrócony do stołu, wkładka „obrócona” daje krzyż zwykłego MX', () => {
+    const p = sideOf(DEFAULT_KEYCAP);
+    const L = capLevels(p);
+    const t = capType({ w: 1, h: 2 }, 'mx');
+    const shell = buildKeycap(p, t, { sockets: 'holes' });
+    const c = p.clearance;
+    for (const s of t.stems) {
+      // wkładka obrócona (krzyż o 90°) włożona w otwór obrócony o −90°
+      const ins = buildInsert(p, true).rotate(-90, [0, 0, 0], [0, 0, 1]).translate(0, s.d, 0) as Shape3D;
+      expect(meet(shell, ins)).toBeLessThan(0.001);
+      // ramię wzdłuż X wolne na grubość zwykłego MX, a tuż obok jest już materiał (krzyż nie jest obrócony)
+      const free = makeBox([-(MX.crossLen + c) / 2 + 0.02, s.d - (MX.crossX + c) / 2 + 0.02, L.stemBottom + 0.5], [(MX.crossLen + c) / 2 - 0.02, s.d + (MX.crossX + c) / 2 - 0.02, L.socketTop - 0.1]);
+      expect(meet(ins, free)).toBeLessThan(0.001);
+      const side = makeBox([-1.5, s.d + (MX.crossX + c) / 2 + 0.03, L.stemBottom + 0.5], [1.5, s.d + (MX.crossY + c) / 2 - 0.03, L.socketTop - 0.1]);
+      expect(meet(ins, side)).toBeGreaterThan(0.01);
+    }
+  });
 });

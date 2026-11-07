@@ -5,7 +5,7 @@ import wasmUrl from 'replicad-opencascadejs/wasm?url';
 import { setOC, importSTEP, type Shape3D } from 'replicad';
 import { buildPlate, buildCase, buildWedge, screwPilots, loadCell, platePiece, casePiece, type Cell } from '../lib/geometry';
 import type { Request, Response, BuildInput, DactylInput, KeycapInput } from './protocol';
-import { buildKeycap, buildCalibration, printPose } from '../lib/keycap';
+import { buildKeycap, buildCalibration, buildInsert, insertPrintPose, printPose } from '../lib/keycap';
 import { buildDactyl } from '../lib/dactyl';
 import { buildDactylShell, buildDactylBottom } from '../lib/dactyl-geometry';
 import { controllerHolder } from '../lib/dactyl-parts';
@@ -120,9 +120,13 @@ async function keycapFor(input: KeycapInput): Promise<Shape3D> {
   if (hit) return hit;
   await init();
   let shape: Shape3D;
-  if (!input.cap) shape = buildCalibration(input.params);
-  else if (input.pose === 'print') shape = printPose(input.params, await keycapFor({ ...input, pose: 'rest' }));
-  else shape = buildKeycap(input.params, input.cap);
+  const p = input.params;
+  if (input.pose === 'insert' || input.pose === 'insert-turned') shape = insertPrintPose(p, buildInsert(p, input.pose === 'insert-turned'));
+  else if (!input.cap) shape = buildCalibration(p);
+  else if (input.pose === 'print' && p.orient === 'side')
+    shape = printPose(p, buildKeycap(p, input.cap, p.sideStem === 'rib' ? { ribs: true } : { sockets: 'holes' }), input.cap);
+  else if (input.pose === 'print') shape = printPose(p, await keycapFor({ ...input, pose: 'rest' }));
+  else shape = buildKeycap(p, input.cap);
   remember(key, shape);
   return shape;
 }

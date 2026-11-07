@@ -9,11 +9,14 @@ import type { ControllerParams } from '../lib/dactyl-parts';
 import type { ScrewSize } from '../lib/case';
 import type { CapType, KeycapParams } from '../lib/keycap-spec';
 
-/** Nakładka (albo plik kalibracji luzu, gdy `cap` = null): w spoczynku na przełączniku albo ustawiona do druku. */
+/**
+ * Nakładka (albo plik kalibracji luzu, gdy `cap` = null): w spoczynku na przełączniku, ustawiona do druku
+ * albo wkładka z krzyżem do druku na boku (wariant B; `insert-turned` = krzyż obrócony o 90°).
+ */
 export interface KeycapInput {
   params: KeycapParams;
   cap: CapType | null;
-  pose: 'rest' | 'print';
+  pose: 'rest' | 'print' | 'insert' | 'insert-turned';
 }
 
 /** Dactyl: skorupa albo dno jednej połówki. Model liczymy dla prawej, lewa to lustro. */

@@ -14,6 +14,7 @@
     capLevels,
     capSet,
     capWarnings,
+    orientPreset,
     topPreset,
     type CapType,
     type KeycapParams,
@@ -65,6 +66,17 @@
       orientNoteFlat: 'Do druku: płaską górą na stole (do góry nogami), bez podpór.',
       stemsNote: 'Gniazda jak w płycie: stabilizator Cherry daje 3 gniazda, „dwa MX” tam, gdzie stoją przełączniki.',
       legendLater: 'Legendy dojdą w kolejnych etapach.',
+      orient: 'Druk',
+      upright: 'normalnie (misa do góry, płaska do góry nogami)',
+      side: 'na bocznej ściance, bez podpór',
+      sideStem: 'Gniazdo przy druku na boku',
+      rib: 'A: żebro do odłamania',
+      insert: 'B: wkładka wklejana',
+      orientNoteSide: 'Do druku: przednią ścianką na stole. Boki mają zbieżność 22,5°, więc wnętrze ma nawis 45° i nie potrzebuje podpór.',
+      ribNote: 'Pod każdym gniazdem cienkie żebro (0,6 mm) do ścianki na stole. Po druku odłam je kombinerkami i wygładź walec: po wciśnięciu żebro uderzyłoby w przełącznik.',
+      insertNote: 'Gniazda drukują się osobno jako wkładki (wejściem krzyża na stole). Wciśnij bolec z płaską ścianką w otwór w suficie nakładki i przyklej klejem CA; płaska ścianka ustawia krzyż.',
+      inserts: 'wkładki',
+      capSideOverhang: 'Boki mają mniejszą zbieżność niż 22,5°: wnętrze będzie miało nawis większy niż 45°. Zmniejsz bok góry albo wysokość.',
       levels: 'Dolna krawędź {z0} mm nad płytą (po wciśnięciu {zp} mm), góra {top} mm.',
       computing: 'Liczę…',
       capTooTall: 'Za wysoka: dolna krawędź po wciśnięciu uderzyłaby w kołnierz przełącznika. Przycięto do {h} mm.',
@@ -96,6 +108,17 @@
       orientNoteFlat: 'For printing: flat top on the bed (upside down), no supports.',
       stemsNote: 'Stems follow the plate: Cherry stabilizer gives 3 stems, "two MX" puts them where the switches are.',
       legendLater: 'Legends come in the next stages.',
+      orient: 'Printing',
+      upright: 'upright (dish up, flat upside down)',
+      side: 'on its side, no supports',
+      sideStem: 'Stem when printed on its side',
+      rib: 'A: break-off rib',
+      insert: 'B: glued-in insert',
+      orientNoteSide: 'For printing: front face on the bed. Sides taper at 22.5°, so the cavity roof is a 45° overhang and needs no supports.',
+      ribNote: 'A thin rib (0.6 mm) under every stem down to the wall on the bed. Break it off with pliers after printing and smooth the stem: it would hit the switch when pressed.',
+      insertNote: 'Stems print separately as inserts (cross opening on the bed). Push the D-shaped pin into the hole in the cap ceiling and glue with CA; the flat orients the cross.',
+      inserts: 'inserts',
+      capSideOverhang: 'Sides taper less than 22.5°: the cavity roof overhang will exceed 45°. Reduce the top size or height.',
       levels: 'Bottom edge {z0} mm above plate ({zp} mm when pressed), top {top} mm.',
       computing: 'Computing…',
       capTooTall: 'Too tall: the bottom edge would hit the switch flange when pressed. Clamped to {h} mm.',
@@ -148,7 +171,27 @@
   function onTop(e: Event) {
     const top = (e.currentTarget as HTMLSelectElement).value as KeycapParams['top'];
     Object.assign(params, topPreset(top));
+    if (params.orient === 'side') Object.assign(params, orientPreset(snap(), 'side'));
   }
+  function onOrient(e: Event) {
+    Object.assign(params, orientPreset(snap(), (e.currentTarget as HTMLSelectElement).value as KeycapParams['orient']));
+  }
+  /**
+   * wkładki (wariant B): zwykłe i z krzyżem obróconym o 90° względem bolca D. Pionowa nakładka ma otwory D
+   * obrócone o 90° (płaskie D w stronę stołu), więc zwykły trzpień potrzebuje wkładki obróconej,
+   * a trzpień stabilizatora (krzyż już obrócony) zwykłej.
+   */
+  const inserts = $derived.by(() => {
+    let plain = 0;
+    let turned = 0;
+    for (const { type, count } of set)
+      for (const s of type.stems) {
+        if (type.h > type.w && !s.stab) turned += count;
+        else plain += count;
+      }
+    return { plain, turned };
+  });
+  const sideInsert = $derived(params.orient === 'side' && params.sideStem === 'insert');
 
   async function exportAll(format: 'stl' | 'step') {
     busy = true;
@@ -159,6 +202,12 @@
         const data = await client().keycapExport(input(type, 'print'), format);
         files.push({ name: `${fileBase}-keycap-${type.id}-x${count}.${format}`, data: new Uint8Array(data) });
       }
+      if (sideInsert)
+        for (const [pose, n, name] of [['insert', inserts.plain, 'stem-insert'], ['insert-turned', inserts.turned, 'stem-insert-turned']] as const)
+          if (n > 0) {
+            const data = await client().keycapExport({ params: snap(), cap: null, pose }, format);
+            files.push({ name: `${fileBase}-${name}-x${n}.${format}`, data: new Uint8Array(data) });
+          }
       await save(`${fileBase}-keycaps-${format}.zip`, await zipStore(files).arrayBuffer());
     } catch (e) {
       error = (e as Error).message;
@@ -189,6 +238,20 @@
       <option value="flat">{tx('flat')}</option>
     </select>
   </label>
+  <label>{tx('orient')}
+    <select value={params.orient} onchange={onOrient}>
+      <option value="upright">{tx('upright')}</option>
+      <option value="side">{tx('side')}</option>
+    </select>
+  </label>
+  {#if params.orient === 'side'}
+    <label>{tx('sideStem')}
+      <select bind:value={params.sideStem}>
+        <option value="rib">{tx('rib')}</option>
+        <option value="insert">{tx('insert')}</option>
+      </select>
+    </label>
+  {/if}
   <label data-tip={tx('tipHeight')}>{tx('height')}
     <input type="number" min="4" max="10" step="0.1" bind:value={params.height} />
   </label>
@@ -229,7 +292,12 @@
     <button disabled={busy} onclick={() => exportAll('stl')}>STL · {tx('exportAll')}</button>
     <button disabled={busy} onclick={() => exportAll('step')}>STEP</button>
   </div>
-  <p class="muted">{tx(params.top === 'flat' ? 'orientNoteFlat' : 'orientNoteDish')}</p>
+  {#if sideInsert}<p class="muted">{tx('inserts')}: {inserts.plain + inserts.turned} {tx('pcs')}</p>{/if}
+  {#if params.orient === 'side'}
+    <p class="muted">{tx('orientNoteSide')} {tx(params.sideStem === 'rib' ? 'ribNote' : 'insertNote')}</p>
+  {:else}
+    <p class="muted">{tx(params.top === 'flat' ? 'orientNoteFlat' : 'orientNoteDish')}</p>
+  {/if}
   <div class="row">
     <button disabled={busy} onclick={() => exportCalibration('stl')}>STL · {tx('calibration')}</button>
     <button disabled={busy} onclick={() => exportCalibration('step')}>STEP</button>
