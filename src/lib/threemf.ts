@@ -82,8 +82,18 @@ export function packOnBed(sizes: { w: number; h: number }[], bedX: number, bedY:
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const n = (v: number) => (Math.round(v * 1e5) / 1e5).toString();
 
-/** Plik 3MF (ZIP) z obiektami na stole. */
-export async function build3mf(objects: BedObject[], app = 'Keyboard-maker'): Promise<Blob> {
+/** Zakres wysokości warstwy dla slicera (mm nad stołem), jak „Height range modifier” w QIDI Studio / Orca. */
+export interface LayerRange {
+  minZ: number;
+  maxZ: number;
+  layerHeight: number;
+}
+
+/**
+ * Plik 3MF (ZIP) z obiektami na stole. `ranges` = te same zakresy warstw dla każdego obiektu
+ * (Metadata/layer_config_ranges.xml; wieża czyszcząca wymaga jednakowych warstw we wszystkich obiektach).
+ */
+export async function build3mf(objects: BedObject[], app = 'Keyboard-maker', ranges: LayerRange[] = []): Promise<Blob> {
   const model: string[] = [];
   const config: string[] = [];
   const build: string[] = [];
@@ -94,6 +104,8 @@ export async function build3mf(objects: BedObject[], app = 'Keyboard-maker'): Pr
     ' <resources>',
   );
   config.push('<?xml version="1.0" encoding="UTF-8"?>\n<config>');
+  const layers: string[] = ['<?xml version="1.0" encoding="UTF-8"?>\n<objects>'];
+  let index = 0;
   for (const o of objects) {
     const partIds: number[] = [];
     for (const p of o.parts) {
@@ -122,7 +134,16 @@ export async function build3mf(objects: BedObject[], app = 'Keyboard-maker'): Pr
       );
     });
     config.push('  </object>');
+    // numer obiektu w kolejności modelu (od 1), tak czytają go slicery z rodziny PrusaSlicer
+    index++;
+    if (ranges.length) {
+      layers.push(` <object id="${index}">`);
+      for (const r of ranges)
+        layers.push(`  <range min_z="${n(r.minZ)}" max_z="${n(r.maxZ)}">`, `   <option opt_key="layer_height">${n(r.layerHeight)}</option>`, '  </range>');
+      layers.push(' </object>');
+    }
   }
+  layers.push('</objects>');
   model.push(' </resources>', ' <build>', ...build, ' </build>', '</model>');
   config.push('</config>');
   const enc = (s: string) => new TextEncoder().encode(s) as Uint8Array<ArrayBuffer>;
@@ -134,7 +155,7 @@ export async function build3mf(objects: BedObject[], app = 'Keyboard-maker'): Pr
           '<?xml version="1.0" encoding="UTF-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
             '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
             '<Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>' +
-            '<Default Extension="config" ContentType="text/xml"/></Types>',
+            '<Default Extension="config" ContentType="text/xml"/><Default Extension="xml" ContentType="text/xml"/></Types>',
         ),
       },
       {
@@ -146,6 +167,7 @@ export async function build3mf(objects: BedObject[], app = 'Keyboard-maker'): Pr
       },
       { name: '3D/3dmodel.model', data: enc(model.join('\n')) },
       { name: 'Metadata/model_settings.config', data: enc(config.join('\n')) },
+      ...(ranges.length ? [{ name: 'Metadata/layer_config_ranges.xml', data: enc(layers.join('\n')) }] : []),
     ],
     'model/3mf',
   );

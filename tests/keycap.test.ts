@@ -24,6 +24,7 @@ import {
   socketCross,
   stemOd,
   type KeycapParams,
+  skirtToSocketHeight,
 } from '../src/lib/keycap-spec';
 import { buildCase, buildWedge, cutMany, isValidShape, loadCell } from '../src/lib/geometry';
 import { ANSI_60, PITCH, SPLIT_4x6_4, TEMPLATES, keyCorners, polysOverlap, splitLeft, switchSpots, type Key } from '../src/lib/layout';
@@ -119,6 +120,18 @@ describe('nakładka: wymiary', () => {
     // ścianka walca gniazda istnieje (nie przebita przez krzyż)
     const ring = makeCylinder(OD / 2 - 0.05, 2, [0, 0, 8], [0, 0, 1]).cut(makeCylinder(2.4, 2, [0, 0, 8], [0, 0, 1])) as Shape3D;
     expect(meet(cap, ring) / vol(ring)).toBeGreaterThan(0.5);
+  });
+
+  test('kołnierz do gniazda: bryła poprawna, walec gniazda zaczyna się na stole', () => {
+    const p = { ...DEFAULT_KEYCAP, height: skirtToSocketHeight(DEFAULT_KEYCAP) };
+    for (const w of [1, 2.25]) {
+      const cap = printPose(p, buildKeycap(p, capType({ w, h: 1 }, 'cherry')));
+      expect(isValidShape(cap)).toBe(true);
+      expect(cap.boundingBox.bounds[0][2]).toBeCloseTo(0, 3);
+      // pierścień walca tuż nad stołem ma materiał
+      const ring = makeCylinder(OD / 2 - 0.05, 0.2, [0, 0, 0.01], [0, 0, 1]).cut(makeCylinder(2.4, 0.2, [0, 0, 0.01], [0, 0, 1])) as Shape3D;
+      if (w === 1) expect(meet(cap, ring) / vol(ring)).toBeGreaterThan(0.5);
+    }
   });
 
   test('ustawienie do druku: misa na krawędzi, płaska do góry nogami; obie leżą na z = 0', () => {

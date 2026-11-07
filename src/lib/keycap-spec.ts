@@ -83,6 +83,11 @@ export interface KeycapParams {
   legend?: LegendParams & { method: LegendMethod };
   /** teksty legend klawiszy, klucz `${strona}:${id}` */
   legends?: LegendMap;
+  /**
+   * wysokość drobnych warstw góry z misą w pliku 3MF (mm, 0 = wyłączone): zakres warstw zapisany dla
+   * slicera (QIDI Studio / OrcaSlicer / Bambu Studio), reszta nakładki drukuje się warstwą z profilu
+   */
+  fineLayer?: number;
 }
 
 /**
@@ -106,6 +111,9 @@ export function stemOd(p: Pick<KeycapParams, 'socket'>): number {
   return p.socket === 'proven' ? PROVEN_SOCKET.od : STEM.od;
 }
 
+/** Domyślna drobna warstwa góry w 3MF (mm). */
+export const FINE_LAYER = 0.08;
+
 export const DEFAULT_KEYCAP: KeycapParams = {
   top: 'dish',
   height: 7.4,
@@ -121,6 +129,7 @@ export const DEFAULT_KEYCAP: KeycapParams = {
   socket: 'proven',
   legend: { ...DEFAULT_LEGEND, method: 'color' },
   legends: {},
+  fineLayer: FINE_LAYER,
 };
 
 /**
@@ -176,8 +185,23 @@ export function layoutKeyLegends(font: Font, set: LegendSet, p: KeycapParams, w:
 
 /** Parametry nakładki bez tekstów legend (kształt nie zależy od nich: klucz pamięci podręcznej siatek typów). */
 export function shapeParams(p: KeycapParams): KeycapParams {
-  const { legends: _l, ...rest } = p;
+  const { legends: _l, fineLayer: _f, ...rest } = p;
   return rest;
+}
+
+/**
+ * Zakres drobnych warstw w pozycji druku (mm nad stołem): od najgłębszego rowka legendy pod dnem misy
+ * (zaokrąglone w dół do `base`, typowej warstwy 0,2) do wierzchu nakładki. Tylko misa drukowana do góry;
+ * płaska góra leży na stole, a na boku misa jest pionowa.
+ */
+export function fineLayerRange(p: KeycapParams, base = 0.2): { minZ: number; maxZ: number; layerHeight: number } | null {
+  const h = p.fineLayer ?? FINE_LAYER;
+  if (!(h > 0) || p.orient === 'side' || p.top !== 'dish') return null;
+  const L = capLevels(p);
+  const depth = legendMethod(p) === 'color' ? 0 : (p.legend?.depth ?? DEFAULT_LEGEND.depth);
+  const low = L.topLow - depth - L.z0;
+  const minZ = Math.max(0, Math.floor(low / base + 1e-6) * base);
+  return { minZ: Math.round(minZ * 1000) / 1000, maxZ: Math.round((L.topEdge - L.z0) * 1000) / 1000, layerHeight: h };
 }
 
 /** Druk na boku: zbieżność boków (stopnie) i ścianka równoległa do zewnętrznej, by sufit wnętrza miał nawis 45°. */
@@ -263,6 +287,15 @@ export function capLevels(p: KeycapParams): CapLevels {
     height,
     maxHeight,
   };
+}
+
+/**
+ * Wysokość, przy której dolna krawędź jest na równi z wejściem gniazda (spodem walca): w druku misą do góry
+ * gniazdo zaczyna się od stołu, bez podpór. W spoczynku krawędź kończy się wtedy nad wierzchem obudowy MX.
+ */
+export function skirtToSocketHeight(p: KeycapParams): number {
+  const L = capLevels(p);
+  return Math.round((L.topEdge - L.stemBottom) * 100) / 100;
 }
 
 /** Rozmiar nakładki: spód (mm) dla klawisza w × h U. */

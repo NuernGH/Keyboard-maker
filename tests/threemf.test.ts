@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { inflateRawSync } from 'node:zlib';
 import { build3mf, packOnBed, weld } from '../src/lib/threemf';
+import { DEFAULT_KEYCAP, capLevels, fineLayerRange, skirtToSocketHeight } from '../src/lib/keycap-spec';
 
 /** pliki z ZIP-a (store albo deflate) */
 function unzip(buf: Uint8Array): Record<string, string> {
@@ -72,5 +73,46 @@ describe('3MF dla AMS', () => {
     const cfg = files['Metadata/model_settings.config'];
     expect(cfg).toMatch(/<object id="3">[\s\S]*<part id="1" subtype="normal_part">[\s\S]*key="extruder" value="1"[\s\S]*<part id="2" subtype="normal_part">[\s\S]*key="name" value="Q – litery"\/>\s*<metadata key="extruder" value="2"\/>/);
     expect(cfg).toMatch(/<object id="5">[\s\S]*<part id="4"/);
+  });
+
+  test('drobne warstwy: ten sam zakres dla każdego obiektu w layer_config_ranges.xml', async () => {
+    const r = { minZ: 6, maxZ: 7.4, layerHeight: 0.08 };
+    const blob = await build3mf(
+      [
+        { name: 'A', x: 20, y: 30, parts: [{ name: 'A', extruder: 1, ...cube(10) }, { name: 'A – litery', extruder: 2, ...cube(2) }] },
+        { name: 'B', x: 50, y: 30, parts: [{ name: 'B', extruder: 1, ...cube(10) }] },
+      ],
+      undefined,
+      [r],
+    );
+    const files = unzip(new Uint8Array(await blob.arrayBuffer()));
+    const xml = files['Metadata/layer_config_ranges.xml'];
+    expect(xml).toBeDefined();
+    // numery obiektów w kolejności (od 1), nie identyfikatory zasobów
+    expect((xml.match(/<object id="\d+">/g) ?? [])).toEqual(['<object id="1">', '<object id="2">']);
+    expect((xml.match(/<range min_z="6" max_z="7.4">\s*<option opt_key="layer_height">0.08<\/option>/g) ?? []).length).toBe(2);
+  });
+
+  test('zakres drobnych warstw: od rowka pod dnem misy do wierzchu, tylko misa do góry', () => {
+    const L = capLevels(DEFAULT_KEYCAP);
+    const r = fineLayerRange(DEFAULT_KEYCAP)!;
+    expect(r.layerHeight).toBe(0.08);
+    expect(r.maxZ).toBeCloseTo(L.topEdge - L.z0, 3);
+    expect(r.minZ).toBeLessThanOrEqual(L.topLow - 0.6 - L.z0 + 1e-6);
+    expect(r.minZ).toBeGreaterThan(L.topLow - 0.6 - L.z0 - 0.2);
+    expect(Math.abs(r.minZ / 0.2 - Math.round(r.minZ / 0.2))).toBeLessThan(1e-6);
+    expect(fineLayerRange({ ...DEFAULT_KEYCAP, top: 'flat' })).toBeNull();
+    expect(fineLayerRange({ ...DEFAULT_KEYCAP, orient: 'side' })).toBeNull();
+    expect(fineLayerRange({ ...DEFAULT_KEYCAP, fineLayer: 0 })).toBeNull();
+    // starsze projekty bez pola: domyślne 0,08
+    expect(fineLayerRange({ ...DEFAULT_KEYCAP, fineLayer: undefined })?.layerHeight).toBe(0.08);
+  });
+
+  test('kołnierz do gniazda: krawędź na równi ze spodem walca gniazda, bez przycięcia wysokości', () => {
+    const h = skirtToSocketHeight(DEFAULT_KEYCAP);
+    expect(h).toBeCloseTo(6.55, 2);
+    const L = capLevels({ ...DEFAULT_KEYCAP, height: h });
+    expect(L.height).toBeCloseTo(h, 6);
+    expect(L.z0).toBeCloseTo(L.stemBottom, 2);
   });
 });
