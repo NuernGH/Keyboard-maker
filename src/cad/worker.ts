@@ -5,7 +5,7 @@ import wasmUrl from 'replicad-opencascadejs/wasm?url';
 import { setOC, importSTEP, type Shape3D } from 'replicad';
 import { buildPlate, buildCase, buildWedge, screwPilots, loadCell, platePiece, casePiece, type Cell } from '../lib/geometry';
 import type { Request, Response, BuildInput, DactylInput, KeycapInput } from './protocol';
-import { buildKeycap, buildCalibration, buildInsert, insertPrintPose, printPose } from '../lib/keycap';
+import { applyLegend, buildKeycap, buildCalibration, buildInsert, insertPrintPose, printPose } from '../lib/keycap';
 import { buildDactyl } from '../lib/dactyl';
 import { buildDactylShell, buildDactylBottom } from '../lib/dactyl-geometry';
 import { controllerHolder } from '../lib/dactyl-parts';
@@ -121,11 +121,15 @@ async function keycapFor(input: KeycapInput): Promise<Shape3D> {
   await init();
   let shape: Shape3D;
   const p = input.params;
+  const lg = input.legend;
+  const withLegend = (s: Shape3D) => (lg && input.cap ? applyLegend(p, input.cap, s, lg) : s);
   if (input.pose === 'insert' || input.pose === 'insert-turned') shape = insertPrintPose(p, buildInsert(p, input.pose === 'insert-turned'));
   else if (!input.cap) shape = buildCalibration(p);
   else if (input.pose === 'print' && p.orient === 'side')
-    shape = printPose(p, buildKeycap(p, input.cap, p.sideStem === 'rib' ? { ribs: true } : { sockets: 'holes' }), input.cap);
-  else if (input.pose === 'print') shape = printPose(p, await keycapFor({ ...input, pose: 'rest' }));
+    shape = printPose(p, withLegend(buildKeycap(p, input.cap, p.sideStem === 'rib' ? { ribs: true } : { sockets: 'holes' })), input.cap);
+  // wypukła legenda w kolorze: druk górą do góry (zmiana filamentu na wysokości góry nakładki)
+  else if (input.pose === 'print') shape = printPose(p, await keycapFor({ ...input, pose: 'rest' }), input.cap, lg?.method === 'color' && lg.contours.length > 0);
+  else if (lg) shape = withLegend(await keycapFor({ ...input, legend: undefined }));
   else shape = buildKeycap(p, input.cap);
   remember(key, shape);
   return shape;

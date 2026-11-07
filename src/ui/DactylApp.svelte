@@ -12,8 +12,12 @@
   import { t, type Lang } from './i18n';
   import WiringPanel from './WiringPanel.svelte';
   import KeycapPanel from './KeycapPanel.svelte';
+  import LegendPanel from './LegendPanel.svelte';
+  import { legendRef, type PlacedLegend } from '../lib/legend';
   import { DEFAULT_KEYCAP, capType, type KeycapParams } from '../lib/keycap-spec';
   import ProjectBar from './ProjectBar.svelte';
+  import Tabs from './Tabs.svelte';
+  import { PANEL_TABS, type PanelTab } from './tabs';
   import { makeProject, mergeDefaults, type DactylProject, type ProjectFile } from '../lib/project';
   import { dactylWiringInput } from '../lib/wiring-doc';
   import Tooltip from './Tooltip.svelte';
@@ -171,6 +175,10 @@
   let floor = $state(pick(i0?.floor, isNum, 4));
   let screwSize = $state<ScrewSize>(pick(i0?.screwSize, (x) => x === 'M3' || x === 'M2.5', 'M3'));
   let explode = $state(pick(i0?.explode, isNum, 20));
+  let tab = $state<PanelTab>('keyboard');
+  $effect(() => {
+    if (tab === 'keycaps') showCaps = true;
+  });
   let showCaps = $state(pick(i0?.showCaps, isBool, true));
   const dactylProject = (): ProjectFile =>
     makeProject('dactyl', {
@@ -186,7 +194,8 @@
       keycap: $state.snapshot(keycap),
     });
   /** nakładki: profil i siatki typów (gdy są, podgląd pokazuje prawdziwe nakładki zamiast uproszczonych) */
-  let keycap = $state<KeycapParams>(i0 ? mergeDefaults(DEFAULT_KEYCAP, i0.keycap) : { ...DEFAULT_KEYCAP });
+  let keycap = $state<KeycapParams>(i0 ? mergeDefaults(DEFAULT_KEYCAP, i0.keycap) : structuredClone(DEFAULT_KEYCAP));
+  let capLabels = $state<Record<string, PlacedLegend[]>>({});
   let capMeshes = $state<Record<string, PreviewMesh>>({});
   /** rozmiar nakładki klawisza Dactyla w U: szeroki mały palec 1,5U wzdłuż X, górne klawisze kciuka 1,5U wzdłuż Y */
   const capSize = (m: DactylModel, k: DactylModel['keys'][number]) => ({
@@ -617,6 +626,9 @@
       <ProjectBar {lang} name={`dactyl-${p.rows}x${p.cols}`} get={dactylProject} onLoad={onProject} />
     </section>
 
+    <Tabs tabs={PANEL_TABS.map((id) => ({ id, label: t(lang, `tab_${id}` as const) }))} bind:value={tab} />
+
+    {#if tab === 'keyboard'}
     <section>
       <h2>{t(lang, 'template')}</h2>
       <select value="dactyl" onchange={(e) => onTemplate(e.currentTarget.value)} aria-label={t(lang, 'template')}>
@@ -749,12 +761,15 @@
       {/each}
       <p class="muted">{tx('slow')}</p>
     </section>
+    {/if}
 
     {#if model}
       {@const m = model}
+      {#if tab === 'keycaps'}
       <KeycapPanel
         {lang}
         keys={[...m.keys, ...m.keys].map((k) => capSize(m, k))}
+        refs={[...m.keys.map((k) => legendRef('left', k.id)), ...m.keys.map((k) => legendRef('right', k.id))]}
         stabs="none"
         client={() => client}
         fileBase={`dactyl-${p.rows}x${p.cols}`}
@@ -763,7 +778,16 @@
         bind:show={showCaps}
         bind:meshes={capMeshes}
       />
+      <LegendPanel
+        {lang}
+        keys={[...m.keys, ...m.keys].map((k) => capSize(m, k))}
+        refs={[...m.keys.map((k) => legendRef('left', k.id)), ...m.keys.map((k) => legendRef('right', k.id))]}
+        bind:params={keycap}
+        bind:labels={capLabels}
+      />
+      {:else if tab === 'wiring'}
       <WiringPanel {lang} input={() => dactylWiringInput({ model: m, controller: ctrlOn ? ctrl.controller : null, hotswap: variant === 'hotswap', lang })} fileBase={`dactyl-${p.rows}x${p.cols}`} save={saveFile} />
+      {/if}
     {/if}
 
     <footer class="muted">

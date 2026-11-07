@@ -9,12 +9,19 @@
   import type { CadClient } from '../cad/client';
   import type { PreviewMesh } from './Preview.svelte';
   import { zipStore } from '../lib/zip';
+  import { hasLegend, keyLegendContours, DEFAULT_LEGEND } from '../lib/legend';
+  import type { KeycapLegend } from '../lib/keycap';
+  import { legendFont } from './font';
   import {
     CALIBRATION_CLEARANCES,
     capLevels,
     capSet,
+    capTop,
+    capType,
     capWarnings,
+    legendMethod,
     orientPreset,
+    shapeParams,
     topPreset,
     type CapType,
     type KeycapParams,
@@ -23,6 +30,7 @@
   let {
     lang,
     keys,
+    refs = [],
     stabs,
     client,
     fileBase,
@@ -33,6 +41,8 @@
   }: {
     lang: Lang;
     keys: { w: number; h: number }[];
+    /** identyfikatory klawiszy do legend, w kolejności `keys` */
+    refs?: string[];
     stabs: 'cherry' | 'mx' | 'none';
     client: () => CadClient;
     fileBase: string;
@@ -69,7 +79,6 @@
       orientNoteDish: 'Do druku: misa do góry, dolną krawędzią na stole; gniazdo wisi w środku, więc włącz podpory w slicerze (podpory w generatorze w etapie 4).',
       orientNoteFlat: 'Do druku: płaską górą na stole (do góry nogami), bez podpór.',
       stemsNote: 'Gniazda jak w płycie: stabilizator Cherry daje 3 gniazda, „dwa MX” tam, gdzie stoją przełączniki.',
-      legendLater: 'Legendy dojdą w kolejnych etapach.',
       orient: 'Druk',
       upright: 'normalnie (misa do góry, płaska do góry nogami)',
       side: 'na bocznej ściance, bez podpór',
@@ -115,7 +124,6 @@
       orientNoteDish: 'For printing: dish up, bottom edge on the bed; the stem hangs inside, so enable supports in the slicer (generator supports come in stage 4).',
       orientNoteFlat: 'For printing: flat top on the bed (upside down), no supports.',
       stemsNote: 'Stems follow the plate: Cherry stabilizer gives 3 stems, "two MX" puts them where the switches are.',
-      legendLater: 'Legends come in the next stages.',
       orient: 'Printing',
       upright: 'upright (dish up, flat upside down)',
       side: 'on its side, no supports',
@@ -149,7 +157,8 @@
   let busy = $state(false);
   let error = $state('');
 
-  const snap = () => $state.snapshot(params) as KeycapParams;
+  /** parametry kształtu (bez tekstów legend): siatki typów nie zależą od legend */
+  const snap = () => shapeParams($state.snapshot(params) as KeycapParams);
   const input = (cap: CapType | null, pose: 'rest' | 'print') => ({ params: snap(), cap: cap ? ($state.snapshot(cap) as CapType) : null, pose });
 
   // siatki typów do podglądu: po krótkiej przerwie od ostatniej zmiany
@@ -201,15 +210,46 @@
   });
   const sideInsert = $derived(params.orient === 'side' && params.sideStem === 'insert');
 
+  /** nazwa pliku z tekstu legendy (bez znaków niedozwolonych w nazwach plików) */
+  const safe = (v: string) => v.replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 24) || 'x';
+
   async function exportAll(format: 'stl' | 'step') {
     busy = true;
     error = '';
     try {
       const files: { name: string; data: Uint8Array<ArrayBuffer> }[] = [];
-      for (const { type, count } of set) {
-        const data = await client().keycapExport(input(type, 'print'), format);
-        files.push({ name: `${fileBase}-keycap-${type.id}-x${count}.${format}`, data: new Uint8Array(data) });
-      }
+      const map = params.legends ?? {};
+      const withText = refs.map((r, i) => (hasLegend(map[r]) ? i : -1)).filter((i) => i >= 0);
+      if (withText.length) {
+        // każdy klawisz z legendą osobno, pozostałe zgrupowane wg typu
+        const font = await legendFont();
+        const p = snap();
+        const lp = params.legend ?? { ...DEFAULT_LEGEND, method: 'color' as const };
+        const m = legendMethod(p);
+        const rest = keys.filter((_, i) => !withText.includes(i));
+        for (const i of withText) {
+          const type = capType(keys[i], stabs);
+          const set = $state.snapshot(map[refs[i]]);
+          const [tw, th] = capTop(p, type.w, type.h);
+          const legend: KeycapLegend = { contours: keyLegendContours(font, set, tw, th, lp), method: m, depth: lp.depth, raise: lp.raise };
+          const data = await client().keycapExport({ ...input(type, 'print'), legend }, format);
+          const label = set.main ?? set.shift ?? set.fn ?? set.altgr ?? refs[i];
+          files.push({ name: `${fileBase}-keycap-${String(i + 1).padStart(2, '0')}-${safe(label)}-${type.id}.${format}`, data: new Uint8Array(data) });
+        }
+        for (const { type, count } of capSet(rest, stabs)) {
+          const data = await client().keycapExport(input(type, 'print'), format);
+          files.push({ name: `${fileBase}-keycap-${type.id}-x${count}.${format}`, data: new Uint8Array(data) });
+        }
+        if (m === 'color') {
+          const h = capLevels(p).topEdge - capLevels(p).z0;
+          const note = (lang === 'pl' ? `Zmiana filamentu (M600) na wysokości ${h.toFixed(2)} mm: od niej drukuje się legenda.\n` : `Filament change (M600) at ${h.toFixed(2)} mm: the legend prints from there.\n`);
+          files.push({ name: lang === 'pl' ? 'CZYTAJ.txt' : 'README.txt', data: new TextEncoder().encode(note) as Uint8Array<ArrayBuffer> });
+        }
+      } else
+        for (const { type, count } of set) {
+          const data = await client().keycapExport(input(type, 'print'), format);
+          files.push({ name: `${fileBase}-keycap-${type.id}-x${count}.${format}`, data: new Uint8Array(data) });
+        }
       if (sideInsert)
         for (const [pose, n, name] of [['insert', inserts.plain, 'stem-insert'], ['insert-turned', inserts.turned, 'stem-insert-turned']] as const)
           if (n > 0) {
@@ -317,7 +357,6 @@
     <button disabled={busy} onclick={() => exportCalibration('step')}>STEP</button>
   </div>
   <p class="muted">{tx('calibrationNote')}</p>
-  <p class="muted">{tx('legendLater')}</p>
   {#if busy}<p class="muted">{tx('computing')}</p>{/if}
   {#if error}<p class="warn">{error}</p>{/if}
 </section>

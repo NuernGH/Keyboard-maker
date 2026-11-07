@@ -8,6 +8,7 @@ import type { DactylParams } from '../lib/dactyl';
 import type { ControllerParams } from '../lib/dactyl-parts';
 import type { ScrewSize } from '../lib/case';
 import type { CapType, KeycapParams } from '../lib/keycap-spec';
+import type { KeycapLegend } from '../lib/keycap';
 
 /**
  * Nakładka (albo plik kalibracji luzu, gdy `cap` = null): w spoczynku na przełączniku, ustawiona do druku
@@ -17,6 +18,8 @@ export interface KeycapInput {
   params: KeycapParams;
   cap: CapType | null;
   pose: 'rest' | 'print' | 'insert' | 'insert-turned';
+  /** legenda tego klawisza (kontury już ułożone na górze); bez niej nakładka gładka */
+  legend?: KeycapLegend;
 }
 
 /** Dactyl: skorupa albo dno jednej połówki. Model liczymy dla prawej, lewa to lustro. */

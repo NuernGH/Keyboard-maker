@@ -5,6 +5,7 @@
 
 import { PITCH, switchOffsets, type Key } from './layout';
 import { stabOffset } from './cell-spec';
+import { DEFAULT_LEGEND, type LegendMap, type LegendMethod, type LegendParams } from './legend';
 
 /** Przełącznik Cherry MX (z modelu): wysokości nad wierzchem płyty, mm. */
 export const MX = {
@@ -77,6 +78,10 @@ export interface KeycapParams {
    * (PROVEN_SOCKET), luz pomijany; `calc` = krzyż MX powiększony o luz z listy, walec Ø5,5
    */
   socket?: 'calc' | 'proven';
+  /** ustawienia legend; `method` = wybrany sposób (skuteczny daje {@link legendMethod}) */
+  legend?: LegendParams & { method: LegendMethod };
+  /** teksty legend klawiszy, klucz `${strona}:${id}` */
+  legends?: LegendMap;
 }
 
 /**
@@ -113,7 +118,31 @@ export const DEFAULT_KEYCAP: KeycapParams = {
   orient: 'upright',
   sideStem: 'insert',
   socket: 'proven',
+  legend: { ...DEFAULT_LEGEND, method: 'color' },
+  legends: {},
 };
+
+/**
+ * Skuteczny sposób legendy: przy druku na boku tylko rowek; wypukła w kolorze tylko na płaskiej górze
+ * (drukowanej wtedy górą do góry, jedna zmiana filamentu); na misie rowek.
+ */
+export function legendMethod(p: KeycapParams): LegendMethod {
+  if (p.orient === 'side' || p.top !== 'flat') return 'groove';
+  return p.legend?.method ?? 'color';
+}
+
+/** Wymiary góry nakładki (mm) dla klawisza w × h (U). */
+export function capTop(p: KeycapParams, w: number, h: number): [number, number] {
+  const [bw, bh] = capBottom(p, w, h);
+  const ins = topInset(p);
+  return [bw - 2 * ins, bh - 2 * ins];
+}
+
+/** Parametry nakładki bez tekstów legend (kształt nie zależy od nich: klucz pamięci podręcznej siatek typów). */
+export function shapeParams(p: KeycapParams): KeycapParams {
+  const { legends: _l, ...rest } = p;
+  return rest;
+}
 
 /** Druk na boku: zbieżność boków (stopnie) i ścianka równoległa do zewnętrznej, by sufit wnętrza miał nawis 45°. */
 export const SIDE = {
