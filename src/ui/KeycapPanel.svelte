@@ -23,6 +23,9 @@
     legendMethod,
     orientPreset,
     shapeParams,
+    fineLayerRange,
+    skirtToSocketHeight,
+    FINE_LAYER,
     topPreset,
     type CapType,
     type KeycapParams,
@@ -64,6 +67,8 @@
       dish: 'misa (wklęsła)',
       flat: 'płaska',
       height: 'Wysokość (mm)',
+      skirtSocket: 'Kołnierz do gniazda ({h} mm)',
+      tipSkirtSocket: 'Skraca kołnierz tak, by dolna krawędź była na równi z wejściem na krzyżyk: gniazdo drukuje się od stołu bez podpór. W spoczynku z boku widać szczelinę nad obudową przełącznika.',
       topSize: 'Bok góry 1U (mm)',
       dishDepth: 'Głębokość misy (mm)',
       wall: 'Ścianka (mm)',
@@ -76,6 +81,8 @@
       exportAll: 'Wszystkie typy (ZIP)',
       export3mf: '3MF · wszystkie na stole',
       export3mfInlay: '3MF · wszystkie na stole, litery filamentem 2 (AMS)',
+      fineLayer: 'Drobne warstwy góry w 3MF (mm, 0 = wył.)',
+      fineNote: 'W pliku 3MF zakres {a}–{b} mm nad stołem (misa i rowki legend) dostaje warstwę {h} mm, reszta drukuje się warstwą z profilu (np. 0,2). Ten sam zakres dla wszystkich nakładek; w QIDI Studio widać go jako modyfikator wysokości przy każdym obiekcie.',
       note3mf: 'Jeden plik 3MF: wszystkie nakładki ułożone na stole {bed} mm, każda jako osobny obiekt. Otwórz w QIDI Studio / OrcaSlicer / Bambu Studio.',
       note3mfInlay: 'Przy legendzie wtopionej każda nakładka z opisem ma dwie części: nakładkę (filament 1) i litery (filament 2). W slicerze ustaw tylko kolory filamentów 1 i 2 w AMS.',
       bedOver: 'Nie wszystko mieści się na stole {bed} mm: część nakładek leży obok; w slicerze użyj „Rozłóż” (Arrange), rozdzieli je na kilka płyt.',
@@ -86,6 +93,7 @@
       socketProven: 'sprawdzone: krzyż 4,2 × 1,4, walec Ø5,72',
       tipSocket: 'Sprawdzone wymiary pochodzą z nakładki, która pewnie wpina się na MX. Przy nich luz z listy jest pomijany.',
       orientNoteDish: 'Do druku: misa do góry, dolną krawędzią na stole; gniazdo wisi w środku, więc włącz podpory w slicerze (podpory w generatorze w etapie 4).',
+      orientNoteDishFlush: 'Do druku: misa do góry, dolną krawędzią na stole; kołnierz kończy się na równi z gniazdem, więc gniazdo drukuje się od stołu bez podpór.',
       orientNoteFlat: 'Do druku: płaską górą na stole (do góry nogami), bez podpór.',
       stemsNote: 'Gniazda jak w płycie: stabilizator Cherry daje 3 gniazda, „dwa MX” tam, gdzie stoją przełączniki.',
       orient: 'Druk',
@@ -118,6 +126,8 @@
       dish: 'dish (concave)',
       flat: 'flat',
       height: 'Height (mm)',
+      skirtSocket: 'Skirt to socket ({h} mm)',
+      tipSkirtSocket: 'Shortens the skirt so the bottom edge is level with the socket entrance: the socket prints from the bed without supports. At rest a gap above the switch housing is visible from the side.',
       topSize: 'Top size 1U (mm)',
       dishDepth: 'Dish depth (mm)',
       wall: 'Wall (mm)',
@@ -130,6 +140,8 @@
       exportAll: 'All types (ZIP)',
       export3mf: '3MF · all on the bed',
       export3mfInlay: '3MF · all on the bed, letters in filament 2 (AMS)',
+      fineLayer: 'Fine top layers in 3MF (mm, 0 = off)',
+      fineNote: 'In the 3MF file the range {a}–{b} mm above the bed (dish and legend grooves) gets {h} mm layers, the rest prints with the profile layer (e.g. 0.2). Same range for all caps; QIDI Studio shows it as a height range modifier on each object.',
       note3mf: 'One 3MF file: all caps laid out on the {bed} mm bed, each as its own object. Open it in QIDI Studio / OrcaSlicer / Bambu Studio.',
       note3mfInlay: 'With inlaid legends every cap with a legend has two parts: the cap (filament 1) and the letters (filament 2). In the slicer just set the colours of AMS filaments 1 and 2.',
       bedOver: 'Not everything fits on the {bed} mm bed: some caps lie beside it; use Arrange in the slicer to spread them over several plates.',
@@ -140,6 +152,7 @@
       socketProven: 'proven: cross 4.2 × 1.4, stem Ø5.72',
       tipSocket: 'The proven size comes from a keycap that snaps firmly onto MX. With it the clearance from the list is ignored.',
       orientNoteDish: 'For printing: dish up, bottom edge on the bed; the stem hangs inside, so enable supports in the slicer (generator supports come in stage 4).',
+      orientNoteDishFlush: 'For printing: dish up, bottom edge on the bed; the skirt ends level with the socket, so the socket prints from the bed without supports.',
       orientNoteFlat: 'For printing: flat top on the bed (upside down), no supports.',
       stemsNote: 'Stems follow the plate: Cherry stabilizer gives 3 stems, "two MX" puts them where the switches are.',
       orient: 'Printing',
@@ -175,6 +188,7 @@
 
   const set = $derived(capSet(keys, stabs));
   const lv = $derived(capLevels(params));
+  const fine = $derived(fineLayerRange(params));
   const warns = $derived(capWarnings(params));
   let busy = $state(false);
   let error = $state('');
@@ -426,7 +440,8 @@
       if (!pack.fits) bedNote = tx('bedOver').replace('{bed}', `${bx} × ${by}`);
       if (thinKeys.length) thinWarn = tx('thinExport').replace('{k}', thinKeys.join(', '));
       if (progress) progress = { ...progress, label: tx('packing') };
-      const blob = await build3mf(objects);
+      const fine = fineLayerRange(p);
+      const blob = await build3mf(objects, undefined, fine ? [fine] : []);
       await save(`${fileBase}-keycaps${m === 'inlay' ? '-ams' : ''}.3mf`, await blob.arrayBuffer());
     } catch (e) {
       error = (e as Error).message;
@@ -476,6 +491,9 @@
   <label data-tip={tx('tipHeight')}>{tx('height')}
     <input type="number" min="4" max="10" step="0.1" bind:value={params.height} />
   </label>
+  {#if Math.abs(params.height - skirtToSocketHeight(params)) > 0.005}
+    <button data-tip={tx('tipSkirtSocket')} disabled={busy} onclick={() => (params.height = skirtToSocketHeight(params))}>{tx('skirtSocket').replace('{h}', num(skirtToSocketHeight(params)))}</button>
+  {/if}
   <label>{tx('topSize')}
     <input type="number" min="10" max="16" step="0.1" bind:value={params.topSize} />
   </label>
@@ -519,6 +537,13 @@
     <button disabled={busy} onclick={() => exportAll('stl')}>STL · {tx('exportAll')}</button>
     <button disabled={busy} onclick={() => exportAll('step')}>STEP</button>
   </div>
+  {#if params.top === 'dish' && params.orient !== 'side'}
+    <label>{tx('fineLayer')}
+      <input type="number" min="0" max="0.2" step="0.02" value={params.fineLayer ?? FINE_LAYER}
+        onchange={(e) => (params.fineLayer = Math.max(0, Math.min(0.2, Number((e.currentTarget as HTMLInputElement).value) || 0)))} />
+    </label>
+    {#if fine}<p class="muted">{tx('fineNote').replace('{a}', num(fine.minZ, 1)).replace('{b}', num(fine.maxZ, 2)).replace('{h}', num(fine.layerHeight))}</p>{/if}
+  {/if}
   <div class="row">
     <button disabled={busy} onclick={export3mf}>{tx(legendMethod(params) === 'inlay' ? 'export3mfInlay' : 'export3mf')}</button>
   </div>
@@ -534,7 +559,7 @@
   {#if params.orient === 'side'}
     <p class="muted">{tx('orientNoteSide')} {tx(params.sideStem === 'rib' ? 'ribNote' : 'insertNote')}</p>
   {:else}
-    <p class="muted">{tx(params.top === 'flat' ? 'orientNoteFlat' : 'orientNoteDish')}</p>
+    <p class="muted">{tx(params.top === 'flat' ? 'orientNoteFlat' : lv.z0 >= lv.stemBottom - 0.01 ? 'orientNoteDishFlush' : 'orientNoteDish')}</p>
   {/if}
   <div class="row">
     <button disabled={busy} onclick={() => exportCalibration('stl')}>STL · {tx('calibration')}</button>
