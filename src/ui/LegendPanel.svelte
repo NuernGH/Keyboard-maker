@@ -30,6 +30,7 @@
     labels = $bindable(),
     selected = $bindable(null),
     defaults = {},
+    fromKeymap = null,
   }: {
     lang: Lang;
     keys: { w: number; h: number }[];
@@ -41,6 +42,8 @@
     selected?: string | null;
     /** domyślne opisy klawiszy (`strona:id`): podpowiedź w pustych polach i przycisk „Wstaw domyślne opisy” */
     defaults?: Record<string, LegendSet>;
+    /** opisy z keymapy (zakładka Keymapa): główna, Shift, Fn po odnośnikach; null = przycisk ukryty */
+    fromKeymap?: (() => Record<string, LegendSet>) | null;
   } = $props();
 
   const L = {
@@ -70,6 +73,9 @@
       fn: 'Fn',
       clear: 'Wyczyść wszystkie',
       fill: 'Wstaw domyślne opisy',
+      fromKm: 'Wstaw opisy z keymapy',
+      fromKmTip: 'Główna z warstwy podstawowej, Fn z warstwy Fn keymapy (zakładka Keymapa). AltGr zostaje bez zmian.',
+      fromKmAsk: 'Opisy Główna, Shift i Fn zostaną zastąpione opisami z keymapy (AltGr zostaje). Kontynuować?',
       preview: 'Podgląd góry klawisza',
       pick: 'Kliknij wiersz albo nakładkę w podglądzie, żeby zobaczyć górę klawisza.',
       fontNote: 'Czcionka: Noto Sans Black (SIL OFL 1.1).',
@@ -101,6 +107,9 @@
       fn: 'Fn',
       clear: 'Clear all',
       fill: 'Insert default names',
+      fromKm: 'Insert names from keymap',
+      fromKmTip: 'Main from the base layer, Fn from the keymap Fn layer (Keymap tab). AltGr stays as it is.',
+      fromKmAsk: 'Main, Shift and Fn legends will be replaced with names from the keymap (AltGr stays). Continue?',
       preview: 'Key top preview',
       pick: 'Click a row or a keycap in the preview to see the key top.',
       fontNote: 'Font: Noto Sans Black (SIL OFL 1.1).',
@@ -152,6 +161,23 @@
       const set: LegendSet = {};
       for (const l of LEGEND_LAYERS) if (d[l]?.trim()) set[l] = d[l];
       if (Object.keys(set).length) map[r.ref] = set;
+    }
+    params.legends = map;
+  }
+  /** zastępuje Główna/Shift/Fn opisami z keymapy (AltGr i klawisze spoza keymapy bez zmian) */
+  function fillFromKeymap() {
+    if (!fromKeymap) return;
+    const src = fromKeymap();
+    const map = { ...(params.legends ?? {}) };
+    if (rows.some((r) => map[r.ref] && src[r.ref]) && !confirm(tx('fromKmAsk'))) return;
+    for (const r of rows) {
+      const k = src[r.ref];
+      if (!k) continue;
+      const set: LegendSet = {};
+      if (map[r.ref]?.altgr) set.altgr = map[r.ref].altgr;
+      for (const l of ['main', 'shift', 'fn'] as const) if (k[l]?.trim()) set[l] = k[l];
+      if (Object.keys(set).length) map[r.ref] = set;
+      else delete map[r.ref];
     }
     params.legends = map;
   }
@@ -298,6 +324,7 @@
   </div>
   <div class="row">
     <button onclick={fillDefaults} disabled={!missing}>{tx('fill')}{missing ? ` (${missing})` : ''}</button>
+    {#if fromKeymap}<button onclick={fillFromKeymap} data-tip={tx('fromKmTip')}>{tx('fromKm')}</button>{/if}
     <button onclick={() => (params.legends = {})}>{tx('clear')}</button>
   </div>
   <p class="muted">{tx('fontNote')}</p>
