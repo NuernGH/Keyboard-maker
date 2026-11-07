@@ -4,8 +4,8 @@ import { parse, type Font } from 'opentype.js';
 import { measureVolume, makeBox, type Shape3D } from 'replicad';
 import { initOC } from './oc';
 import { applyLegend, buildKeycap, legendPart, printPose } from '../src/lib/keycap';
-import { DEFAULT_KEYCAP, capBottom, capLevels, capType, topInset, topPreset } from '../src/lib/keycap-spec';
-import { DEFAULT_LEGEND, area, legendLayout, nestContours, strokeWidth, textContours, type Contour } from '../src/lib/legend';
+import { DEFAULT_KEYCAP, capBottom, capFront, capFrontFace, capLevels, capTop, capType, frontGrooveDepth, layoutKeyLegends, topInset, topPreset } from '../src/lib/keycap-spec';
+import { DEFAULT_LEGEND, LEGEND_MIN_STROKE, area, legendLayout, nestContours, placedContours, strokeWidth, textContours, thinCheck, type Contour } from '../src/lib/legend';
 import { isValidShape } from '../src/lib/geometry';
 
 let font: Font;
@@ -14,7 +14,7 @@ const FLAT = { ...DEFAULT_KEYCAP, ...topPreset('flat') };
 
 beforeAll(async () => {
   await initOC();
-  const b = readFileSync('public/fonts/NotoSans-Bold.ttf');
+  const b = readFileSync('public/fonts/NotoSans-Black.ttf');
   font = parse(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
 }, 60000);
 
@@ -45,24 +45,47 @@ describe('legendy: kontury i układ', () => {
     expect(strokeWidth(font, DEFAULT_LEGEND.subSize)).toBeGreaterThan(0.5);
   });
 
-  test('układ: główna na środku, Shift/Fn/AltGr w rogach, wszystko w obrysie góry z marginesem', () => {
-    const [bw, bh] = capBottom(DEFAULT_KEYCAP, 1, 1);
-    const ins = topInset(DEFAULT_KEYCAP);
-    const [tw, th] = [bw - 2 * ins, bh - 2 * ins];
-    const one = legendLayout(font, { main: 'Q' }, tw, th);
+  test('układ pod dyszę 0,4: główna w lewym górnym rogu, Shift nad główną, AltGr w prawym dolnym, Fn na przedniej ściance', () => {
+    const [tw, th] = capTop(DEFAULT_KEYCAP, 1, 1);
+    const m = DEFAULT_LEGEND.margin;
+    const one = layoutKeyLegends(font, { main: 'Q' }, DEFAULT_KEYCAP, 1, 1);
     expect(one).toHaveLength(1);
-    expect(one[0].x).toBeCloseTo(0, 6);
-    const four = legendLayout(font, { main: '1', shift: '!', fn: 'F1', altgr: '¡' }, tw, th);
-    expect(four.map((l) => l.layer).sort()).toEqual(['altgr', 'fn', 'main', 'shift']);
-    for (const l of four) {
+    const q = textContours(font, 'Q', one[0].size);
+    expect(one[0].size).toBeCloseTo(DEFAULT_LEGEND.mainSize, 6);
+    expect(one[0].x - q.width / 2).toBeCloseTo(-tw / 2 + m, 6);
+    expect(one[0].y + q.height / 2).toBeCloseTo(th / 2 - m, 6);
+    const four = layoutKeyLegends(font, { main: '1', shift: '!', fn: 'F1', altgr: '¡' }, DEFAULT_KEYCAP, 1, 1);
+    const by = Object.fromEntries(four.map((l) => [l.layer, l]));
+    expect(Object.keys(by).sort()).toEqual(['altgr', 'fn', 'main', 'shift']);
+    expect(by.fn.face).toBe('front');
+    expect(by.shift.y).toBeGreaterThan(by.main.y);
+    expect(by.main.size).toBeLessThanOrEqual(DEFAULT_LEGEND.shiftMainSize! + 1e-9);
+    expect(by.altgr.x).toBeGreaterThan(0);
+    expect(by.altgr.y).toBeLessThan(0);
+    for (const l of four.filter((l) => l.face !== 'front')) {
       const c = textContours(font, l.text, l.size);
-      expect(Math.abs(l.x) + c.width / 2).toBeLessThanOrEqual(tw / 2 - DEFAULT_LEGEND.margin + 1e-6);
-      expect(Math.abs(l.y) + c.height / 2).toBeLessThanOrEqual(th / 2 - DEFAULT_LEGEND.margin + 1e-6);
+      expect(Math.abs(l.x) + c.width / 2).toBeLessThanOrEqual(tw / 2 - m + 1e-6);
+      expect(Math.abs(l.y) + c.height / 2).toBeLessThanOrEqual(th / 2 - m + 1e-6);
     }
-    // długi napis zmniejszony, by zmieścił się na 1U
-    const long = legendLayout(font, { main: 'Backspace' }, tw, th)[0];
+    const [fw, fh] = capFront(DEFAULT_KEYCAP, 1, 1);
+    const fc = textContours(font, by.fn.text, by.fn.size);
+    expect(fc.width).toBeLessThanOrEqual(fw + 1e-6);
+    expect(fc.height).toBeLessThanOrEqual(fh + 1e-6);
+    // długi napis zmniejszony, wyrównany do lewej i wyśrodkowany w pionie
+    const long = layoutKeyLegends(font, { main: 'Backspace' }, DEFAULT_KEYCAP, 1, 1)[0];
+    const lc = textContours(font, long.text, long.size);
     expect(long.size).toBeLessThan(DEFAULT_LEGEND.mainSize);
-    expect(textContours(font, long.text, long.size).width).toBeLessThanOrEqual(tw - 2 * DEFAULT_LEGEND.margin + 1e-6);
+    expect(lc.width).toBeLessThanOrEqual(tw - 2 * m + 1e-6);
+    expect(long.y).toBeCloseTo(0, 6);
+  });
+
+  test('kontrola drukowalności: główna litera 5 mm cała gruba, 1,5 mm za cienka', () => {
+    const big = placedContours(font, [{ layer: 'main', text: 'A', size: 5, x: 0, y: 0 }]).top;
+    expect(thinCheck(big, LEGEND_MIN_STROKE.groove).fraction).toBeLessThan(0.04);
+    const small = placedContours(font, [{ layer: 'main', text: 'a', size: 1.5, x: 0, y: 0 }]).top;
+    const t = thinCheck(small, LEGEND_MIN_STROKE.groove);
+    expect(t.fraction).toBeGreaterThan(0.3);
+    expect(t.path.length).toBeGreaterThan(0);
   });
 });
 
@@ -106,5 +129,21 @@ describe('legendy: bryły', () => {
     const g = applyLegend(FLAT, t, buildKeycap(FLAT, t), lg);
     expect(isValidShape(g)).toBe(true);
     expect(vol(buildKeycap(FLAT, t)) - vol(g)).toBeGreaterThan(1);
+  }, 60000);
+
+  test('Fn na przedniej ściance: rowek, poprawna bryła, ścianka nieprzebita', () => {
+    const p = DEFAULT_KEYCAP;
+    const cap = buildKeycap(p, t);
+    const pl = placedContours(font, layoutKeyLegends(font, { main: 'E', fn: 'F3' }, p, 1, 1));
+    expect(pl.front.length).toBeGreaterThan(0);
+    const g = applyLegend(p, t, cap, { contours: [], front: pl.front, method: 'groove', depth: 0.6, raise: 0.6 });
+    expect(isValidShape(g)).toBe(true);
+    const removed = vol(cap) - vol(g);
+    const ar = pl.front.reduce((s, c) => s + area(c), 0);
+    const d = frontGrooveDepth(p);
+    expect(removed).toBeGreaterThan(0.4 * Math.abs(ar) * d);
+    expect(removed).toBeLessThan(1.5 * Math.abs(ar) * d + 0.5);
+    const f = capFrontFace(p, 1, 1);
+    expect(f.tilt).toBeGreaterThan(0);
   }, 60000);
 });

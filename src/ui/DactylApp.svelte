@@ -13,8 +13,8 @@
   import WiringPanel from './WiringPanel.svelte';
   import KeycapPanel from './KeycapPanel.svelte';
   import LegendPanel from './LegendPanel.svelte';
-  import { DEFAULT_LEGEND, legendLayout, legendRef, type LegendSet, type PlacedLegend } from '../lib/legend';
-  import { DEFAULT_KEYCAP, capTop, capType, type KeycapParams } from '../lib/keycap-spec';
+  import { legendRef, type LegendSet, type PlacedLegend } from '../lib/legend';
+  import { DEFAULT_KEYCAP, layoutKeyLegends, capType, type KeycapParams } from '../lib/keycap-spec';
   import { legendFont } from './font';
   import type { Font } from 'opentype.js';
   import ColorPanel from './ColorPanel.svelte';
@@ -501,7 +501,6 @@
     const m = model;
     const own = keycap.legends ?? {};
     const withDefaults = colors.on && colors.legends.show;
-    const lp = keycap.legend ?? DEFAULT_LEGEND;
     const kp = $state.snapshot(keycap) as KeycapParams;
     const out: Record<string, PlacedLegend[]> = {};
     for (const s of ['left', 'right'] as const)
@@ -510,8 +509,7 @@
         const set = own[ref] ?? (withDefaults ? defaultSets[ref] : undefined);
         if (!set || !Object.keys(set).length) continue;
         const sz = capSize(m, k);
-        const [tw, th] = capTop(kp, sz.w, sz.h);
-        out[ref] = legendLayout(font, $state.snapshot(set) as LegendSet, tw, th, lp);
+        out[ref] = layoutKeyLegends(font, $state.snapshot(set) as LegendSet, kp, sz.w, sz.h);
       }
     return out;
   });

@@ -23,7 +23,9 @@ export type LegendMethod = 'groove' | 'color';
 export interface LegendParams {
   /** wysokość wielkiej litery legendy głównej (mm) */
   mainSize: number;
-  /** wysokość wielkiej litery legend pomocniczych: Shift, AltGr, Fn (mm) */
+  /** wysokość legendy głównej, gdy nad nią jest legenda Shift (mm; cyfry z symbolem) */
+  shiftMainSize?: number;
+  /** wysokość wielkiej litery legend pomocniczych: Shift, AltGr, Fn na przedniej ściance (mm) */
   subSize: number;
   /** głębokość rowka (mm) */
   depth: number;
@@ -33,10 +35,14 @@ export interface LegendParams {
   margin: number;
 }
 
-export const DEFAULT_LEGEND: LegendParams = { mainSize: 4, subSize: 2.6, depth: 0.6, raise: 0.6, margin: 1.2 };
+/**
+ * Układ pod dyszę 0,4 (plan nakładek, „Układ legend pod dyszę 0,4 mm”): Noto Sans Black, główna 5 mm
+ * (z Shift 4,4), Shift i AltGr 3,6 na górze, Fn 3,6 na przedniej ściance.
+ */
+export const DEFAULT_LEGEND: LegendParams = { mainSize: 5, shiftMainSize: 4.4, subSize: 3.6, depth: 0.6, raise: 0.6, margin: 0.9 };
 
-/** Minimalne szerokości kreski dla dyszy 0,4 (mm): rowek, którego slicer nie zaleje, i dwie ścieżki legendy wypukłej. */
-export const LEGEND_MIN_STROKE: Record<LegendMethod, number> = { groove: 0.5, color: 0.8 };
+/** Minimalne szerokości kreski dla dyszy 0,4 (mm): rowek, którego slicer nie zaleje, i jedna linia legendy wypukłej. */
+export const LEGEND_MIN_STROKE: Record<LegendMethod, number> = { groove: 0.5, color: 0.45 };
 
 /** Wysokość wielkiej litery w jednostkach em (Noto Sans: 714/1000). */
 export function capHeightEm(font: Font): number {
@@ -151,25 +157,31 @@ export function nestContours(contours: Contour[]): { contour: Contour; depth: nu
   return out.sort((a, b) => a.depth - b.depth);
 }
 
-/** Legenda ułożona na górze nakładki: środek obrysu tekstu (x, y) w mm względem środka góry, wysokość wielkiej litery. */
+/**
+ * Legenda ułożona na nakładce: środek obrysu tekstu (x, y) w mm i wysokość wielkiej litery.
+ * `face: 'top'` (domyślnie): względem środka góry, +y od użytkownika;
+ * `face: 'front'`: na przedniej ściance, względem jej środka, x w prawo, +y w górę wzdłuż ścianki.
+ */
 export interface PlacedLegend {
   layer: LegendLayer;
   text: string;
   x: number;
   y: number;
-  /** wysokość wielkiej litery (mm), po ewentualnym zmniejszeniu, by tekst zmieścił się na górze */
+  /** wysokość wielkiej litery (mm), po ewentualnym zmniejszeniu, by tekst zmieścił się na swoim polu */
   size: number;
+  face?: 'top' | 'front';
 }
 
 /**
- * Układ legend na górze nakładki o wymiarach `tw` × `th` (mm):
- * Główna na środku (z legendą Shift: w lewym dolnym rogu), Shift w lewym górnym, Fn w prawym górnym,
- * AltGr w prawym dolnym. Za długi tekst jest zmniejszany, by zmieścił się w swojej części góry.
+ * Układ legend (plan, dysza 0,4): na górze `tw` × `th` główna w lewym górnym rogu (dłuższy napis:
+ * przy lewej krawędzi na środku wysokości), Shift nad główną w lewym górnym (główna schodzi wtedy
+ * do lewego dolnego i ma `shiftMainSize`), AltGr w prawym dolnym. Fn na przedniej ściance `front`
+ * (szerokość × wysokość pola, mm), wyśrodkowana; bez `front` w prawym górnym rogu góry.
+ * Za długi tekst jest zmniejszany, by zmieścił się na swoim polu.
  */
-export function legendLayout(font: Font, set: LegendSet, tw: number, th: number, lp: LegendParams = DEFAULT_LEGEND): PlacedLegend[] {
+export function legendLayout(font: Font, set: LegendSet, tw: number, th: number, lp: LegendParams = DEFAULT_LEGEND, front?: [number, number]): PlacedLegend[] {
   const out: PlacedLegend[] = [];
   const m = lp.margin;
-  const hasCorner = !!(set.shift || set.altgr || set.fn);
   const fit = (text: string, size: number, maxW: number, maxH: number) => {
     const { width, height } = textContours(font, text, size, 0.2);
     const k = Math.min(1, width > 0 ? maxW / width : 1, height > 0 ? maxH / height : 1);
@@ -177,38 +189,123 @@ export function legendLayout(font: Font, set: LegendSet, tw: number, th: number,
     const t = textContours(font, text, s, 0.2);
     return { size: s, width: t.width, height: t.height };
   };
-  const halfW = tw / 2 - m;
-  const halfH = th / 2 - m;
-  const corner = (layer: LegendLayer, sx: number, sy: number) => {
-    const text = set[layer];
-    if (!text) return;
-    // róg: połowa szerokości (dłuższe nakładki: do połowy), wysokość do ok. połowy góry
-    const f = fit(text, lp.subSize, Math.max(halfW, 2), Math.max(halfH - 0.3, 1.5));
-    out.push({ layer, text, size: f.size, x: sx * (halfW - f.width / 2), y: sy * (halfH - f.height / 2) });
-  };
+  const W = tw - 2 * m;
+  const H = th - 2 * m;
+  const left = (w: number) => -tw / 2 + m + w / 2;
+  const right = (w: number) => tw / 2 - m - w / 2;
+  const top = (h: number) => th / 2 - m - h / 2;
+  const bottom = (h: number) => -th / 2 + m + h / 2;
+  const sub = lp.subSize;
+  const shift = set.shift && set.shift !== set.main ? set.shift : '';
+  const altgr = set.altgr ?? '';
+  if (shift) {
+    const f = fit(shift, sub, W, H / 2 - 0.3);
+    out.push({ layer: 'shift', text: shift, size: f.size, x: left(f.width), y: top(f.height) });
+  }
   if (set.main) {
-    if (set.shift) {
-      const f = fit(set.main, lp.mainSize, Math.max(halfW, 2), Math.max(halfH - 0.3, 1.5));
-      out.push({ layer: 'main', text: set.main, size: f.size, x: -(halfW - f.width / 2), y: -(halfH - f.height / 2) });
+    const size = shift ? (lp.shiftMainSize ?? lp.mainSize) : lp.mainSize;
+    // obok AltGr (prawy dolny) zostaje miejsce tylko na pół wysokości
+    const f = fit(set.main, size, W, shift || altgr ? H - Math.min(sub, H / 2) - 0.3 : H);
+    const long = [...set.main].length > 1 && !shift && !altgr;
+    out.push({ layer: 'main', text: set.main, size: f.size, x: left(f.width), y: shift ? bottom(f.height) : long ? 0 : top(f.height) });
+  }
+  if (altgr) {
+    const f = fit(altgr, sub, W / 2, H / 2 - 0.3);
+    out.push({ layer: 'altgr', text: altgr, size: f.size, x: right(f.width), y: bottom(f.height) });
+  }
+  if (set.fn) {
+    if (front) {
+      const [fw, fh] = front;
+      const f = fit(set.fn, sub, Math.max(fw, 1), Math.max(fh, 1));
+      out.push({ layer: 'fn', text: set.fn, size: f.size, x: 0, y: 0, face: 'front' });
     } else {
-      // na środku; przy innych legendach zostaw miejsce na rogi
-      const maxW = hasCorner ? tw - 2 * m - 2 * 0.4 * halfW : tw - 2 * m;
-      const f = fit(set.main, lp.mainSize, Math.max(maxW, 2), hasCorner ? Math.max(th - 2 * m - 2 * lp.subSize, 1.5) : th - 2 * m);
-      out.push({ layer: 'main', text: set.main, size: f.size, x: 0, y: 0 });
+      const f = fit(set.fn, sub, W / 2, H / 2 - 0.3);
+      out.push({ layer: 'fn', text: set.fn, size: f.size, x: right(f.width), y: top(f.height) });
     }
   }
-  corner('shift', -1, 1);
-  corner('fn', 1, 1);
-  corner('altgr', 1, -1);
   return out;
 }
 
-/** Kontury wszystkich legend klawisza ułożone na górze nakładki `tw` × `th`. */
+/** Kontury legend klawisza, osobno na górze (mm od środka góry) i na przedniej ściance (mm od środka ścianki). */
+export function placedContours(font: Font, placed: PlacedLegend[]): { top: Contour[]; front: Contour[] } {
+  const out = { top: [] as Contour[], front: [] as Contour[] };
+  for (const l of placed)
+    out[l.face === 'front' ? 'front' : 'top'].push(
+      ...textContours(font, l.text, l.size).contours.map((c) => c.map(([x, y]) => [x + l.x, y + l.y] as [number, number])),
+    );
+  return out;
+}
+
+/** Kontury wszystkich legend klawisza ułożone na górze nakładki `tw` × `th` (bez przedniej ścianki). */
 export function keyLegendContours(font: Font, set: LegendSet, tw: number, th: number, lp: LegendParams = DEFAULT_LEGEND): Contour[] {
-  return legendLayout(font, set, tw, th, lp).flatMap((l) =>
-    textContours(font, l.text, l.size).contours.map((c) => c.map(([x, y]) => [x + l.x, y + l.y] as [number, number])),
-  );
+  return placedContours(font, legendLayout(font, set, tw, th, lp)).top;
 }
 
 /** Czy klawisz ma jakąkolwiek legendę. */
 export const hasLegend = (set: LegendSet | undefined) => !!set && LEGEND_LAYERS.some((l) => !!set[l]?.trim());
+
+/**
+ * Kontrola drukowalności (plan, „Sprawdzenie drukowalności legend”): otwarcie morfologiczne kołem o średnicy
+ * minimalnej kreski. Fragmenty liter, które po otwarciu znikają, są za cienkie dla dyszy.
+ * Zwraca udział za cienkiej powierzchni i obrys tych fragmentów jako ścieżkę SVG (y w górę → w dół).
+ */
+export function thinCheck(contours: Contour[], minStroke: number, res = 0.04): { fraction: number; path: string } {
+  if (!contours.length) return { fraction: 0, path: '' };
+  let [x1, y1, x2, y2] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const c of contours) for (const [x, y] of c) [x1, y1, x2, y2] = [Math.min(x1, x), Math.min(y1, y), Math.max(x2, x), Math.max(y2, y)];
+  const pad = minStroke;
+  x1 -= pad;
+  y1 -= pad;
+  const nx = Math.ceil((x2 + pad - x1) / res);
+  const ny = Math.ceil((y2 + pad - y1) / res);
+  const inside = new Uint8Array(nx * ny);
+  // wypełnienie wierszami (reguła parzystości)
+  for (let j = 0; j < ny; j++) {
+    const y = y1 + (j + 0.5) * res;
+    const xs: number[] = [];
+    for (const c of contours)
+      for (let i = 0, k = c.length - 1; i < c.length; k = i++) {
+        const [ax, ay] = c[i];
+        const [bx, by] = c[k];
+        if (ay > y !== by > y) xs.push(ax + ((y - ay) * (bx - ax)) / (by - ay));
+      }
+    xs.sort((a, b) => a - b);
+    for (let q = 0; q + 1 < xs.length; q += 2) {
+      const i0 = Math.max(0, Math.ceil((xs[q] - x1) / res - 0.5));
+      const i1 = Math.min(nx - 1, Math.floor((xs[q + 1] - x1) / res - 0.5));
+      for (let i = i0; i <= i1; i++) inside[j * nx + i] = 1;
+    }
+  }
+  const r = Math.max(1, Math.round(minStroke / 2 / res));
+  const disk: [number, number][] = [];
+  for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) if (di * di + dj * dj <= r * r) disk.push([di, dj]);
+  const at = (a: Uint8Array, i: number, j: number) => i >= 0 && j >= 0 && i < nx && j < ny && a[j * nx + i] === 1;
+  const eroded = new Uint8Array(nx * ny);
+  for (let j = 0; j < ny; j++)
+    for (let i = 0; i < nx; i++) if (inside[j * nx + i] && disk.every(([di, dj]) => at(inside, i + di, j + dj))) eroded[j * nx + i] = 1;
+  const opened = new Uint8Array(nx * ny);
+  for (let j = 0; j < ny; j++)
+    for (let i = 0; i < nx; i++) if (eroded[j * nx + i]) for (const [di, dj] of disk) { const a = i + di, b = j + dj; if (a >= 0 && b >= 0 && a < nx && b < ny) opened[b * nx + a] = 1; }
+  let total = 0;
+  let thin = 0;
+  let path = '';
+  for (let j = 0; j < ny; j++) {
+    let run = -1;
+    for (let i = 0; i <= nx; i++) {
+      const t = i < nx && inside[j * nx + i] === 1 && opened[j * nx + i] === 0;
+      if (i < nx && inside[j * nx + i]) total++;
+      if (t) thin++;
+      if (t && run < 0) run = i;
+      if (!t && run >= 0) {
+        const x = x1 + run * res;
+        const yTop = -(y1 + (j + 1) * res);
+        path += `M${x.toFixed(3)},${yTop.toFixed(3)}h${((i - run) * res).toFixed(3)}v${res.toFixed(3)}h${(-(i - run) * res).toFixed(3)}z`;
+        run = -1;
+      }
+    }
+  }
+  return { fraction: total ? thin / total : 0, path };
+}
+
+/** Udział za cienkiej powierzchni legendy, od którego panel i eksport ostrzegają (plan: dobre układy mają 1–2,5 %). */
+export const THIN_WARN = 0.04;

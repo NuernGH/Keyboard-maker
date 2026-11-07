@@ -65,12 +65,12 @@ W „Elektronika → Kontroler” można wybrać „Własny (z modelu)…” i w
 | `src/ui/` | podgląd Three.js, teksty PL/EN |
 | `public/cells/mx-hotswap.step` | wzorcowa komórka 1U MX z hot-swap (`key socket.STEP` od Marcina, poprawiony Part1.STEP bez wycięć na diodę) |
 | `public/switches/cherry-mx.step` | przełącznik Cherry MX tylko do podglądu 3D (MIT, [C. Schillebeeckx](https://github.com/ConstantinoSchillebeeckx/cherry-mx-switch)), nie trafia do eksportu |
-| `public/fonts/NotoSans-Bold.ttf` | czcionka legend na nakładkach (Noto Sans Bold, SIL OFL 1.1, tekst w `public/fonts/OFL.txt`) |
+| `public/fonts/NotoSans-Black.ttf` | czcionka legend na nakładkach (Noto Sans Black, SIL OFL 1.1, tekst w `public/fonts/OFL.txt`) |
 | `src/lib/switch-model.ts` | ustawienie przełącznika jak komórki (wierzch płyty z = 0, trzpień na środku) |
 | `tests/` | testy Vitest |
 
 ## Licencja
 
 AGPL-3.0-or-later, patrz [LICENSE](LICENSE). Kod Dactyla to port z [rianadon/dactyl-configurator](https://github.com/rianadon/dactyl-configurator) (AGPL-3.0; wcześniej dactyl-keyboard Matthew Aderetha i dactyl-manuform Toma Shorta). Biblioteki: quickhull3d (MIT), opentype.js (MIT), replicad (AGPL-3.0), OpenCascade przez replicad-opencascadejs (LGPL-2.1), Three.js (MIT), Svelte (MIT).
-Model przełącznika `public/switches/cherry-mx.step` jest na licencji MIT (tekst w `public/switches/README.md`). Czcionka legend Noto Sans Bold: SIL Open Font License 1.1 (`public/fonts/OFL.txt`).
+Model przełącznika `public/switches/cherry-mx.step` jest na licencji MIT (tekst w `public/switches/README.md`). Czcionka legend Noto Sans Black: SIL Open Font License 1.1 (`public/fonts/OFL.txt`).
 Modele z GrabCAD nie trafiają do tego repozytorium.
