@@ -61,16 +61,29 @@ describe('kolejność klawiszy', () => {
 });
 
 describe('domyślna keymapa', () => {
-  test('60% S2 mini: eksport daje te same wiązania i enkodery co s2mini_60.keymap z repo', () => {
+  test('60% S2 mini: eksport = s2mini_60.keymap z firmware (wiązania, gałka, nazwy, include, behaviors)', () => {
     const repo = readFileSync(new URL('./fixtures/zmk-s2mini/s2mini_60.keymap', import.meta.url), 'utf8');
     const lay = layoutOf('ansi-60', 's2mini');
+    const km = defaultKeymap({ layout: lay, ansi60: true, s2mini60: true, macropad: false, legends: {} });
+    const out = keymapFile(km, lay, { title: 'test', s2mini60: true });
+    expect(out.problems).toEqual([]);
+    expect(layerBindings(out.text).slice(-3)).toEqual(layerBindings(repo).slice(-3));
+    expect(layerBindings(out.text).slice(-3).map((l) => l.length)).toEqual([64, 64, 64]);
+    expect(sensorsOf(out.text)).toEqual(sensorsOf(repo));
+    const names = (t: string) => [...t.matchAll(/keymap \{[\s\S]*/g)][0][0].match(/display-name = "[^"]*"/g);
+    expect(names(out.text)).toEqual(names(repo));
+    const incs = (t: string) => t.match(/^#include .*$/gm);
+    expect(incs(out.text)).toEqual(incs(repo));
+    const beh = (t: string) => /    behaviors \{[\s\S]*?\n    \};/.exec(t)![0];
+    expect(beh(out.text)).toBe(beh(repo));
+  });
+  test('60% z innym kontrolerem: dawna domyślna (bez zachowań modułu)', () => {
+    const lay = layoutOf('ansi-60');
     const km = defaultKeymap({ layout: lay, ansi60: true, macropad: false, legends: {} });
     const out = keymapFile(km, lay, { title: 'test' });
     expect(out.problems).toEqual([]);
-    expect(layerBindings(out.text)).toEqual(layerBindings(repo));
-    expect(sensorsOf(out.text)).toEqual(sensorsOf(repo));
-    expect(out.text).toContain('display-name = "Podstawowa"');
-    expect(out.text).toContain('        fn {');
+    expect(out.text).not.toContain('knob');
+    expect(km.layers.map((l) => l.name)).toEqual(['Podstawowa', 'Fn']);
   });
   test('split: z domyślnych legend, prawa połówka z prawymi modyfikatorami', () => {
     const inp = input('split-4x6-4');
@@ -130,6 +143,8 @@ describe('wiązania', () => {
     expect(bindingLabel('&kp RA(A)', layers).tap).toBe('ą');
     expect(bindingLabel('&kp LC(LS(T))', layers).tap).toBe('Ctrl+Shift+T');
     expect(bindingLabel('&trans', layers).dim).toBe(true);
+    expect(bindingLabel('&view_ht C_PP SCR_PREV', layers)).toEqual({ tap: 'Ekran ←', hold: 'Play' });
+    expect(bindingLabel('&push_ht C_MUTE 0', layers)).toEqual({ tap: 'Tryb', hold: 'Mute' });
     expect(keyLabel('SEMI', new Map([['Semicolon', 'ł']]))).toBe('Ł');
   });
 });

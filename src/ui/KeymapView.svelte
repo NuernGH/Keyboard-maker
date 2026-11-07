@@ -104,7 +104,7 @@
   /** opis enkodera: `&inc_dec_kp CW CCW` */
   function encLabel(v: string): { cw: string; ccw: string } {
     const m = /^&inc_dec_kp\s+(\S+)\s+(\S+)$/.exec(v.trim());
-    if (!m) return { cw: v === TRANS ? '▽' : v.replace(/^&/, ''), ccw: '' };
+    if (!m) return { cw: v === TRANS ? '▽' : v.trim() === '&knob' ? (lang === 'pl' ? 'tryby' : 'modes') : v.replace(/^&/, ''), ccw: '' };
     return { cw: keyLabel(m[1], layoutMap), ccw: keyLabel(m[2], layoutMap) };
   }
   const encValue = (ref: string) => cur?.sensors?.[ref] ?? (layer === 0 ? '&inc_dec_kp C_VOL_UP C_VOL_DN' : TRANS);
@@ -149,8 +149,12 @@
           <title>{encValue(it.ref)}</title>
           <circle r={it.size / 2} />
           <text class="hold" y={-it.size / 2 + 3.2} font-size="2.2">{lang === 'pl' ? 'GAŁKA' : 'KNOB'}</text>
-          <text class="tap" y="0.2" font-size={Math.min(2.8, fit(e.cw, it.size))}>↻ {e.cw}</text>
-          <text class="tap" y="3.6" font-size={Math.min(2.8, fit(e.ccw, it.size))}>↺ {e.ccw}</text>
+          {#if e.ccw}
+            <text class="tap" y="0.2" font-size={Math.min(2.8, fit(e.cw, it.size))}>↻ {e.cw}</text>
+            <text class="tap" y="3.6" font-size={Math.min(2.8, fit(e.ccw, it.size))}>↺ {e.ccw}</text>
+          {:else}
+            <text class="tap" y="1.6" font-size={Math.min(3, fit(e.cw, it.size))}>{e.cw}</text>
+          {/if}
         {:else}
           {@const lab = bindingLabel(valueOf(it.ref), layers, layoutMap)}
           <title>{valueOf(it.ref)}</title>

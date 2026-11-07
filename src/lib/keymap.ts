@@ -11,6 +11,7 @@
 import type { WiringInput } from './wiring-doc';
 import type { Assignment } from './wiring';
 import { keyInfo, keyLabel, splitMods } from './keymap-keys';
+import { S2MINI60_BEHAVIORS, S2MINI60_INCLUDES, S2MINI60_LAYERS } from './keymap-s2mini';
 
 /** jedna warstwa: przypisania po odnośnikach klawiszy i enkodery (`&inc_dec_kp …`) */
 export interface KeymapLayer {
@@ -114,7 +115,13 @@ export function bindingLabel(s: string, layers: { name: string }[], layoutMap?: 
     case 'mt':
       return { tap: keyLabel(b.key, layoutMap), hold: keyLabel(b.mod) };
     case 'raw': {
-      const special: Record<string, string> = { '&studio_unlock': 'Studio 🔓', '&bootloader': 'Boot', '&sys_reset': 'Reset' };
+      const special: Record<string, string> = { '&studio_unlock': 'Studio 🔓', '&bootloader': 'Boot', '&sys_reset': 'Reset', '&knob_next': 'Tryb', '&knob': 'Tryby' };
+      const view = (p: string) => (p === 'SCR_PREV' ? 'Ekran ←' : p === 'SCR_NEXT' ? 'Ekran →' : `Ekran ${p}`);
+      const t = b.text.split(' ');
+      if (t[0] === '&scr_view' && t.length === 2) return { tap: view(t[1]) };
+      // hold-tapy przycisków przy ekranie: krótko ekran/gałka, długo klawisz
+      if (t[0] === '&push_ht' && t.length === 3) return { tap: 'Tryb', hold: keyLabel(t[1], layoutMap) };
+      if (t[0] === '&view_ht' && t.length === 3) return { tap: view(t[2]), hold: keyLabel(t[1], layoutMap) };
       return { tap: special[b.text] ?? b.text.replace(/^&/, '') };
     }
   }
@@ -220,9 +227,12 @@ export function defaultKeymap(o: {
   layout: KeymapLayout;
   ansi60: boolean;
   macropad: boolean;
+  /** 60% ANSI na S2 mini: keymapa z firmware (BASE/GAME/FN, przyciski przy ekranie, gałka z trybami) */
+  s2mini60?: boolean;
   /** domyślne opisy klawiszy `strona:id` → główna legenda */
   legends: Record<string, string>;
 }): KeymapData {
+  if (o.ansi60 && o.s2mini60) return s2mini60Keymap(o.layout);
   const base: KeymapLayer = { name: 'Podstawowa', node: 'base', keys: {}, sensors: {} };
   const fn: KeymapLayer = { name: 'Fn', node: 'fn', keys: {}, sensors: {} };
   const keys = o.layout.slots.filter((s) => s.kind === 'key');
@@ -265,6 +275,23 @@ export function defaultKeymap(o: {
   }
   // macropad bez klawisza Fn: tylko warstwa podstawowa (Fn można dodać przyciskiem +)
   return { layers: o.macropad ? [base] : [base, fn] };
+}
+
+/** keymapa jak w firmware zmk-s2mini (shield s2mini_60) */
+function s2mini60Keymap(layout: KeymapLayout): KeymapData {
+  return {
+    layers: S2MINI60_LAYERS.map((L) => {
+      const l: KeymapLayer = { name: L.name, node: L.node, keys: {}, sensors: {} };
+      for (const s of layout.slots) {
+        const id = s.ref.split(':')[1];
+        const m = /^k-(\d+)-(\d+)$/.exec(id);
+        if (m) l.keys[s.ref] = L.key(+m[1], +m[2]) ?? (L.node === 'base' ? NONE : TRANS);
+        else if (id in L.buttons) l.keys[s.ref] = L.buttons[id as keyof typeof L.buttons];
+      }
+      if (L.sensor) for (const e of layout.sensors) l.sensors![e] = L.sensor;
+      return l;
+    }),
+  };
 }
 
 // ---------------------------------------------------------------- zmiany warstw
@@ -327,11 +354,11 @@ export interface KeymapExport {
 }
 
 /** plik `.keymap` w stylu shieldu s2mini_60: kolumny wyrównane, rząd macierzy w jednej linii */
-export function keymapFile(km: KeymapData, layout: KeymapLayout, o: { title: string }): KeymapExport {
+export function keymapFile(km: KeymapData, layout: KeymapLayout, o: { title: string; s2mini60?: boolean }): KeymapExport {
   const problems: KeymapExport['problems'] = [];
   const nodes = layerNodes(km.layers);
   const used = km.layers.flatMap((l) => [...Object.values(l.keys), ...Object.values(l.sensors ?? {})]).join(' ');
-  const includes = ['#include <behaviors.dtsi>', '#include <dt-bindings/zmk/keys.h>'];
+  const includes = o.s2mini60 ? [...S2MINI60_INCLUDES] : ['#include <behaviors.dtsi>', '#include <dt-bindings/zmk/keys.h>'];
   if (/&bt\b/.test(used)) includes.push('#include <dt-bindings/zmk/bt.h>');
   if (/&out\b/.test(used)) includes.push('#include <dt-bindings/zmk/outputs.h>');
   if (/&rgb_ug\b/.test(used)) includes.push('#include <dt-bindings/zmk/rgb.h>');
@@ -361,6 +388,7 @@ export function keymapFile(km: KeymapData, layout: KeymapLayout, o: { title: str
     ...includes,
     '',
     '/ {',
+    ...(o.s2mini60 ? [S2MINI60_BEHAVIORS, ''] : []),
     '    keymap {',
     '        compatible = "zmk,keymap";',
   ];
@@ -368,8 +396,9 @@ export function keymapFile(km: KeymapData, layout: KeymapLayout, o: { title: str
     out.push('', `        ${nodes[li]} {`, `            display-name = "${dtsString(l.name || nodes[li])}";`, '            bindings = <');
     for (const row of cells[li]) out.push(row.map((v, ci) => (ci === row.length - 1 ? v : v.padEnd(colW[ci]))).join(' '));
     out.push('            >;');
-    if (layout.sensors.length) {
-      const sb = layout.sensors.map((e) => l.sensors?.[e] ?? (li === 0 ? '&inc_dec_kp C_VOL_UP C_VOL_DN' : TRANS));
+    // warstwa bez ustawionej gałki nie dostaje sensor-bindings (ZMK bierze wtedy niższą warstwę)
+    if (layout.sensors.length && layout.sensors.some((e) => l.sensors?.[e])) {
+      const sb = layout.sensors.map((e) => l.sensors?.[e] ?? TRANS);
       out.push(`            sensor-bindings = <${sb.join(' ')}>;`);
     }
     out.push('        };');
