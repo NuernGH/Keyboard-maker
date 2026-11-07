@@ -48,33 +48,35 @@ export function loadLegendFace(): Promise<boolean> {
 /** wysokość wielkiej litery Noto Sans w em */
 const CAP_EM = 0.714;
 
-/**
- * Płaszczyzna z legendami, środek = środek wierzchu nakładki (`w` × `h` mm). Legendy jak z legendLayout:
- * x, y = środek napisu (mm, +y od użytkownika), size = wysokość wielkiej litery (mm).
- * Tekstury trzymane w `cache`, żeby przebudowa podglądu nie rysowała ich od nowa.
- */
-export function legendPlane(cache: Map<string, THREE.CanvasTexture>, items: PlacedLegend[], color: string, w: number, h: number): THREE.Mesh {
+/** rysuje napisy na canvas `w` × `h` mm: środek obrysu znaków (nie linii bazowej) w (x, y), jak w legendLayout */
+function drawLegends(items: PlacedLegend[], color: string, w: number, h: number): THREE.CanvasTexture {
   const PX = 24; // pikseli na mm
-  // legendy przedniej ścianki (Fn) widać w podglądzie klawisza w zakładce Nakładki, nie na wierzchu
-  items = items.filter((it) => it.face !== 'front');
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(8, Math.round(w * PX));
+  cv.height = Math.max(8, Math.round(h * PX));
+  const c2 = cv.getContext('2d')!;
+  c2.fillStyle = color;
+  c2.textAlign = 'left';
+  c2.textBaseline = 'alphabetic';
+  for (const it of items) {
+    c2.font = `900 ${(it.size / CAP_EM) * PX}px ${FACE}, system-ui, Arial, sans-serif`;
+    // generator ustawia obrys znaków (przecinek, kropka, „-” leżą nisko przy linii bazowej), więc tu też
+    const m = c2.measureText(it.text);
+    const cx = (it.x + w / 2) * PX;
+    const cy = (h / 2 - it.y) * PX;
+    c2.fillText(it.text, cx - (m.actualBoundingBoxRight - m.actualBoundingBoxLeft) / 2, cy + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2);
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.anisotropy = 8;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function legendMesh(cache: Map<string, THREE.CanvasTexture>, items: PlacedLegend[], color: string, w: number, h: number): THREE.Mesh {
   const key = JSON.stringify([items, color, w.toFixed(2), h.toFixed(2)]);
   let tex = cache.get(key);
   if (!tex) {
-    const cv = document.createElement('canvas');
-    cv.width = Math.max(8, Math.round(w * PX));
-    cv.height = Math.max(8, Math.round(h * PX));
-    const c2 = cv.getContext('2d')!;
-    c2.fillStyle = color;
-    c2.textAlign = 'center';
-    c2.textBaseline = 'alphabetic';
-    for (const it of items) {
-      c2.font = `900 ${(it.size / CAP_EM) * PX}px ${FACE}, system-ui, Arial, sans-serif`;
-      // linia bazowa pół wysokości wielkiej litery pod środkiem napisu
-      c2.fillText(it.text, (it.x + w / 2) * PX, (h / 2 - it.y + it.size / 2) * PX);
-    }
-    tex = new THREE.CanvasTexture(cv);
-    tex.anisotropy = 8;
-    tex.colorSpace = THREE.SRGBColorSpace;
+    tex = drawLegends(items, color, w, h);
     cache.set(key, tex);
   }
   const m = new THREE.Mesh(
@@ -82,6 +84,65 @@ export function legendPlane(cache: Map<string, THREE.CanvasTexture>, items: Plac
     new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
   );
   m.userData.legend = true;
+  return m;
+}
+
+/**
+ * Płaszczyzna z legendami, środek = środek wierzchu nakładki (`w` × `h` mm). Legendy jak z legendLayout:
+ * x, y = środek obrysu napisu (mm, +y od użytkownika), size = wysokość wielkiej litery (mm).
+ * Tekstury trzymane w `cache`, żeby przebudowa podglądu nie rysowała ich od nowa.
+ */
+export function legendPlane(cache: Map<string, THREE.CanvasTexture>, items: PlacedLegend[], color: string, w: number, h: number): THREE.Mesh {
+  return legendMesh(cache, items.filter((it) => it.face !== 'front'), color, w, h);
+}
+
+const frontCache = new WeakMap<THREE.BufferGeometry, { y: number; z: number; tilt: number; slant: number; width: number }>();
+
+/**
+ * Przednia ścianka nakładki (strona −y) z siatki, jak capFrontFace: środek (y, z), nachylenie od pionu (stopnie),
+ * długość wzdłuż spadku i szerokość w połowie wysokości (mm).
+ */
+export function meshFront(g: THREE.BufferGeometry): { y: number; z: number; tilt: number; slant: number; width: number } {
+  let f = frontCache.get(g);
+  if (f) return f;
+  const pa = g.getAttribute('position');
+  let yMin = Infinity, zMax = -Infinity, x0 = Infinity, x1 = -Infinity;
+  for (let i = 0; i < pa.count; i++) {
+    yMin = Math.min(yMin, pa.getY(i));
+    zMax = Math.max(zMax, pa.getZ(i));
+    x0 = Math.min(x0, pa.getX(i));
+    x1 = Math.max(x1, pa.getX(i));
+  }
+  // dolna krawędź ścianki: najniższy punkt na samym przodzie; górna: najbardziej wysunięty punkt wierzchu
+  let z0 = Infinity, yTop = Infinity, tx0 = Infinity, tx1 = -Infinity;
+  for (let i = 0; i < pa.count; i++) {
+    if (pa.getY(i) < yMin + 0.05) z0 = Math.min(z0, pa.getZ(i));
+    if (pa.getZ(i) > zMax - 0.05) {
+      yTop = Math.min(yTop, pa.getY(i));
+      tx0 = Math.min(tx0, pa.getX(i));
+      tx1 = Math.max(tx1, pa.getX(i));
+    }
+  }
+  const H = zMax - z0;
+  const dy = yTop - yMin;
+  f = { y: (yMin + yTop) / 2, z: z0 + H / 2, tilt: (Math.atan2(dy, H) * 180) / Math.PI, slant: Math.hypot(dy, H), width: (x1 - x0 + tx1 - tx0) / 2 };
+  frontCache.set(g, f);
+  return f;
+}
+
+/**
+ * Legendy przedniej ścianki (Fn) na płaszczyźnie przyłożonej do ścianki nakładki o siatce `g`, tak jak rowek
+ * w modelu (applyLegend: obrót o 90° − nachylenie wokół X). Null, gdy klawisz nie ma legend na ściance.
+ */
+export function legendFront(cache: Map<string, THREE.CanvasTexture>, items: PlacedLegend[], color: string, g: THREE.BufferGeometry): THREE.Mesh | null {
+  const front = items.filter((it) => it.face === 'front');
+  if (!front.length) return null;
+  const f = meshFront(g);
+  const m = legendMesh(cache, front, color, f.width, f.slant);
+  m.rotation.x = ((90 - f.tilt) * Math.PI) / 180;
+  // odrobinę przed ścianką (wzdłuż jej normalnej), żeby nie migotała
+  const a = (f.tilt * Math.PI) / 180;
+  m.position.set(0, f.y - 0.04 * Math.cos(a), f.z + 0.04 * Math.sin(a));
   return m;
 }
 

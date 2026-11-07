@@ -128,12 +128,35 @@ export function legendPart(p: KeycapParams, lg: KeycapLegend): Shape3D | null {
   return contourPrism(lg.contours, L.topEdge, L.topEdge + lg.raise);
 }
 
-/** Nakładka z legendą: rowek wycięty w górze (wzdłuż misy) albo wypukła legenda dołączona na płaskiej górze. */
+/**
+ * Bryły wycinające legendę z góry nakładki: rowek głębokości `lg.depth` wzdłuż góry (przy misie wzdłuż jej
+ * powierzchni). Ten sam kształt daje gniazdo i wkład legendy wtopionej.
+ */
+function topLegendTools(p: KeycapParams, type: CapType, lg: KeycapLegend): Shape3D[] {
+  const L = capLevels(p);
+  const prism = contourPrism(lg.contours, L.topLow - lg.depth - 0.5, L.topEdge + 1);
+  if (!prism) return [];
+  // warstwa pod płaską górą (przy misie: rogi poza czaszą kuli, gdzie góra zostaje płaska)
+  const tools: Shape3D[] = [prism.clone().intersect(makeBox([-99, -99, L.topEdge - lg.depth], [99, 99, L.topEdge + 1])) as Shape3D];
+  if (p.top === 'dish') {
+    const [bw, bh] = capBottom(p, type.w, type.h);
+    const ins = topInset(p);
+    const dish = dishTool(p, bw - 2 * ins, bh - 2 * ins, L.topLow);
+    // obszar nad powierzchnią misy przesuniętą w dół o głębokość rowka
+    if (dish) tools.push(prism.intersect(dish.translate(0, 0, -lg.depth) as Shape3D) as Shape3D);
+  }
+  return tools;
+}
+
+/**
+ * Nakładka z legendą: rowek wycięty w górze (wzdłuż misy), gniazdo na legendę wtopioną (`inlay`, ten sam
+ * kształt co rowek) albo wypukła legenda dołączona na płaskiej górze.
+ */
 export function applyLegend(p: KeycapParams, type: CapType, cap: Shape3D, lg: KeycapLegend): Shape3D {
   let out = cap;
   if (lg.front?.length) {
-    // rowek w przedniej ściance (także przy legendzie w kolorze: ścianka jest prawie pionowa, więc kolor
-    // zmieniałby się w połowie liter); głębokość tak, by została ścianka ≥ 0,45 mm
+    // rowek w przedniej ściance (także przy legendzie w kolorze i wtopionej: ścianka jest prawie pionowa,
+    // więc kolor zmieniałby się w połowie liter); głębokość tak, by została ścianka ≥ 0,45 mm
     const f = capFrontFace(p, type.w, type.h);
     const prism = contourPrism(lg.front, -frontGrooveDepth(p), 1);
     if (prism) out = cutMany(out, [prism.rotate(90 - f.tilt, [0, 0, 0], [1, 0, 0]).translate(0, f.y, f.z) as Shape3D]);
@@ -145,18 +168,19 @@ export function applyLegend(p: KeycapParams, type: CapType, cap: Shape3D, lg: Ke
     const part = contourPrism(lg.contours, L.topEdge - 0.05, L.topEdge + lg.raise);
     return part ? fuseMany([out, part]) : out;
   }
-  const prism = contourPrism(lg.contours, L.topLow - lg.depth - 0.5, L.topEdge + 1);
-  if (!prism) return out;
-  // warstwa pod płaską górą (przy misie: rogi poza czaszą kuli, gdzie góra zostaje płaska)
-  const tools: Shape3D[] = [prism.clone().intersect(makeBox([-99, -99, L.topEdge - lg.depth], [99, 99, L.topEdge + 1])) as Shape3D];
-  if (p.top === 'dish') {
-    const [bw, bh] = capBottom(p, type.w, type.h);
-    const ins = topInset(p);
-    const dish = dishTool(p, bw - 2 * ins, bh - 2 * ins, L.topLow);
-    // obszar nad powierzchnią misy przesuniętą w dół o głębokość rowka
-    if (dish) tools.push(prism.intersect(dish.translate(0, 0, -lg.depth) as Shape3D) as Shape3D);
-  }
-  return cutMany(out, tools);
+  const tools = topLegendTools(p, type, lg);
+  return tools.length ? cutMany(out, tools) : out;
+}
+
+/**
+ * Wkład legendy wtopionej (druk z AMS): dokładnie to, co gniazdo wycina z gładkiej nakładki `cap`, więc góra
+ * liter leży równo z górą nakładki (też na misie). Osobna bryła do przypisania drugiego filamentu w slicerze.
+ */
+export function inlayPart(p: KeycapParams, type: CapType, cap: Shape3D, lg: KeycapLegend): Shape3D | null {
+  if (!lg.contours.length) return null;
+  const parts = topLegendTools(p, type, lg).map((t) => cap.clone().intersect(t) as Shape3D);
+  if (!parts.length) return null;
+  return parts.length === 1 ? parts[0] : fuseMany(parts);
 }
 
 export interface KeycapOptions {

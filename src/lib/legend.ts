@@ -18,7 +18,7 @@ export const legendRef = (side: 'left' | 'right', id: string) => `${side}:${id}`
  * `color` = wypukła legenda w drugim kolorze, jedna zmiana filamentu (M600) na wysokości góry nakładki;
  * tylko płaska góra drukowana górą do góry (na misie warstwy mieszałyby oba kolory).
  */
-export type LegendMethod = 'groove' | 'color';
+export type LegendMethod = 'groove' | 'color' | 'inlay';
 
 export interface LegendParams {
   /** wysokość wielkiej litery legendy głównej (mm) */
@@ -41,8 +41,11 @@ export interface LegendParams {
  */
 export const DEFAULT_LEGEND: LegendParams = { mainSize: 5, shiftMainSize: 4.4, subSize: 3.6, depth: 0.6, raise: 0.6, margin: 0.9 };
 
-/** Minimalne szerokości kreski dla dyszy 0,4 (mm): rowek, którego slicer nie zaleje, i jedna linia legendy wypukłej. */
-export const LEGEND_MIN_STROKE: Record<LegendMethod, number> = { groove: 0.5, color: 0.45 };
+/**
+ * Minimalne szerokości kreski dla dyszy 0,4 (mm): rowek, którego slicer nie zaleje, i jedna linia legendy
+ * wypukłej albo wtopionej (litera drukowana drugim filamentem).
+ */
+export const LEGEND_MIN_STROKE: Record<LegendMethod, number> = { groove: 0.5, color: 0.45, inlay: 0.45 };
 
 /** Wysokość wielkiej litery w jednostkach em (Noto Sans: 714/1000). */
 export function capHeightEm(font: Font): number {
@@ -246,7 +249,7 @@ export const hasLegend = (set: LegendSet | undefined) => !!set && LEGEND_LAYERS.
 
 /**
  * Kontrola drukowalności (plan, „Sprawdzenie drukowalności legend”): otwarcie morfologiczne kołem o średnicy
- * minimalnej kreski. Fragmenty liter, które po otwarciu znikają, są za cienkie dla dyszy.
+ * minimalnej kreski. Fragmenty liter, które po otwarciu znikają (poza samymi narożnikami), są za cienkie dla dyszy.
  * Zwraca udział za cienkiej powierzchni i obrys tych fragmentów jako ścieżkę SVG (y w górę → w dół).
  */
 export function thinCheck(contours: Contour[], minStroke: number, res = 0.04): { fraction: number; path: string } {
@@ -286,13 +289,22 @@ export function thinCheck(contours: Contour[], minStroke: number, res = 0.04): {
   const opened = new Uint8Array(nx * ny);
   for (let j = 0; j < ny; j++)
     for (let i = 0; i < nx; i++) if (eroded[j * nx + i]) for (const [di, dj] of disk) { const a = i + di, b = j + dj; if (a >= 0 && b >= 0 && a < nx && b < ny) opened[b * nx + a] = 1; }
+  // Ostre narożniki też znikają przy otwarciu, choć kreska jest gruba (dysza je tylko zaokrągli). Narożnik
+  // prosty odstaje od otwartego kształtu najwyżej o r(√2 − 1) ≈ 0,41 r, więc liczymy tylko to, co jest dalej
+  // niż 0,5 r od otwartego kształtu: zostają kreski węższe od dyszy i bardzo ostre szpice.
+  const rr = Math.max(1, Math.round(0.5 * r));
+  const near = new Uint8Array(nx * ny);
+  const ring: [number, number][] = [];
+  for (let dj = -rr; dj <= rr; dj++) for (let di = -rr; di <= rr; di++) if (di * di + dj * dj <= rr * rr) ring.push([di, dj]);
+  for (let j = 0; j < ny; j++)
+    for (let i = 0; i < nx; i++) if (opened[j * nx + i]) for (const [di, dj] of ring) { const a = i + di, b = j + dj; if (a >= 0 && b >= 0 && a < nx && b < ny) near[b * nx + a] = 1; }
   let total = 0;
   let thin = 0;
   let path = '';
   for (let j = 0; j < ny; j++) {
     let run = -1;
     for (let i = 0; i <= nx; i++) {
-      const t = i < nx && inside[j * nx + i] === 1 && opened[j * nx + i] === 0;
+      const t = i < nx && inside[j * nx + i] === 1 && near[j * nx + i] === 0;
       if (i < nx && inside[j * nx + i]) total++;
       if (t) thin++;
       if (t && run < 0) run = i;
@@ -307,5 +319,8 @@ export function thinCheck(contours: Contour[], minStroke: number, res = 0.04): {
   return { fraction: total ? thin / total : 0, path };
 }
 
-/** Udział za cienkiej powierzchni legendy, od którego panel i eksport ostrzegają (plan: dobre układy mają 1–2,5 %). */
-export const THIN_WARN = 0.04;
+/**
+ * Udział za cienkiej powierzchni legendy, od którego panel i eksport ostrzegają. Bez narożników dobre układy
+ * mają 0–0,5 %; „a” 2,5 mm Noto Sans Black ma ok. 2,6 %, „e” 2,5 mm ok. 11 %.
+ */
+export const THIN_WARN = 0.02;

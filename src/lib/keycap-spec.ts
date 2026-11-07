@@ -124,11 +124,14 @@ export const DEFAULT_KEYCAP: KeycapParams = {
 };
 
 /**
- * Skuteczny sposób legendy: przy druku na boku tylko rowek; wypukła w kolorze tylko na płaskiej górze
- * (drukowanej wtedy górą do góry, jedna zmiana filamentu); na misie rowek.
+ * Skuteczny sposób legendy: przy druku na boku tylko rowek; wtopiona w kolorze (`inlay`, druk z AMS) na misie
+ * i płaskiej górze; wypukła w kolorze tylko na płaskiej górze (drukowanej wtedy górą do góry, jedna zmiana
+ * filamentu); poza tym na misie rowek.
  */
 export function legendMethod(p: KeycapParams): LegendMethod {
-  if (p.orient === 'side' || p.top !== 'flat') return 'groove';
+  if (p.orient === 'side') return 'groove';
+  if (p.legend?.method === 'inlay') return 'inlay';
+  if (p.top !== 'flat') return 'groove';
   return p.legend?.method ?? 'color';
 }
 

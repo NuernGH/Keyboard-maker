@@ -20,6 +20,8 @@ export interface KeycapInput {
   pose: 'rest' | 'print' | 'insert' | 'insert-turned';
   /** legenda tego klawisza (kontury już ułożone na górze); bez niej nakładka gładka */
   legend?: KeycapLegend;
+  /** przy legendzie wtopionej (`inlay`): `legend` = sam wkład liter zamiast nakładki (druga część dla AMS) */
+  part?: 'cap' | 'legend';
 }
 
 /** Dactyl: skorupa albo dno jednej połówki. Model liczymy dla prawej, lewa to lustro. */

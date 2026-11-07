@@ -9,7 +9,7 @@
   import { capType } from '../lib/keycap-spec';
   import type { PreviewColors, KeyLook } from '../lib/colors';
   import type { PlacedLegend } from '../lib/legend';
-  import { disposeGlow, glowGroup, legendPlane, loadLegendFace, meshTop } from './previewDecor';
+  import { disposeGlow, glowGroup, legendFront, legendPlane, loadLegendFace, meshTop } from './previewDecor';
 
   export interface PreviewMesh {
     vertices: Float32Array;
@@ -300,12 +300,15 @@
               const ref = `${side}:${k.id}`;
               const items = labels[ref];
               if (!items?.length) continue;
-              const lm = legendPlane(legendTex, items, (colorsOn && looks?.[ref]?.legend) || '#3a3f46', top.w, top.h);
+              const lc = (colorsOn && looks?.[ref]?.legend) || '#3a3f46';
+              const lm = legendPlane(legendTex, items, lc, top.w, top.h);
               lm.position.set(0, 0, top.z + 0.04);
               const holder = new THREE.Group();
               holder.position.set(k.x, k.y, 0);
               holder.rotation.z = (k.rot * Math.PI) / 180;
               holder.add(lm);
+              const fm = legendFront(legendTex, items, lc, g);
+              if (fm) holder.add(fm);
               hg.add(holder);
             }
           }

@@ -241,7 +241,13 @@
           if (thinShare > THIN_WARN) thinKeys.push(`${set.main ?? refs[i]} ${Math.round(thinShare * 100)} %`);
           const data = await client().keycapExport({ ...input(type, 'print'), legend }, format);
           const label = set.main ?? set.shift ?? set.fn ?? set.altgr ?? refs[i];
-          files.push({ name: `${fileBase}-keycap-${String(i + 1).padStart(2, '0')}-${safe(label)}-${type.id}.${format}`, data: new Uint8Array(data) });
+          const base = `${fileBase}-keycap-${String(i + 1).padStart(2, '0')}-${safe(label)}-${type.id}`;
+          files.push({ name: `${base}.${format}`, data: new Uint8Array(data) });
+          // legenda wtopiona: druga część (litery) w tym samym położeniu, do przypisania drugiego filamentu
+          if (m === 'inlay' && placed.top.length) {
+            const inl = await client().keycapExport({ ...input(type, 'print'), legend, part: 'legend' }, format);
+            files.push({ name: `${base}-legend.${format}`, data: new Uint8Array(inl) });
+          }
         }
         for (const { type, count } of capSet(rest, stabs)) {
           const data = await client().keycapExport(input(type, 'print'), format);
@@ -252,6 +258,13 @@
           const h = capLevels(p).topEdge - capLevels(p).z0;
           const note = (lang === 'pl' ? `Zmiana filamentu (M600) na wysokości ${h.toFixed(2)} mm: od niej drukuje się legenda.\n` : `Filament change (M600) at ${h.toFixed(2)} mm: the legend prints from there.\n`);
           files.push({ name: lang === 'pl' ? 'CZYTAJ.txt' : 'README.txt', data: new TextEncoder().encode(note) as Uint8Array<ArrayBuffer> });
+        }
+        if (m === 'inlay') {
+          const note =
+            lang === 'pl'
+              ? 'Legenda wtopiona (AMS): każdy klawisz z legendą ma dwa pliki, nakładkę i „-legend” (litery). Wczytaj oba naraz i w slicerze zgódź się na jeden obiekt z wieloma częściami, potem przypisz literom drugi filament. Pliki mają to samo położenie, więc litery trafiają w gniazda. Opisy Fn na przedniej ściance zostają rowkiem na farbę.\n'
+              : 'Inlaid legend (AMS): every key with a legend has two files, the cap and "-legend" (the letters). Load both at once, accept a single object with multiple parts in the slicer, then assign the second filament to the letters. Both files share the same position, so the letters sit in their pockets. Fn legends on the front wall stay paint grooves.\n';
+          files.push({ name: lang === 'pl' ? 'CZYTAJ-AMS.txt' : 'README-AMS.txt', data: new TextEncoder().encode(note) as Uint8Array<ArrayBuffer> });
         }
       } else
         for (const { type, count } of set) {

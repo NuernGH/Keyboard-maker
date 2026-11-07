@@ -20,7 +20,7 @@
   import ColorPanel from './ColorPanel.svelte';
   import { DEFAULT_COLORS, resolveKeys, type PreviewColors } from '../lib/colors';
   import { dactylLegends } from '../lib/legend-defaults';
-  import { disposeGlow, glowGroup, legendPlane, loadLegendFace, meshTop } from './previewDecor';
+  import { disposeGlow, glowGroup, legendFront, legendPlane, loadLegendFace, meshTop } from './previewDecor';
   import ProjectBar from './ProjectBar.svelte';
   import Tabs from './Tabs.svelte';
   import { PANEL_TABS, type PanelTab } from './tabs';
@@ -623,7 +623,7 @@
           rm.matrix.copy(mx);
           rm.userData.ref = `${side}:${key.id}`;
           g.add(rm);
-          addLegend(g, side, key.id, mx, meshTop(rg));
+          addLegend(g, side, key.id, mx, meshTop(rg), rg);
           if (pickedKey === `${side}:${key.id}` && (tab === 'keycaps' || tab === 'colors')) addHighlight(g, rg, mx);
           continue;
         }
@@ -646,7 +646,7 @@
         cm.matrix.copy(mx);
         cm.userData.ref = `${side}:${key.id}`;
         g.add(cm);
-        addLegend(g, side, key.id, mx, { w: w - (CAP.size - CAP.top), h: h - (CAP.size - CAP.top), z: CAP.z1 });
+        addLegend(g, side, key.id, mx, { w: w - (CAP.size - CAP.top), h: h - (CAP.size - CAP.top), z: CAP.z1 }, cg);
         if (pickedKey === `${side}:${key.id}` && (tab === 'keycaps' || tab === 'colors')) addHighlight(g, cg, mx);
       }
     }
@@ -654,17 +654,24 @@
   }
 
   /** legenda na wierzchu nakładki; w lewej (lustrzanej) połówce napis odbity z powrotem */
-  function addLegend(g: THREE.Group, side: 'left' | 'right', id: string, mx: THREE.Matrix4, top: { w: number; h: number; z: number }) {
+  function addLegend(g: THREE.Group, side: 'left' | 'right', id: string, mx: THREE.Matrix4, top: { w: number; h: number; z: number }, cap?: THREE.BufferGeometry) {
     const ref = `${side}:${id}`;
     const items = labels?.[ref];
     if (!items?.length) return;
-    const lm = legendPlane(legendTex, items, (colors.on && looks?.[ref]?.legend) || '#3a3f46', top.w, top.h);
+    const lc = (colors.on && looks?.[ref]?.legend) || '#3a3f46';
+    const lm = legendPlane(legendTex, items, lc, top.w, top.h);
     lm.position.z = top.z + 0.04;
     if (side === 'left') lm.scale.x = -1;
     const holder = new THREE.Group();
     holder.matrixAutoUpdate = false;
     holder.matrix.copy(mx);
     holder.add(lm);
+    // Fn na przedniej ściance
+    const fm = cap ? legendFront(legendTex, items, lc, cap) : null;
+    if (fm) {
+      if (side === 'left') fm.scale.x = -1;
+      holder.add(fm);
+    }
     g.add(holder);
   }
 
