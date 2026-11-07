@@ -5,7 +5,7 @@ import { measureVolume, makeBox, type Shape3D } from 'replicad';
 import { initOC } from './oc';
 import { applyLegend, buildKeycap, legendPart, printPose } from '../src/lib/keycap';
 import { DEFAULT_KEYCAP, capBottom, capFront, capFrontFace, capLevels, capTop, capType, frontGrooveDepth, layoutKeyLegends, topInset, topPreset } from '../src/lib/keycap-spec';
-import { DEFAULT_LEGEND, LEGEND_MIN_STROKE, area, legendLayout, nestContours, placedContours, strokeWidth, textContours, thinCheck, type Contour } from '../src/lib/legend';
+import { DEFAULT_LEGEND, LEGEND_MIN_STROKE, THIN_WARN, area, legendLayout, nestContours, placedContours, strokeWidth, textContours, thinCheck, type Contour } from '../src/lib/legend';
 import { isValidShape } from '../src/lib/geometry';
 
 let font: Font;
@@ -86,6 +86,17 @@ describe('legendy: kontury i układ', () => {
     const t = thinCheck(small, LEGEND_MIN_STROKE.groove);
     expect(t.fraction).toBeGreaterThan(0.3);
     expect(t.path.length).toBeGreaterThan(0);
+  });
+
+  test('kontrola drukowalności: ostre narożniki grubych znaków to nie za cienkie kreski', () => {
+    // „=” 4,4 mm i „+” 3,6 mm mają kreski grubsze niż 0,5 mm, a dawniej wychodziło 4–6 % z samych narożników
+    for (const [text, size] of [['=', 4.4], ['+', 3.6], ['-', 4.4], ['_', 3.6], ['"', 3.6]] as const) {
+      const c = placedContours(font, [{ layer: 'main', text, size, x: 0, y: 0 }]).top;
+      expect(thinCheck(c, LEGEND_MIN_STROKE.groove).fraction, text).toBeLessThan(0.005);
+    }
+    // prawdziwie cienkie kreski dalej są wyłapywane
+    const e = placedContours(font, [{ layer: 'main', text: 'e', size: 2.5, x: 0, y: 0 }]).top;
+    expect(thinCheck(e, LEGEND_MIN_STROKE.groove).fraction).toBeGreaterThan(THIN_WARN);
   });
 });
 
