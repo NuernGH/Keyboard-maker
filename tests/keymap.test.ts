@@ -6,7 +6,7 @@ import { DEFAULT_ISLAND, type ControllerId } from '../src/lib/island';
 import { splitWiringInput, wiringAssignments } from '../src/lib/wiring-doc';
 import { defaultLegends } from '../src/lib/legend-defaults';
 import { captureKey, loneModifier, keyLabel, searchKeys, CODE_TO_ZMK } from '../src/lib/keymap-keys';
-import { bindingLabel, defaultKeymap, formatBinding, keymapFile, keymapLayout, layerNodes, parseBinding, removeLayer, swapLayers } from '../src/lib/keymap';
+import { bindingLabel, checkBinding, defaultKeymap, formatBinding, keymapFile, keymapLayout, layerNodes, parseBinding, removeLayer, swapLayers } from '../src/lib/keymap';
 
 const tpl = (id: string) => TEMPLATES.find((t) => t.id === id)!.params;
 const input = (id: string, controller: ControllerId = 'nicenano') =>
@@ -83,7 +83,7 @@ describe('domyślna keymapa', () => {
     const out = keymapFile(km, lay, { title: 'test' });
     expect(out.problems).toEqual([]);
     expect(out.text).not.toContain('knob');
-    expect(km.layers.map((l) => l.name)).toEqual(['Podstawowa', 'Fn']);
+    expect(km.layers.map((l) => l.name)).toEqual(['BASE', 'Fn']);
   });
   test('split: z domyślnych legend, prawa połówka z prawymi modyfikatorami', () => {
     const inp = input('split-4x6-4');
@@ -170,5 +170,23 @@ describe('wybór naciśnięciem', () => {
     expect(searchKeys('glosnosc').map((k) => k.id)).toContain('C_VOL_UP');
     expect(searchKeys('srednik')[0].id).toBe('SEMI');
     expect(searchKeys('f1')[0].id).toBe('F1');
+  });
+});
+
+describe('opisy w języku interfejsu', () => {
+  const layers = [{ name: 'BASE' }, { name: 'GAME' }, { name: 'FN' }];
+  test('EN: bez polskich słów w podglądzie domyślnej keymapy 60% S2 mini', () => {
+    const km = defaultKeymap({ layout: layoutOf('ansi-60', 's2mini'), ansi60: true, s2mini60: true, macropad: false, legends: {} });
+    const texts = km.layers.flatMap((l) => Object.values(l.keys).flatMap((v) => Object.values(bindingLabel(v, layers, null, 'en')).filter((x) => typeof x === 'string')));
+    expect(texts.join(' ')).not.toMatch(/Spacja|Tryb|Ekran|warstwa|przełącz|[ąćęłńóśźż]/);
+  });
+  test('EN i PL dla przycisków modułu i klawiszy', () => {
+    expect(keyLabel('SPACE', null, 'en')).toBe('Space');
+    expect(keyLabel('SPACE')).toBe('Spacja');
+    expect(bindingLabel('&mo 2', layers, null, 'en')).toEqual({ tap: 'FN', hold: 'layer' });
+    expect(bindingLabel('&view_ht C_PP SCR_PREV', layers, null, 'en')).toEqual({ tap: 'Screen ←', hold: 'Play' });
+    expect(bindingLabel('&push_ht C_MUTE 0', layers, null, 'en')).toEqual({ tap: 'Mode', hold: 'Mute' });
+    expect(bindingLabel('&push_ht C_MUTE 0', layers)).toEqual({ tap: 'Tryb', hold: 'Mute' });
+    expect(checkBinding('&mo 7', 3, 'en')).toBe('layer 7 does not exist');
   });
 });

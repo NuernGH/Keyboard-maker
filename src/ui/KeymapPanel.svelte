@@ -22,7 +22,7 @@
     type KeymapLayout,
   } from '../lib/keymap';
   import { S2MINI60_SPECIALS } from '../lib/keymap-s2mini';
-  import { HOLD_MODS, MOD_CODES, MOD_FN_NAME, captureKey, keyInfo, keyLabel, loneModifier, searchKeys, splitMods } from '../lib/keymap-keys';
+  import { HOLD_MODS, MOD_CODES, MOD_FN_NAME, captureKey, keyInfo, keyLabel, keyShort, loneModifier, searchKeys, splitMods } from '../lib/keymap-keys';
 
   let {
     lang,
@@ -105,7 +105,7 @@
     return cur.keys[selected] ?? (layer === 0 ? NONE : TRANS);
   });
   const b = $derived(parseBinding(value));
-  const problem = $derived(selected && !isEnc ? checkBinding(value, keymap.layers.length) : null);
+  const problem = $derived(selected && !isEnc ? checkBinding(value, keymap.layers.length, lang) : null);
   function setValue(v: string) {
     if (!selected) return;
     const ref = selected;
@@ -316,7 +316,7 @@
       {#each [['cw', T('W prawo ↻', 'Right ↻')], ['ccw', T('W lewo ↺', 'Left ↺')]] as [w, lab] (w)}
         <div class="row">
           <span class="lab">{lab}</span>
-          <code class="kv">{encParts ? keyLabel(w === 'cw' ? encParts.cw : encParts.ccw, layoutMap) : '—'}</code>
+          <code class="kv">{encParts ? keyLabel(w === 'cw' ? encParts.cw : encParts.ccw, layoutMap, lang) : '—'}</code>
           <button class:on={listening === w} onclick={() => listen(w as Target)}>{listening === w ? T('Słucham… (kliknij, by skończyć)', 'Listening… (click to stop)') : T('Naciśnij klawisz', 'Press a key')}</button>
           <button class:on={listFor === w} onclick={() => (listFor = w as Target)} title={T('Wybór z listy poniżej trafi tutaj', 'List picks go here')}>☰</button>
         </div>
@@ -356,7 +356,7 @@
         <div class="row">
           <span class="lab">{b.kind === 'kp' ? T('Kod', 'Code') : T('Naciśnięty', 'Tap')}</span>
           <input class="code" value={b.key} onchange={(e) => setKey((e.target as HTMLInputElement).value.trim().toUpperCase())} aria-label={T('Kod klawisza ZMK', 'ZMK key code')} />
-          <span class="kv">{keyLabel(b.key, layoutMap)}</span>
+          <span class="kv">{keyLabel(b.key, layoutMap, lang)}</span>
         </div>
         <div class="row">
           <button class="listen" class:on={listening === 'key'} onclick={() => listen('key')}>
@@ -401,7 +401,7 @@
               aria-selected={false}
               onclick={() => setKey(isEnc ? k.id : kpMods.mods.length && b.kind === 'kp' ? kpMods.mods.reduceRight((acc, f) => `${f}(${acc})`, k.id) : k.id, isEnc ? listFor : 'key')}
             >
-              <span class="sh">{k.short}</span>
+              <span class="sh">{keyShort(k, lang)}</span>
               <code>{k.id}</code>
               <span class="desc">{k[lang]}</span>
             </button>

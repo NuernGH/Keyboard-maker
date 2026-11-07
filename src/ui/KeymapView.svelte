@@ -105,7 +105,7 @@
   function encLabel(v: string): { cw: string; ccw: string } {
     const m = /^&inc_dec_kp\s+(\S+)\s+(\S+)$/.exec(v.trim());
     if (!m) return { cw: v === TRANS ? '▽' : v.trim() === '&knob' ? (lang === 'pl' ? 'tryby' : 'modes') : v.replace(/^&/, ''), ccw: '' };
-    return { cw: keyLabel(m[1], layoutMap), ccw: keyLabel(m[2], layoutMap) };
+    return { cw: keyLabel(m[1], layoutMap, lang), ccw: keyLabel(m[2], layoutMap, lang) };
   }
   const encValue = (ref: string) => cur?.sensors?.[ref] ?? (layer === 0 ? '&inc_dec_kp C_VOL_UP C_VOL_DN' : TRANS);
 </script>
@@ -115,7 +115,7 @@
     <rect class="island" x={m.rect.x0} y={m.rect.y0} width={m.rect.x1 - m.rect.x0} height={m.rect.y1 - m.rect.y0} rx="2" />
   {/each}
   {#each drawn as d (d.ref)}
-    {@const lab = bindingLabel(valueOf(d.ref), layers, layoutMap)}
+    {@const lab = bindingLabel(valueOf(d.ref), layers, layoutMap, lang)}
     <g
       class="key"
       class:sel={selected === d.ref}
@@ -156,7 +156,7 @@
             <text class="tap" y="1.6" font-size={Math.min(3, fit(e.cw, it.size))}>{e.cw}</text>
           {/if}
         {:else}
-          {@const lab = bindingLabel(valueOf(it.ref), layers, layoutMap)}
+          {@const lab = bindingLabel(valueOf(it.ref), layers, layoutMap, lang)}
           <title>{valueOf(it.ref)}</title>
           <rect x={-it.size / 2} y={-it.size / 2} width={it.size} height={it.size} rx="3" />
           <text class="hold" y={-it.size / 2 + 3.2} font-size="2.2">{BTN_NAME[it.ref.split(':')[1]] ?? ''}</text>
