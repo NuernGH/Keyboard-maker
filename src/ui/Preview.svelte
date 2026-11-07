@@ -6,6 +6,7 @@
   import { PITCH, switchOffsets, switchSpots, type Key } from '../lib/layout';
   import type { IslandGeom, GhostPart } from '../lib/island';
   import { loadControllerModel, placeOnBoard } from './controllerModel';
+  import { capType } from '../lib/keycap-spec';
 
   export interface PreviewMesh {
     vertices: Float32Array;
@@ -33,6 +34,7 @@
     holeSize = 14,
     stabs = 'cherry',
     switchMesh = null,
+    capMeshes = null,
   }: {
     halves: PreviewHalf[];
     cellHeight: number;
@@ -40,6 +42,8 @@
     stabs?: 'cherry' | 'mx' | 'none';
     /** przełącznik ustawiony jak komórka (wierzch płyty z = 0); null = bez przełączników */
     switchMesh?: PreviewMesh | null;
+    /** nakładki w spoczynku (układ klawisza) wg typu (capType().id); null = bez nakładek */
+    capMeshes?: Record<string, PreviewMesh> | null;
   } = $props();
 
   let host: HTMLDivElement;
@@ -66,6 +70,7 @@
   });
 
   const switchMat = new THREE.MeshStandardMaterial({ color: 0x3b4148, metalness: 0.05, roughness: 0.5 });
+  const capMat = new THREE.MeshStandardMaterial({ color: 0xe9e4d8, metalness: 0, roughness: 0.6 });
 
   const ghostMats: Record<GhostPart['kind'], THREE.Material> = {
     nano: new THREE.MeshStandardMaterial({ color: 0x2a6f97, roughness: 0.6 }),
@@ -200,6 +205,30 @@
           hg.add(im);
         }
       }
+      if (capMeshes) {
+        // jedna siatka na typ nakładki, instancje w pozycjach klawiszy
+        const byType = new Map<string, Key[]>();
+        for (const k of half.keys) {
+          const id = capType(k, stabs).id;
+          if (!capMeshes[id]) continue;
+          byType.set(id, [...(byType.get(id) ?? []), k]);
+        }
+        for (const [id, ks] of byType) {
+          const cm = capMeshes[id];
+          let g = geoCache.get('cap:' + id);
+          if (!g) {
+            g = new THREE.BufferGeometry();
+            g.setAttribute('position', new THREE.BufferAttribute(cm.vertices, 3));
+            g.setAttribute('normal', new THREE.BufferAttribute(cm.normals, 3));
+            g.setIndex(new THREE.BufferAttribute(cm.triangles, 1));
+            geoCache.set('cap:' + id, g);
+          }
+          const im = new THREE.InstancedMesh(g, capMat, ks.length);
+          const m4 = new THREE.Matrix4();
+          ks.forEach((k, i) => im.setMatrixAt(i, m4.makeRotationZ((k.rot * Math.PI) / 180).setPosition(k.x, k.y, 0)));
+          hg.add(im);
+        }
+      }
       if (half.mesh) {
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.BufferAttribute(half.mesh.vertices, 3));
@@ -268,6 +297,7 @@
     void cellHeight;
     void stabs;
     void switchMesh;
+    void capMeshes;
     rebuild();
   });
 
