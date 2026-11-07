@@ -193,10 +193,15 @@ const PL_ALTGR: Record<string, string> = { A: 'ą', C: 'ć', E: 'ę', L: 'ł', N
  * Opis wyrażenia klawisza na rysunek. `layoutMap` (opcjonalnie, z navigator.keyboard.getLayoutMap())
  * podaje znak z układu w systemie dla liter i znaków.
  */
-export function keyLabel(expr: string, layoutMap?: Map<string, string> | null): string {
+/** krótkie opisy po angielsku tam, gdzie `short` jest polski */
+const SHORT_EN: Record<string, string> = { SPACE: 'Space', C_BRI_UP: 'Bri+', C_BRI_DN: 'Bri−', C_AL_CALC: 'Calc', C_AL_FILES: 'Files', C_AL_MAIL: 'Mail' };
+/** krótki opis klawisza z listy w wybranym języku */
+export const keyShort = (x: ZmkKey, lang: 'pl' | 'en' = 'pl') => (lang === 'en' ? SHORT_EN[x.id] ?? x.short : x.short);
+
+export function keyLabel(expr: string, layoutMap?: Map<string, string> | null, lang: 'pl' | 'en' = 'pl'): string {
   const { mods, key } = splitMods(expr);
   const info = keyInfo(key);
-  let base = info?.short ?? key;
+  let base = info ? keyShort(info, lang) : key;
   if (info && layoutMap && (info.group === 'letters' || info.group === 'symbols' || info.group === 'intl')) {
     const code = ZMK_TO_CODE.get(info.id);
     const ch = code ? layoutMap.get(code) : undefined;

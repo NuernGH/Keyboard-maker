@@ -94,8 +94,15 @@ export function formatBinding(b: Binding): string {
 }
 
 /** opis na rysunek: `tap` na środku, `hold` (przytrzymanie, warstwa) mniejszy u dołu */
-export function bindingLabel(s: string, layers: { name: string }[], layoutMap?: Map<string, string> | null): { tap: string; hold?: string; dim?: boolean } {
+export function bindingLabel(
+  s: string,
+  layers: { name: string }[],
+  layoutMap?: Map<string, string> | null,
+  lang: 'pl' | 'en' = 'pl',
+): { tap: string; hold?: string; dim?: boolean } {
   const b = parseBinding(s);
+  const T = (pl: string, en: string) => (lang === 'pl' ? pl : en);
+  const kl = (e: string) => keyLabel(e, layoutMap, lang);
   const ln = (i: number) => layers[i]?.name || String(i);
   switch (b.kind) {
     case 'trans':
@@ -103,25 +110,27 @@ export function bindingLabel(s: string, layers: { name: string }[], layoutMap?: 
     case 'none':
       return { tap: '–', dim: true };
     case 'kp':
-      return { tap: keyLabel(b.key, layoutMap) };
+      return { tap: kl(b.key) };
     case 'mo':
-      return { tap: ln(b.layer), hold: 'warstwa' };
+      return { tap: ln(b.layer), hold: T('warstwa', 'layer') };
     case 'tog':
-      return { tap: ln(b.layer), hold: 'przełącz' };
+      return { tap: ln(b.layer), hold: T('przełącz', 'toggle') };
     case 'to':
-      return { tap: ln(b.layer), hold: 'na stałe' };
+      return { tap: ln(b.layer), hold: T('na stałe', 'go to') };
     case 'lt':
-      return { tap: keyLabel(b.key, layoutMap), hold: ln(b.layer) };
+      return { tap: kl(b.key), hold: ln(b.layer) };
     case 'mt':
-      return { tap: keyLabel(b.key, layoutMap), hold: keyLabel(b.mod) };
+      return { tap: kl(b.key), hold: keyLabel(b.mod, null, lang) };
     case 'raw': {
-      const special: Record<string, string> = { '&studio_unlock': 'Studio 🔓', '&bootloader': 'Boot', '&sys_reset': 'Reset', '&knob_next': 'Tryb', '&knob': 'Tryby' };
-      const view = (p: string) => (p === 'SCR_PREV' ? 'Ekran ←' : p === 'SCR_NEXT' ? 'Ekran →' : `Ekran ${p}`);
+      const mode = T('Tryb', 'Mode');
+      const special: Record<string, string> = { '&studio_unlock': 'Studio 🔓', '&bootloader': 'Boot', '&sys_reset': 'Reset', '&knob_next': mode, '&knob': T('Tryby', 'Modes') };
+      const scr = T('Ekran', 'Screen');
+      const view = (p: string) => (p === 'SCR_PREV' ? `${scr} ←` : p === 'SCR_NEXT' ? `${scr} →` : `${scr} ${p}`);
       const t = b.text.split(' ');
       if (t[0] === '&scr_view' && t.length === 2) return { tap: view(t[1]) };
       // hold-tapy przycisków przy ekranie: krótko ekran/gałka, długo klawisz
-      if (t[0] === '&push_ht' && t.length === 3) return { tap: 'Tryb', hold: keyLabel(t[1], layoutMap) };
-      if (t[0] === '&view_ht' && t.length === 3) return { tap: view(t[2]), hold: keyLabel(t[1], layoutMap) };
+      if (t[0] === '&push_ht' && t.length === 3) return { tap: mode, hold: kl(t[1]) };
+      if (t[0] === '&view_ht' && t.length === 3) return { tap: view(t[2]), hold: kl(t[1]) };
       return { tap: special[b.text] ?? b.text.replace(/^&/, '') };
     }
   }
@@ -137,15 +146,16 @@ export const SPECIAL_BINDINGS: { text: string; pl: string; en: string }[] = [
 ];
 
 /** sprawdzenie przypisania (zły kod klawisza albo warstwa poza listą); zwraca opis problemu */
-export function checkBinding(s: string, layerCount: number): string | null {
+export function checkBinding(s: string, layerCount: number, lang: 'pl' | 'en' = 'pl'): string | null {
   const b = parseBinding(s);
+  const en = lang === 'en';
   const keyOk = (e: string) => {
     const { key } = splitMods(e);
     return !!keyInfo(key) || /^[A-Z][A-Z0-9_]*$/.test(key);
   };
-  if ((b.kind === 'mo' || b.kind === 'tog' || b.kind === 'to' || b.kind === 'lt') && b.layer >= layerCount) return `warstwa ${b.layer} nie istnieje`;
-  if ((b.kind === 'kp' || b.kind === 'lt' || b.kind === 'mt') && !keyOk(b.key)) return `nieznany kod ${b.key}`;
-  if (b.kind === 'raw' && !/^&[a-z_][a-z0-9_]*( [A-Za-z0-9_()]+)*$/.test(b.text)) return `niepoprawne zachowanie „${b.text}”`;
+  if ((b.kind === 'mo' || b.kind === 'tog' || b.kind === 'to' || b.kind === 'lt') && b.layer >= layerCount) return en ? `layer ${b.layer} does not exist` : `warstwa ${b.layer} nie istnieje`;
+  if ((b.kind === 'kp' || b.kind === 'lt' || b.kind === 'mt') && !keyOk(b.key)) return en ? `unknown code ${b.key}` : `nieznany kod ${b.key}`;
+  if (b.kind === 'raw' && !/^&[a-z_][a-z0-9_]*( [A-Za-z0-9_()]+)*$/.test(b.text)) return en ? `invalid behavior "${b.text}"` : `niepoprawne zachowanie „${b.text}”`;
   return null;
 }
 
@@ -233,7 +243,7 @@ export function defaultKeymap(o: {
   legends: Record<string, string>;
 }): KeymapData {
   if (o.ansi60 && o.s2mini60) return s2mini60Keymap(o.layout);
-  const base: KeymapLayer = { name: 'Podstawowa', node: 'base', keys: {}, sensors: {} };
+  const base: KeymapLayer = { name: 'BASE', node: 'base', keys: {}, sensors: {} };
   const fn: KeymapLayer = { name: 'Fn', node: 'fn', keys: {}, sensors: {} };
   const keys = o.layout.slots.filter((s) => s.kind === 'key');
   if (o.ansi60) {
