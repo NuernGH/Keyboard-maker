@@ -184,8 +184,8 @@
   let ctrl = $state<ControllerParams>({ ...DEFAULT_DACTYL_CONTROLLER });
   let floor = $state(4);
   let chamfer = $state(1);
-  // skorupa organiczna (wybór Marcina, 2026-11-07); koc i łączniki Dactyla zostają jako opcje
-  let shellKind = $state<'organic' | 'blanket' | 'hulls'>('organic');
+  // domyślnie łączniki jak na main (projekty Marcina w druku się nie zmieniają); organiczna i koc jako opcje
+  let shellKind = $state<'organic' | 'blanket' | 'hulls'>('hulls');
   let organic = $state<OrganicParams>({ ...DEFAULT_ORGANIC });
   /** skorupa z siatki (Manifold): eksport tylko STL */
   const meshShell = $derived(shellKind !== 'hulls');
