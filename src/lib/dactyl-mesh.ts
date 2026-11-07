@@ -7,7 +7,7 @@ import type { Manifold, ManifoldToplevel, Mat4 } from 'manifold-3d';
 import type { Shape3D } from 'replicad';
 import { apply, type DactylModel, type DKey, type Mat, type V3 } from './dactyl';
 import { blanketHeight, type BlanketParams } from './dactyl-blanket';
-import { cellSideOpenings, cellTopOpening, KEY_CLEAR, SLOT_COVER, type BoxSpec, type DactylBuild } from './dactyl-geometry';
+import { cellSideOpenings, cellTopOpening, KEY_CLEAR, SLOT_COVER, slotCovers, type BoxSpec, type DactylBuild } from './dactyl-geometry';
 import type { Cell } from './geometry';
 
 /** Siatka trójkątów: wierzchołki xyz i indeksy trójkątów (przeciwnie do wskazówek zegara od zewnątrz). */
@@ -298,6 +298,30 @@ export function blanketShellMesh(M: ManifoldToplevel, model: DactylModel, bp: Bl
   const parts = out.decompose();
   parts.sort((a, c) => c.volume() - a.volume());
   return parts[0];
+}
+
+/**
+ * Szybki podgląd zwykłej skorupy (otoczki jak w Dactylu) liczony siatką w Manifold zamiast
+ * OpenCascade: sekundy zamiast minuty. Ta sama geometria co buildDactylShell, ale bez fazki
+ * krawędzi i z trójkątami zamiast dokładnych powierzchni, więc tylko do podglądu, nigdy do eksportu.
+ */
+export function hullsShellPreview(M: ManifoldToplevel, model: DactylModel, cell: Cell, b: DactylBuild): Manifold {
+  const add: Manifold[] = [];
+  for (const h of model.hulls) {
+    const m = M.Manifold.hull(h);
+    if (m.volume() > 0.01) add.push(m);
+  }
+  if (b.slotCover) for (const h of slotCovers(model, cell)) add.push(M.Manifold.hull(h));
+  for (const [x, y] of model.screws) add.push(M.Manifold.cylinder(b.bossHeight, model.screw.boss / 2, model.screw.boss / 2, 48).translate([x, y, 0]));
+  if (b.controller) for (const a of b.controller.shellAdd) add.push(box(M, a));
+  const body = M.Manifold.union(add).intersect(M.Manifold.cube([1e4, 1e4, 1e4]).translate([-5e3, -5e3, 0]));
+  let neg = negCache.get(cell);
+  if (!neg) negCache.set(cell, (neg = fromShape(M, cell.negative)));
+  const tools: Manifold[] = model.keys.map((k) => neg!.transform(mat4(k.frame)));
+  for (const [x, y] of model.screws)
+    tools.push(M.Manifold.cylinder(b.bossHeight - 1 + 0.5, model.screw.pilot / 2, model.screw.pilot / 2, 32).translate([x, y, -0.5]));
+  if (b.controller) for (const c of b.controller.shellCut) tools.push(box(M, c));
+  return body.subtract(M.Manifold.union(tools));
 }
 
 /** Siatka Manifold jako zwykłe tablice (do podglądu i zapisu). */

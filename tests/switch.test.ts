@@ -1,4 +1,7 @@
 import { beforeAll, describe, expect, test } from 'vitest';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { decodeMesh, encodeMesh } from '../src/lib/mesh-file';
 import { measureVolume, makeBox, type Shape3D } from 'replicad';
 import { initOC, cellStep, switchStep } from './oc';
 import { loadCell, buildPlate } from '../src/lib/geometry';
@@ -51,4 +54,26 @@ describe('przełącznik Cherry MX w podglądzie', () => {
           }
       }
     }, 300000);
+});
+
+// Podgląd wczytuje gotową siatkę przełącznika (public/switches/cherry-mx.mesh) zamiast liczyć STEP
+// przy każdym wejściu. Ten test pilnuje, żeby plik zgadzał się z modelem STEP.
+// Odświeżenie pliku po zmianie modelu: WRITE_SWITCH_MESH=1 npx vitest run tests/switch.test.ts
+describe('gotowa siatka przełącznika', () => {
+  test('cherry-mx.mesh = siatka z cherry-mx.step (jak w workerze)', async () => {
+    await initOC();
+    const sw = await loadSwitch({ step: switchStep(), up: '+Y' });
+    const m = sw.mesh({ tolerance: 0.05, angularTolerance: 0.3 });
+    const mesh = { vertices: new Float32Array(m.vertices), normals: new Float32Array(m.normals), triangles: new Uint32Array(m.triangles) };
+    const file = fileURLToPath(new URL('../public/switches/cherry-mx.mesh', import.meta.url));
+    if (process.env.WRITE_SWITCH_MESH) writeFileSync(file, new Uint8Array(encodeMesh(mesh)));
+    const got = decodeMesh(new Uint8Array(readFileSync(file)).buffer);
+    expect(got.triangles.length).toBe(mesh.triangles.length);
+    expect(got.vertices.length).toBe(mesh.vertices.length);
+    // te same wymiary co bryła (czubek trzpienia, koniec pinów)
+    let zmin = Infinity, zmax = -Infinity;
+    for (let i = 2; i < got.vertices.length; i += 3) (zmin = Math.min(zmin, got.vertices[i])), (zmax = Math.max(zmax, got.vertices[i]));
+    expect(zmax).toBeCloseTo(sw.boundingBox.bounds[1][2], 2);
+    expect(zmin).toBeCloseTo(sw.boundingBox.bounds[0][2], 2);
+  }, 60000);
 });

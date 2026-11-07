@@ -43,6 +43,7 @@ const dict = {
   resetView: { pl: 'Wyśrodkuj widok', en: 'Reset view' },
   loadingCad: { pl: 'Ładuję jądro CAD…', en: 'Loading CAD kernel…' },
   computing: { pl: 'Liczę bryłę…', en: 'Computing solid…' },
+  computingExact: { pl: 'Podgląd z siatek · liczę dokładną bryłę…', en: 'Mesh preview · computing exact solid…' },
   quick: { pl: 'Szybki podgląd komórek', en: 'Quick cell preview' },
   exact: { pl: 'Dokładna bryła', en: 'Exact solid' },
   error: { pl: 'Błąd', en: 'Error' },

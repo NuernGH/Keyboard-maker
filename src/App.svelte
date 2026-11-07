@@ -13,6 +13,7 @@
     type PlateOptions,
   } from './lib/cell-spec';
   import { CadClient } from './cad/client';
+  import { decodeMesh } from './lib/mesh-file';
   import type { BuildInput } from './cad/protocol';
   import { zipStore } from './lib/zip';
   import Tooltip from './ui/Tooltip.svelte';
@@ -378,7 +379,7 @@
     error = '';
     try {
       const r = await client(s).mesh(inp);
-      lastMs = Math.round(r.ms);
+      if (!r.cached) lastMs = Math.round(r.ms);
       // zapisz tylko, jeśli nikt w międzyczasie nie zmienił parametrów
       if (running[j] === key) meshes[j] = { key, mesh: r };
     } catch (e) {
@@ -528,6 +529,12 @@
 
   async function loadSwitchModel() {
     try {
+      // gotowa siatka (bez jądra CAD); STEP tylko awaryjnie, gdy jej zabraknie
+      const ready = await fetch(`${import.meta.env.BASE_URL}switches/cherry-mx.mesh`);
+      if (ready.ok) {
+        switchMesh = decodeMesh(await ready.arrayBuffer());
+        return;
+      }
       const res = await fetch(`${import.meta.env.BASE_URL}switches/cherry-mx.step`);
       if (!res.ok) return;
       switchMesh = await client('right').switchMesh(await res.arrayBuffer(), '+Y');
@@ -553,9 +560,9 @@
         .catch(() => (error = lang === 'pl' ? 'link z projektem jest uszkodzony albo z nowszej wersji' : 'the project link is damaged or from a newer version'));
     status = t(lang, 'loadingCad');
     void loadDefaultCell();
+    void loadSwitchModel();
     Promise.all((['left', 'right'] as Side[]).map((s) => client(s).init()))
       .then(() => (status = ''))
-      .then(loadSwitchModel)
       .catch((e) => (error = String(e)));
   });
 

@@ -13,7 +13,7 @@ import { dactylExtras, mergeParts } from '../lib/dactyl-extras';
 import { loadSwitch } from '../lib/switch-model';
 import { withBlanket } from '../lib/dactyl-blanket';
 import { DEFAULT_ORGANIC, ORGANIC_OUTLINE, organicShellMesh } from '../lib/dactyl-organic';
-import { blanketShellMesh, flatShaded, manifoldLib, meshBounds, mirrorX, stlBinary, toTriMesh, type TriMesh } from '../lib/dactyl-mesh';
+import { blanketShellMesh, hullsShellPreview, flatShaded, manifoldLib, meshBounds, mirrorX, stlBinary, toTriMesh, type TriMesh } from '../lib/dactyl-mesh';
 import manifoldWasm from 'manifold-3d/manifold.wasm?url';
 
 let ready: Promise<void> | null = null;
@@ -101,6 +101,15 @@ async function dactylFor(input: DactylInput): Promise<Shape3D | TriMesh> {
   // dodatki (włącznik, gniazdo, bateria) dokładane do uchwytu kontrolera: te same wycięcia i kołyski
   const controller = mergeParts(holder, dactylExtras(model, input.extras, holder));
   const b = { floor: input.floor, bossHeight: 7, controller, chamfer: input.chamfer ?? 0, slotCover: input.slotCover ?? false };
+  if (input.preview && !blanket && !organic && input.part === 'shell') {
+    const M = await manifoldLib(manifoldWasm);
+    const m = hullsShellPreview(M, model, cell, b);
+    const mesh = toTriMesh(m);
+    m.delete();
+    meshCache.set(key, mesh);
+    while (meshCache.size > 4) meshCache.delete(meshCache.keys().next().value!);
+    return mesh;
+  }
   if ((blanket || organic) && input.part === 'shell') {
     const M = await manifoldLib(manifoldWasm);
     const m = (organic
@@ -201,6 +210,7 @@ self.onmessage = async (e: MessageEvent<Request>) => {
     if ('vertices' in shape) {
       // skorupa „koc” / organiczna: gotowa siatka
       if (req.type === 'dactyl-export') {
+        if (req.input.preview) throw new Error('Szybki podgląd nie służy do eksportu.');
         if (req.format !== 'stl') throw new Error('Ta skorupa jest siatką: eksport tylko do STL.');
         const data = stlBinary(shape);
         post({ id: req.id, type: 'file', data, ms: performance.now() - t0 }, [data]);
