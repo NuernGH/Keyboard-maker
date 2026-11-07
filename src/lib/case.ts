@@ -4,10 +4,10 @@
 // w środku; jest przykręcona od spodu śrubami M2,5.
 // Tu same liczby (pozycje śrub, wymiary); bryłę buduje geometry.ts.
 
-import { PITCH, type Key } from './layout';
+import { PITCH, keyCorners, type Key } from './layout';
 import { stabOffset } from './cell-spec';
 import { USB_PLUG, type Box, type IslandGeom } from './island';
-import { DOVETAIL, distToSeam, seamScrewTargets, type PrintSplit } from './split';
+import { CASE_DOVETAIL, DOVETAIL, distToSeam, seamScrewTargets, type PrintSplit } from './split';
 
 export interface CaseParams {
   enabled: boolean;
@@ -182,6 +182,8 @@ export interface CaseLayout {
   pads: Box[];
   /** podpory pod płytą (środki XY), od dna do 0,1 mm pod spód płyty */
   supports: [number, number][];
+  /** zamki w dnie spodu na szwie x = split.caseX (środki Y); puste, gdy opcja wyłączona */
+  caseTabs?: number[];
 }
 
 /** Luz między podkładką a płytką kontrolera (mm), pas wolny od pinów przy dłuższych bokach, zwężenie podestu pod gniazdem USB. */
@@ -394,19 +396,23 @@ export function caseLayout(
       ? { kind: 'long', floor: Math.ceil((cp.floor + b - pilotDepth) * 5 - 1e-6) / 5 }
       : { kind: 'short' };
   const screws = screwPositions(keys, island, cp.screws, split, sp, SCREW_MARGIN + cp.gap + cp.wall);
+  const supports = cp.supports === false ? [] : supportPositions(keys, island, screws, split, stabs);
+  const pads = controllerPads(island, floorTop);
+  const usbCuts = usbCaseCuts(island, cp);
   return {
     screw: sp,
     screws,
     headDepth,
     screwFits,
     screwWarn,
-    supports: cp.supports === false ? [] : supportPositions(keys, island, screws, split, stabs),
+    supports,
     pilotDepth,
     floorTop,
     bottom,
     screwLength,
-    usbCuts: usbCaseCuts(island, cp),
-    pads: controllerPads(island, floorTop),
+    usbCuts,
+    pads,
+    ...(split?.caseDovetails ? { caseTabs: caseTabPositions(keys, split.caseX, screws, sp, supports, [...pads, ...usbCuts]) } : {}),
   };
 }
 
@@ -503,3 +509,52 @@ export function supportPositions(
   }
   return picked;
 }
+
+/**
+ * Zamki w dnie spodu: środki Y na szwie x = caseX. Rozłożone równo w zasięgu klawiszy przy szwie
+ * (z dala od ścianek), każdy przesunięty do najbliższego miejsca, gdzie wypust nie trafia
+ * w wybranie na łeb śruby, podporę, podkładkę kontrolera ani wycięcie USB.
+ */
+export function caseTabPositions(
+  keys: Key[],
+  caseX: number,
+  screws: [number, number][],
+  sp: ScrewSpec,
+  supports: [number, number][],
+  boxes: Box[],
+): number[] {
+  const { depth, head, count } = CASE_DOVETAIL;
+  const x0 = caseX - 1;
+  const x1 = caseX + depth + 1;
+  const near = keys.filter((k) => {
+    const xs = keyCorners(k).map((p) => p[0]);
+    return Math.min(...xs) <= x1 && Math.max(...xs) >= x0;
+  });
+  if (!near.length) return [];
+  const ys = near.flatMap(keyCorners).map((p) => p[1]);
+  const lo = Math.min(...ys) + head / 2 + 2;
+  const hi = Math.max(...ys) - head / 2 - 2;
+  if (hi < lo) return [];
+  const half = head / 2 + 1;
+  // odległość prostokąta wypustu (z zapasem 1 mm) od punktu
+  const rectDist = (y: number, px: number, py: number) =>
+    Math.hypot(Math.max(x0 - px, 0, px - x1), Math.max(y - half - py, 0, py - y - half));
+  const free = (y: number, picked: number[]) =>
+    screws.every(([x, sy]) => rectDist(y, x, sy) >= Math.max(sp.head, sp.boss) / 2 + 1) &&
+    supports.every(([x, sy]) => rectDist(y, x, sy) >= SUPPORT.d / 2) &&
+    boxes.every((b) => b.x1 < x0 || b.x0 > x1 || b.y1 < y - half || b.y0 > y + half) &&
+    picked.every((q) => Math.abs(q - y) >= head + 6);
+  const picked: number[] = [];
+  for (let i = 0; i < count; i++) {
+    const target = hi - ((i + 0.5) / count) * (hi - lo);
+    for (let d = 0; d <= (hi - lo) / count; d += 0.5) {
+      const y = [target + d, target - d].find((v) => v >= lo - 1e-6 && v <= hi + 1e-6 && free(v, picked));
+      if (y !== undefined) {
+        picked.push(y);
+        break;
+      }
+    }
+  }
+  return picked.sort((a, b) => b - a);
+}
+
