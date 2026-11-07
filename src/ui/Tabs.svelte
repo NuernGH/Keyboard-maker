@@ -15,18 +15,20 @@
     top: -12px;
     z-index: 5;
     display: flex;
-    gap: 4px;
-    margin: 4px -4px 12px;
-    padding: 4px;
+    gap: 2px;
+    margin: 4px 0 12px;
+    padding: 3px;
+    box-sizing: border-box;
+    width: 100%;
     border-radius: 12px;
     background: color-mix(in srgb, var(--line) 55%, transparent);
     backdrop-filter: blur(8px);
   }
   button {
-    flex: 1 1 0;
+    flex: 1 1 auto;
     min-width: 0;
-    padding: 7px 4px;
-    font-size: 13px;
+    padding: 6px 4px;
+    font-size: 12.5px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
