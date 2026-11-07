@@ -121,9 +121,12 @@ export function shellBody(model: DactylModel, b: DactylBuild, extra: Shape3D[] =
   return body;
 }
 
-export type BoxSpec = { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; m?: Mat };
+export type BoxSpec = { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; m?: Mat; round?: boolean };
 export function boxOf(b: BoxSpec): Shape3D {
-  const s = makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]);
+  // walec wzdłuż Y wpisany w pudełko (otwór na gniazdo jack)
+  const s = b.round
+    ? (makeCylinder((b.x1 - b.x0) / 2, b.y1 - b.y0, [(b.x0 + b.x1) / 2, b.y0, (b.z0 + b.z1) / 2], [0, 1, 0]) as Shape3D)
+    : makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]);
   return b.m ? placeShape(s, b.m) : s;
 }
 
@@ -140,14 +143,22 @@ export function buildDactylShell(model: DactylModel, cell: Cell, b: DactylBuild 
   const tools: Shape3D[] = model.keys.map((k) => placeShape(cell.negative.clone(), k.frame));
   for (const [x, y] of model.screws)
     tools.push(makeCylinder(model.screw.pilot / 2, b.bossHeight - 1 + 0.5, [x, y, -0.5], [0, 0, 1]) as Shape3D);
-  if (b.controller) tools.push(...b.controller.shellCut.map(boxOf));
+  if (b.controller) tools.push(...b.controller.shellCut.filter((c) => !c.late).map(boxOf));
   const ch = b.chamfer ?? DEFAULT_DACTYL_BUILD.chamfer ?? 0;
   if (ch > 0)
     for (const w of chamferWedges(body, hullTester([...model.hulls, ...covers]), { ...DACTYL_CHAMFER, size: ch }))
       tools.push(hullSolid(w));
-  const cut = cutMany(body, tools);
+  let cut = cutMany(body, tools);
   body.delete();
   for (const t of tools) t.delete();
+  // dodatki (włącznik, gniazdo) osobno: we wspólnym odejmowaniu z komórkami bywały pomijane
+  const late = (b.controller?.shellCut ?? []).filter((c) => c.late).map(boxOf);
+  if (late.length) {
+    const next = cutMany(cut, late);
+    cut.delete();
+    for (const t of late) t.delete();
+    cut = next;
+  }
   return singleSolid(unifyFaces(cut));
 }
 

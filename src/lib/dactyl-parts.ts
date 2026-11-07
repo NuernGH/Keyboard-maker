@@ -5,7 +5,12 @@
 import { apply, floorLoop, mul, Rz, T, type DactylModel, type Mat } from './dactyl';
 import { CONTROLLERS, USB_PLUG, pcbOf, usbBottomOf, usbCenterOf, type ControllerId } from './island';
 
-export type PartBox = { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; m?: Mat };
+/** `round`: walec wpisany w pudełko, oś wzdłuż Y (otwór na gniazdo jack w ścianie). */
+/**
+ * `late`: wycięcie w skorupie odejmowane osobno, po komórkach (dodatki: włącznik, gniazdo). Wspólne
+ * odejmowanie z komórkami w OpenCascade potrafi je po cichu pominąć.
+ */
+export type PartBox = { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; m?: Mat; round?: boolean; late?: boolean };
 
 /** Uchwyt kontrolera: co dodać i wyciąć w skorupie i w dnie. */
 export interface DactylController {
@@ -14,7 +19,7 @@ export interface DactylController {
   bottomAdd: PartBox[];
   bottomCut: PartBox[];
   /** sama płytka z gniazdem (do podglądu i sprawdzania kolizji) */
-  ghosts: { kind: 'board' | 'usb' | 'plug'; box: PartBox; model?: string }[];
+  ghosts: { kind: 'board' | 'usb' | 'plug' | 'switch' | 'knob' | 'jack' | 'pcb' | 'battery' | 'nano' | 'display' | 'encoder'; box: PartBox; model?: string }[];
   /** środek gniazda USB na wewnętrznej stronie ściany (XY) */
   usb: [number, number];
 }

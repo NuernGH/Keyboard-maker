@@ -59,7 +59,7 @@ export const BATTERY_PRESETS: { id: string; name: string; l: number; w: number; 
 ];
 
 /** Bryła części w układzie lokalnym (u, v, w). */
-interface LBox {
+export interface LBox {
   kind: GhostPart['kind'];
   u0: number;
   u1: number;
@@ -69,9 +69,9 @@ interface LBox {
   w1: number;
 }
 /** Wycięcie w ściance: prostopadłościan albo walec wzdłuż v (oś w punkcie u = 0, w = wc). */
-type LCut = { type: 'box'; u0: number; u1: number; v0: number; v1: number; w0: number; w1: number } | { type: 'cyl'; r: number; wc: number; v0: number; v1: number };
+export type LCut = { type: 'box'; u0: number; u1: number; v0: number; v1: number; w0: number; w1: number } | { type: 'cyl'; r: number; wc: number; v0: number; v1: number };
 
-interface PartSpec {
+export interface PartSpec {
   name: string;
   /** bryły części (podgląd i sprawdzanie kolizji) */
   body: LBox[];
@@ -496,6 +496,9 @@ export function layoutExtras(
   if (extras.battery?.on) add('battery', placeBattery(ctx, extras.battery));
   return out;
 }
+
+/** Model części przy ściance (bryły i wycięcia w układzie lokalnym), wspólny z Dactylem. */
+export const wallPartSpec = (k: 'power' | LinkKind): PartSpec => SPECS[k] ?? SPECS.trrs;
 
 /** Nazwa części do opisu (panel, ostrzeżenia). */
 export const partName = (k: 'power' | LinkKind) => SPECS[k].name;

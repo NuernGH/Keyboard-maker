@@ -272,6 +272,7 @@ const dict = {
   battery: { pl: 'Bateria LiPo', en: 'LiPo battery' },
   tipBattery: { pl: 'Kieszeń w dnie pod klawiszami, jak najbliżej kontrolera (krótkie przewody). Co najmniej 1 mm głęboka, żeby ogniwo się nie przesuwało; głębsza, gdy ogniwo nie mieści się pod gniazdami hot-swap. Wymiary z płytką zabezpieczenia (PCM). Podpory i śruby omijają baterię.', en: 'A floor pocket under the keys, as close to the controller as possible (short wires). At least 1 mm deep so the cell does not move; deeper when the cell does not fit under the hot-swap sockets. Dimensions include the protection board (PCM). Posts and screws avoid the battery.' },
   batteryPreset: { pl: 'Ogniwo', en: 'Cell' },
+  tipBatteryDactyl: { pl: 'Ramka 2 mm na dnie, jak najbliżej kontrolera, tam gdzie nad ogniwem jest co najmniej 0,5 mm luzu do komórek i mostków. Wymiary z płytką zabezpieczenia (PCM). Omija śruby, kontroler, włącznik i gniazdo.', en: 'A 2 mm frame on the bottom, as close to the controller as possible, where there is at least 0.5 mm of room above the cell to the key cells and bridges. Dimensions include the protection board (PCM). It avoids the screws, the controller, the switch and the socket.' },
   batteryCustom: { pl: 'Własne wymiary', en: 'Custom size' },
   batteryL: { pl: 'Długość (mm)', en: 'Length (mm)' },
   batteryW: { pl: 'Szerokość (mm)', en: 'Width (mm)' },

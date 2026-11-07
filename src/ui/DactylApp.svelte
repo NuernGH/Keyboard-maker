@@ -40,7 +40,9 @@
     type DactylParams,
   } from '../lib/dactyl';
   import { DEFAULT_ORGANIC, ORGANIC_OUTLINE, withBlanket, type OrganicParams } from '../lib/dactyl-blanket';
-  import { controllerHolder, DEFAULT_DACTYL_CONTROLLER, type ControllerParams } from '../lib/dactyl-parts';
+  import { controllerHolder, DEFAULT_DACTYL_CONTROLLER, type ControllerParams, type DactylController } from '../lib/dactyl-parts';
+  import { dactylExtras } from '../lib/dactyl-extras';
+  import { BATTERY_PRESETS, DEFAULT_EXTRAS, hasExtras, type CaseExtras, type ExtraWarn, type WallSide } from '../lib/case-extras';
   import { loadControllerModel, placeOnBoard } from './controllerModel';
   import { CONTROLLERS, type ControllerId } from '../lib/island';
   import { NO_HOTSWAP_HEIGHT } from '../lib/cell-spec';
@@ -227,6 +229,8 @@
   const meshShell = $derived(shellKind !== 'hulls');
   let screwSize = $state<ScrewSize>(pick(i0?.screwSize, (x) => x === 'M3' || x === 'M2.5', 'M3'));
   let explode = $state(pick(i0?.explode, isNum, 20));
+  /** dodatki: włącznik baterii, gniazdo kabla między połówkami, bateria (domyślnie wyłączone) */
+  let extras = $state<Required<CaseExtras>>(i0 ? mergeDefaults(DEFAULT_EXTRAS, i0.extras) : structuredClone(DEFAULT_EXTRAS));
   let tab = $state<PanelTab>('keyboard');
   $effect(() => {
     if (tab === 'keycaps') showCaps = true;
@@ -245,6 +249,7 @@
       slotCover,
       shellKind,
       organic: $state.snapshot(organic),
+      extras: $state.snapshot(extras),
       explode,
       showCaps,
       keycap: $state.snapshot(keycap),
@@ -285,6 +290,15 @@
     model && shellKind === 'organic' ? withBlanket(model, ORGANIC_OUTLINE) : model && shellKind === 'blanket' ? withBlanket(model) : model,
   );
   const holder = $derived(shellModel && ctrlOn ? controllerHolder(shellModel, $state.snapshot(ctrl) as ControllerParams) : null);
+  /** dodatki (jak w workerze: liczone dla prawej połówki, z omijaniem uchwytu kontrolera) */
+  const extrasPart = $derived(shellModel ? dactylExtras(shellModel, $state.snapshot(extras) as CaseExtras, holder) : null);
+  const WALLS: WallSide[] = ['back', 'front', 'inner', 'outer'];
+  const wallName = (w: WallSide) => t(lang, ({ back: 'wallBack', front: 'wallFront', inner: 'wallInner', outer: 'wallOuter' } as const)[w]);
+  function extraWarnText(w: ExtraWarn): string {
+    const part = t(lang, w.part);
+    const key = ({ noSpot: 'extraNoSpot', tooTall: 'extraTooTall', moved: 'extraMoved', otherSide: 'extraOtherSide' } as const)[w.kind];
+    return t(lang, key).replace('{p}', part).replace('{s}', w.side ? wallName(w.side) : '');
+  }
   // modele kontrolerów wczytane do podglądu (ścieżka -> geometria)
   let ctrlGeo = $state(new Map<string, THREE.BufferGeometry>());
   $effect(() => {
@@ -317,6 +331,8 @@
       slotCover,
       shell: shellKind,
       ...(shellKind === 'organic' ? { organic: $state.snapshot(organic) as OrganicParams } : {}),
+      // bez dodatków pole pomijamy, żeby nie zmieniać kluczy pamięci podręcznej brył
+      ...(hasExtras(extras) ? { extras: $state.snapshot(extras) as CaseExtras } : {}),
     };
   }
   const keyOf = (i: DactylInput) => JSON.stringify({ ...i, cellStep: undefined, side: undefined });
@@ -423,6 +439,10 @@
     sw: new THREE.MeshStandardMaterial({ color: 0x30363c, roughness: 0.6 }),
     board: new THREE.MeshStandardMaterial({ color: 0x2a6f97, roughness: 0.6 }),
     usb: new THREE.MeshStandardMaterial({ color: 0xc0c6ca, roughness: 0.3, metalness: 0.7 }),
+    part: new THREE.MeshStandardMaterial({ color: 0x23262a, roughness: 0.5 }),
+    knob: new THREE.MeshStandardMaterial({ color: 0xb5543c, roughness: 0.5 }),
+    pcb: new THREE.MeshStandardMaterial({ color: 0x3d7a4f, roughness: 0.7 }),
+    battery: new THREE.MeshStandardMaterial({ color: 0x8fa3b8, roughness: 0.35, metalness: 0.5 }),
     edge: new THREE.LineBasicMaterial({ color: 0x5b6875, transparent: true, opacity: 0.5 }),
   };
 
@@ -562,6 +582,15 @@
         if (board && (gh.kind === 'board' || gh.kind === 'usb')) continue;
         eg.add(boxAt(gh.box, gh.kind === 'board' ? mats.board : mats.usb));
       }
+      g.add(eg);
+    }
+    if (extrasPart) {
+      // włącznik, gniazdo i bateria leżą na dnie: rysowane razem z nim
+      const eg = new THREE.Group();
+      eg.position.z = bt ? -explode : 0;
+      const matOf = (k: DactylController['ghosts'][number]['kind']) =>
+        k === 'knob' ? mats.knob : k === 'pcb' ? mats.pcb : k === 'battery' ? mats.battery : k === 'usb' ? mats.usb : mats.part;
+      for (const gh of extrasPart.ghosts) eg.add(boxAt(gh.box, matOf(gh.kind)));
       g.add(eg);
     }
     if (showCaps) {
@@ -975,6 +1004,52 @@
           <label>{tx('ctrlCol')} <input type="number" min="0" max={p.cols - 1} step="0.25" bind:value={ctrl.col} /></label>
         </div>
       {/if}
+    </section>
+
+    <section>
+      <h2>{t(lang, 'extras')}</h2>
+      <label class="check" data-tip={t(lang, 'tipPower')}><input type="checkbox" bind:checked={extras.power.on} /> {t(lang, 'power')}</label>
+      {#if extras.power.on}
+        <div class="grid2">
+          <label data-tip={t(lang, 'tipWallSide')}>{t(lang, 'wallSide')}
+            <select bind:value={extras.power.side}>{#each WALLS as w (w)}<option value={w}>{wallName(w)}</option>{/each}</select>
+          </label>
+          <label data-tip={t(lang, 'tipWallPos')}>{t(lang, 'wallPos')} <input type="range" min="0" max="100" step="5" bind:value={extras.power.pos} /></label>
+        </div>
+      {/if}
+      <label class="check" data-tip={t(lang, 'tipLink')}><input type="checkbox" bind:checked={extras.link.on} /> {t(lang, 'link')}</label>
+      {#if extras.link.on}
+        <div class="grid2">
+          <label data-tip={t(lang, 'tipLink')}>{t(lang, 'linkKind')}
+            <select bind:value={extras.link.kind}>
+              <option value="trrs">{t(lang, 'linkTrrs')}</option>
+              <option value="usbc">{t(lang, 'linkUsbc')}</option>
+            </select>
+          </label>
+          <label data-tip={t(lang, 'tipWallSide')}>{t(lang, 'wallSide')}
+            <select bind:value={extras.link.side}>{#each WALLS as w (w)}<option value={w}>{wallName(w)}</option>{/each}</select>
+          </label>
+          <label data-tip={t(lang, 'tipWallPos')}>{t(lang, 'wallPos')} <input type="range" min="0" max="100" step="5" bind:value={extras.link.pos} /></label>
+        </div>
+      {/if}
+      <label class="check" data-tip={t(lang, 'tipBatteryDactyl')}><input type="checkbox" bind:checked={extras.battery.on} /> {t(lang, 'battery')}</label>
+      {#if extras.battery.on}
+        <div class="grid2">
+          <label data-tip={t(lang, 'tipBatteryDactyl')}>{t(lang, 'batteryPreset')}
+            <select value={BATTERY_PRESETS.find((b) => b.l === extras.battery.l && b.w === extras.battery.w && b.t === extras.battery.t)?.id ?? ''}
+              onchange={(e) => { const b = BATTERY_PRESETS.find((x) => x.id === e.currentTarget.value); if (b) Object.assign(extras.battery, { l: b.l, w: b.w, t: b.t }); }}>
+              {#each BATTERY_PRESETS as b (b.id)}<option value={b.id}>{b.name}</option>{/each}
+              <option value="">{t(lang, 'batteryCustom')}</option>
+            </select>
+          </label>
+          <label>{t(lang, 'batteryL')} <input type="number" min="10" max="120" step="0.5" bind:value={extras.battery.l} /></label>
+          <label>{t(lang, 'batteryW')} <input type="number" min="5" max="80" step="0.5" bind:value={extras.battery.w} /></label>
+          <label>{t(lang, 'batteryT')} <input type="number" min="1" max="12" step="0.1" bind:value={extras.battery.t} /></label>
+        </div>
+      {/if}
+      {#each extrasPart?.warns ?? [] as w, i (i)}
+        <p class={w.kind === 'noSpot' || w.kind === 'tooTall' ? 'warn' : 'muted'}>{extraWarnText(w)}</p>
+      {/each}
     </section>
 
     <section>

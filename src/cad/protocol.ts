@@ -24,6 +24,7 @@ export interface KeycapInput {
 
 /** Dactyl: skorupa albo dno jednej połówki. Model liczymy dla prawej, lewa to lustro. */
 import type { OrganicParams } from '../lib/dactyl-blanket';
+import type { CaseExtras } from '../lib/case-extras';
 
 export interface DactylInput {
   params: DactylParams;
@@ -46,6 +47,8 @@ export interface DactylInput {
   shell?: 'hulls' | 'blanket' | 'organic';
   /** skorupa organiczna: wzór Woronoja na ściankach i jego wymiary */
   organic?: OrganicParams;
+  /** dodatki: włącznik baterii, gniazdo między połówkami, bateria (brak = bez) */
+  extras?: CaseExtras;
 }
 
 export interface BuildInput {
