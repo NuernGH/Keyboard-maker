@@ -63,7 +63,9 @@ describe('długość śrub', () => {
       const cell = await loadCell({ step: cellStep(), up: 'auto' }, variant);
       const auto = caseLayout([], null, cell.height, DEFAULT_CASE);
       expect(auto.screwWarn).toBeNull();
-      expect(auto.headDepth).toBe(screwSpec('M3').headDepth);
+      // bez hot-swap i bez wyspy dno schodzi pod końce pinów MX, więc łeb może siedzieć głębiej w słupku
+      if (variant === 'hotswap') expect(auto.headDepth).toBe(screwSpec('M3').headDepth);
+      else expect(auto.headDepth).toBeGreaterThanOrEqual(screwSpec('M3').headDepth);
       expect(auto.screwFits).toContain(auto.screwLength);
       const bite = (l: typeof auto) => l.bottom + l.headDepth + l.screwLength + cell.height;
       for (const len of [6, 8, 10, 12, 14, 16, 20]) {
