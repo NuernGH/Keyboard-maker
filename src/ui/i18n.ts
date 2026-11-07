@@ -3,6 +3,9 @@ export type Lang = 'pl' | 'en';
 
 const dict = {
   title: { pl: 'Generator płyt klawiatury', en: 'Keyboard plate generator' },
+  tab_keyboard: { pl: 'Klawiatura', en: 'Keyboard' },
+  tab_keycaps: { pl: 'Nakładki', en: 'Keycaps' },
+  tab_wiring: { pl: 'Okablowanie', en: 'Wiring' },
   template: { pl: 'Szablon', en: 'Template' },
   cell: { pl: 'Komórka klawisza', en: 'Key cell' },
   variant: { pl: 'Wariant', en: 'Variant' },

@@ -23,6 +23,8 @@
   import KeycapPanel from './ui/KeycapPanel.svelte';
   import { DEFAULT_KEYCAP, type KeycapParams } from './lib/keycap-spec';
   import ProjectBar from './ui/ProjectBar.svelte';
+  import Tabs from './ui/Tabs.svelte';
+  import { PANEL_TABS, type PanelTab } from './ui/tabs';
   import {
     base64ToBytes,
     bytesToBase64,
@@ -462,6 +464,11 @@
       lang,
       layout: TEMPLATES.find((x) => x.id === templateId)?.name[lang] ?? templateId,
     });
+  let tab = $state<PanelTab>('keyboard');
+  // na zakładce Nakładki podgląd pokazuje nakładki
+  $effect(() => {
+    if (tab === 'keycaps') showCaps = true;
+  });
   const allExact = $derived(halves.every((h) => h.mesh && (!h.caseOn || h.caseMesh)));
 </script>
 
@@ -492,6 +499,9 @@
       />
     </section>
 
+    <Tabs tabs={PANEL_TABS.map((id) => ({ id, label: t(lang, `tab_${id}` as const) }))} bind:value={tab} />
+
+    {#if tab === 'keyboard'}
     <section>
       <h2>{t(lang, 'template')}</h2>
       <select
@@ -847,6 +857,9 @@
       {/each}
     </section>
 
+    {/if}
+
+    {#if tab === 'keycaps'}
     <KeycapPanel
       {lang}
       keys={leftKeys.concat(single ? [] : rightKeys)}
@@ -858,7 +871,10 @@
       bind:show={showCaps}
       bind:meshes={capMeshes}
     />
+    {/if}
+    {#if tab === 'wiring'}
     <WiringPanel {lang} input={wiringInput} fileBase={templateId} save={saveFile} />
+    {/if}
 
     <footer class="muted">
       <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noreferrer">{t(lang, 'license')}</a>

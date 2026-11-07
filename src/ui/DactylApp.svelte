@@ -14,6 +14,8 @@
   import KeycapPanel from './KeycapPanel.svelte';
   import { DEFAULT_KEYCAP, capType, type KeycapParams } from '../lib/keycap-spec';
   import ProjectBar from './ProjectBar.svelte';
+  import Tabs from './Tabs.svelte';
+  import { PANEL_TABS, type PanelTab } from './tabs';
   import { makeProject, mergeDefaults, type DactylProject, type ProjectFile } from '../lib/project';
   import { dactylWiringInput } from '../lib/wiring-doc';
   import Tooltip from './Tooltip.svelte';
@@ -171,6 +173,10 @@
   let floor = $state(pick(i0?.floor, isNum, 4));
   let screwSize = $state<ScrewSize>(pick(i0?.screwSize, (x) => x === 'M3' || x === 'M2.5', 'M3'));
   let explode = $state(pick(i0?.explode, isNum, 20));
+  let tab = $state<PanelTab>('keyboard');
+  $effect(() => {
+    if (tab === 'keycaps') showCaps = true;
+  });
   let showCaps = $state(pick(i0?.showCaps, isBool, true));
   const dactylProject = (): ProjectFile =>
     makeProject('dactyl', {
@@ -617,6 +623,9 @@
       <ProjectBar {lang} name={`dactyl-${p.rows}x${p.cols}`} get={dactylProject} onLoad={onProject} />
     </section>
 
+    <Tabs tabs={PANEL_TABS.map((id) => ({ id, label: t(lang, `tab_${id}` as const) }))} bind:value={tab} />
+
+    {#if tab === 'keyboard'}
     <section>
       <h2>{t(lang, 'template')}</h2>
       <select value="dactyl" onchange={(e) => onTemplate(e.currentTarget.value)} aria-label={t(lang, 'template')}>
@@ -749,9 +758,11 @@
       {/each}
       <p class="muted">{tx('slow')}</p>
     </section>
+    {/if}
 
     {#if model}
       {@const m = model}
+      {#if tab === 'keycaps'}
       <KeycapPanel
         {lang}
         keys={[...m.keys, ...m.keys].map((k) => capSize(m, k))}
@@ -763,7 +774,9 @@
         bind:show={showCaps}
         bind:meshes={capMeshes}
       />
+      {:else if tab === 'wiring'}
       <WiringPanel {lang} input={() => dactylWiringInput({ model: m, controller: ctrlOn ? ctrl.controller : null, hotswap: variant === 'hotswap', lang })} fileBase={`dactyl-${p.rows}x${p.cols}`} save={saveFile} />
+      {/if}
     {/if}
 
     <footer class="muted">
