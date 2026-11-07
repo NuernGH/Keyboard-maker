@@ -20,6 +20,8 @@
   import { CONTROLLERS, DEFAULT_ISLAND, islandFor, controllerOf, type IslandParams, type CtrlFit } from './lib/island';
   import CustomController from './ui/CustomController.svelte';
   import WiringPanel from './ui/WiringPanel.svelte';
+  import KeycapPanel from './ui/KeycapPanel.svelte';
+  import { DEFAULT_KEYCAP, type KeycapParams } from './lib/keycap-spec';
   import { splitWiringInput } from './lib/wiring-doc';
   import { DEFAULT_CASE, FLOOR_MIN, SCREW_MARGIN, SLIM_CASE, STANDARD_LENGTHS, caseLayout, type CaseParams } from './lib/case';
   import { DEFAULT_PRINT, planSplit, pieceOf, type PrintParams, type PrintSplit } from './lib/split';
@@ -34,6 +36,10 @@
   /** przełączniki Cherry MX w podglądzie (tylko widok, nie trafiają do eksportu) */
   let showSwitches = $state(true);
   let switchMesh = $state<PreviewMesh | null>(null);
+  /** nakładki: parametry profilu, widoczność w podglądzie i siatki typów */
+  let keycap = $state<KeycapParams>({ ...DEFAULT_KEYCAP });
+  let showCaps = $state(false);
+  let capMeshes = $state<Record<string, PreviewMesh>>({});
   let caseP = $state<CaseParams>({ ...DEFAULT_CASE });
   /** obudowa ma sens tylko dla pełnych komórek (cienka płyta nie utrzyma śrub) */
   /** wartości sprzed włączenia cienkiej obudowy, przywracane po jej wyłączeniu */
@@ -301,7 +307,8 @@
     const claude = (window as any).claude;
     const downloads = claude?.use ? await claude.use('downloads') : null;
     if (downloads) {
-      const zip = zipStore([{ name, data: new Uint8Array(data) }]);
+      // ZIP (np. komplet nakładek) zapisujemy bez ponownego pakowania
+      const zip = name.endsWith('.zip') ? new Blob([data], { type: 'application/zip' }) : zipStore([{ name, data: new Uint8Array(data) }]);
       try {
         await downloads.save({ filename: name.replace(/\.[^.]+$/, '') + '.zip', data: zip });
       } catch (e) {
@@ -310,7 +317,7 @@
       }
       return;
     }
-    const blob = new Blob([data], { type: name.endsWith('.html') ? 'text/html' : name.endsWith('.stl') ? 'model/stl' : 'model/step' });
+    const blob = new Blob([data], { type: name.endsWith('.html') ? 'text/html' : name.endsWith('.zip') ? 'application/zip' : name.endsWith('.stl') ? 'model/stl' : 'model/step' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = name;
@@ -738,6 +745,17 @@
       {/each}
     </section>
 
+    <KeycapPanel
+      {lang}
+      keys={leftKeys.concat(single ? [] : rightKeys)}
+      stabs={plate.stabs ?? 'cherry'}
+      client={() => client('right')}
+      fileBase={templateId}
+      save={saveFile}
+      bind:params={keycap}
+      bind:show={showCaps}
+      bind:meshes={capMeshes}
+    />
     <WiringPanel {lang} input={wiringInput} fileBase={templateId} save={saveFile} />
 
     <footer class="muted">
@@ -747,7 +765,7 @@
   </aside>
 
   <main>
-    <Preview bind:this={preview} {halves} {cellHeight} stabs={plate.stabs ?? 'cherry'} switchMesh={showSwitches ? switchMesh : null} />
+    <Preview bind:this={preview} {halves} {cellHeight} stabs={plate.stabs ?? 'cherry'} switchMesh={showSwitches ? switchMesh : null} capMeshes={showCaps ? capMeshes : null} />
     <div class="hud">
       <span class="badge" class:exact={allExact} data-tip={t(lang, 'tipBadge')}>
         {#if anyBusy}{t(lang, 'computing')}{:else if allExact}{t(lang, 'exact')}{#if lastMs}&nbsp;· {lastMs} ms{/if}{:else}{t(lang, 'quick')}{/if}
