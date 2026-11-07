@@ -3,7 +3,7 @@
 // Płyta: cięcie schodkami po krawędziach klawiszy (żadna komórka nie jest przecięta), w ramce
 // u góry i u dołu zamki na jaskółczy ogon. Spód obudowy: cięcie proste, w innym miejscu niż
 // płyta, więc każda część spodu przykrywa szew płyty. Śruby po obu stronach obu szwów
-// skręcają całość. Tu same liczby; bryły tnie geometry.ts.
+// skręcają całość. Opcjonalnie zamki na jaskółczy ogon także w dnie spodu. Tu same liczby; bryły tnie geometry.ts.
 
 import { PITCH, keyCorners, type Key } from './layout';
 import type { IslandGeom } from './island';
@@ -16,14 +16,21 @@ export interface PrintParams {
   mode: 'auto' | 'off';
   /** luz w szwie płyty i w zamkach (mm, łącznie) */
   clearance: number;
+  /** zamki na jaskółczy ogon także w dnie spodu (domyślnie wyłączone: spód trzymają tylko śruby przez płytę) */
+  caseDovetails?: boolean;
 }
 
 // QIDI Q1 Pro: pole druku 245 × 245 mm wg specyfikacji producenta
-export const DEFAULT_PRINT: PrintParams = { bedX: 245, bedY: 245, mode: 'auto', clearance: 0.15 };
+export const DEFAULT_PRINT: PrintParams = { bedX: 245, bedY: 245, mode: 'auto', clearance: 0.15, caseDovetails: false };
 
 /** Zamek na jaskółczy ogon: wypust na lewej części, wchodzi w prawą (w stronę +X). */
 export const DOVETAIL = { depth: 3.5, neck: 2.4, head: 4.4 };
 /** Odstęp szwu spodu od szwu płyty (mm), od 2U w dół do 1U, jeśli inaczej się nie mieści. */
+/**
+ * Zamki w dnie spodu: wypust na lewej części (w stronę +X), tylko na grubość dna. Większe niż
+ * w płycie, bo dno jest cienkie, a zamek trzyma połówki w poziomie; w pionie trzyma płyta.
+ */
+export const CASE_DOVETAIL = { depth: 5, neck: 6, head: 9, count: 3 };
 const CASE_SEAM_OFFSETS = [2, 1.75, 1.5, 1.25, 1].map((u) => u * PITCH);
 
 export interface Rect {
@@ -45,6 +52,8 @@ export interface PrintSplit {
   caseParts: [number, number][];
   /** czy wszystkie części mieszczą się na stole */
   fits: boolean;
+  /** zamki w dnie spodu (pozycje liczy caseLayout, bo zależą od śrub) */
+  caseDovetails?: boolean;
 }
 
 /** Obrys płyty w XY (klawisze, wyspa, margines). */
@@ -149,8 +158,10 @@ export function planSplit(keys: Key[], island: IslandGeom | null, margin: number
           [cb.x1 - cx, cb.y1 - cb.y0],
         ];
         if (parts.some(([w]) => w < 20)) continue;
+        // zamki w dnie wystają z lewej części: liczą się do stołu, ale nie przesuwają cięcia
+        if (pp.caseDovetails) parts[0][0] += CASE_DOVETAIL.depth;
         const ok = parts.every(([w, h]) => fitsBed(w, h, pp));
-        const sc = Math.max(parts[0][0], parts[1][0]) + (ok ? 0 : 1e4);
+        const sc = Math.max(parts[0][0] - (pp.caseDovetails ? CASE_DOVETAIL.depth : 0), parts[1][0]) + (ok ? 0 : 1e4);
         if (sc < caseScore - 1e-6) {
           caseScore = sc;
           caseX = cx;
@@ -166,7 +177,7 @@ export function planSplit(keys: Key[], island: IslandGeom | null, margin: number
       [xs[0], rows[0].top + margin / 2],
       [xs[xs.length - 1], rows[rows.length - 1].bottom - margin / 2],
     ];
-    if (!best || score < best.score - 1e-6) best = { score, split: { seam, dovetails, caseX, plateParts, caseParts, fits } };
+    if (!best || score < best.score - 1e-6) best = { score, split: { seam, dovetails, caseX, plateParts, caseParts, fits, ...(pp.caseDovetails ? { caseDovetails: true } : {}) } };
   }
   return best?.split ?? null;
 }

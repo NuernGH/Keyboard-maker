@@ -25,7 +25,7 @@ import {
 import { PITCH, switchSpots, type Key } from './layout';
 import { wedgeZ, type Box, type IslandGeom } from './island';
 import { LEDGE, SUPPORT, bossFilletSize, chamferSize, ledgeKeepouts, ledgeWidth, screwSpec, type ScrewSpec, type CaseLayout, type CaseParams } from './case';
-import { leftRegion, type PrintSplit } from './split';
+import { CASE_DOVETAIL, leftRegion, type PrintSplit } from './split';
 import type { ExtrasLayout } from './case-extras';
 
 import {
@@ -455,12 +455,40 @@ export function platePiece(plate: Shape3D, split: PrintSplit, clearance: number,
   return plate.clone().cut(prism(poly, z0, z1, (2 * clearance) / 3)) as Shape3D;
 }
 
-/** Część spodu obudowy po cięciu prostym w x = caseX. */
-export function casePiece(shell: Shape3D, caseX: number, piece: 0 | 1): Shape3D {
+/**
+ * Część spodu obudowy po cięciu prostym w x = caseX. Z `tabs` w dnie (od spodu do floorTop)
+ * zostają zamki na jaskółczy ogon: wypust na lewej części zwężony o 1/3 luzu, gniazdo
+ * w prawej poszerzone o 2/3 luzu, jak w płycie.
+ */
+export function casePiece(
+  shell: Shape3D,
+  caseX: number,
+  piece: 0 | 1,
+  tabs: { ys: number[]; floorTop: number; clearance: number } | null = null,
+): Shape3D {
   const bb = shell.boundingBox.bounds;
   const lo: [number, number, number] = [bb[0][0] - 1, bb[0][1] - 1, bb[0][2] - 1];
   const hi: [number, number, number] = [bb[1][0] + 1, bb[1][1] + 1, bb[1][2] + 1];
   if (piece === 0) hi[0] = caseX;
   else lo[0] = caseX;
-  return shell.clone().intersect(makeBox(lo, hi)) as Shape3D;
+  const half = shell.clone().intersect(makeBox(lo, hi)) as Shape3D;
+  if (!tabs || !tabs.ys.length) return half;
+  const z0 = bb[0][2] - 1;
+  const { depth, neck, head } = CASE_DOVETAIL;
+  const prisms = tabs.ys.map((y) => {
+    const poly: [number, number][] = [
+      [caseX - 1, y + neck / 2],
+      [caseX, y + neck / 2],
+      [caseX + depth, y + head / 2],
+      [caseX + depth, y - head / 2],
+      [caseX, y - neck / 2],
+      [caseX - 1, y - neck / 2],
+    ];
+    return piece === 0 ? prism(poly, z0, tabs.floorTop, -tabs.clearance / 3) : prism(poly, z0, tabs.floorTop + 0.5, (2 * tabs.clearance) / 3);
+  });
+  if (piece === 0) {
+    const extra = prisms.map((p) => shell.clone().intersect(p) as Shape3D);
+    return extra.reduce((u, e) => u.fuse(e) as Shape3D, half);
+  }
+  return cutMany(half, prisms);
 }

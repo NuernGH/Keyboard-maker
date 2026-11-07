@@ -5,7 +5,7 @@ import { loadCell, buildPlate, buildCase, buildWedge, screwPilots, isValidShape,
 import { TEMPLATES, splitLeft, switchOffsets, switchSpots, ANSI_60, parseRowLayout, rowLayoutToText, keysOverlap, PITCH } from '../src/lib/layout';
 import { islandFor, gridBounds, DEFAULT_ISLAND, type IslandParams } from '../src/lib/island';
 import { caseLayout, DEFAULT_CASE, SCREW_MARGIN, SCREW_SPECS, type ScrewSize } from '../src/lib/case';
-import { planSplit, plateBounds, pieceOf, seamScrewTargets, DEFAULT_PRINT } from '../src/lib/split';
+import { planSplit, plateBounds, pieceOf, seamScrewTargets, DEFAULT_PRINT, CASE_DOVETAIL } from '../src/lib/split';
 
 const tpl = TEMPLATES.find((t) => t.id === 'ansi-60')!.params;
 const ip: IslandParams = { ...DEFAULT_ISLAND, position: 'top', align: 'end' };
@@ -401,6 +401,62 @@ describe('bryły 60%', () => {
     const lifted = measureVolume(plate.clone().intersect(shell.clone().translate(0, 0, 0.2)) as never);
     expect(lifted).toBeGreaterThan(0);
   }, 600000);
+
+  for (const cfg of [
+    { name: 'domyślna obudowa', cp: DEFAULT_CASE },
+    { name: 'cienka obudowa', cp: { ...DEFAULT_CASE, slim: true, space: 1.5, floor: 2, screwSize: 'M2.5' as ScrewSize } },
+  ])
+    test(`zamki w dnie spodu (${cfg.name}): wypust w dnie, części się nie przenikają, bez opcji spód bez zmian`, async () => {
+      const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
+      const keys = splitLeft(tpl);
+      const island = islandFor(tpl, ip, 'left', 'hotswap', cell.height);
+      const off = planSplit(keys, island, SCREW_MARGIN, caseExtra, DEFAULT_PRINT)!;
+      const on = planSplit(keys, island, SCREW_MARGIN, caseExtra, { ...DEFAULT_PRINT, caseDovetails: true })!;
+      // ta sama linia cięcia, lewa część spodu szersza o wypust
+      expect(on.caseX).toBeCloseTo(off.caseX, 6);
+      expect(on.caseParts[0][0]).toBeCloseTo(off.caseParts[0][0] + CASE_DOVETAIL.depth, 6);
+      expect(on.fits).toBe(true);
+      const layOff = caseLayout(keys, island, cell.height, cfg.cp, off);
+      const lay = caseLayout(keys, island, cell.height, cfg.cp, on);
+      expect(layOff.caseTabs).toBeUndefined();
+      expect(lay.screws).toEqual(layOff.screws);
+      expect(lay.supports).toEqual(layOff.supports);
+      expect(lay.caseTabs!.length).toBe(CASE_DOVETAIL.count);
+      const shell = buildCase(keys, opts, island, cell.height, cfg.cp, lay);
+      const c = DEFAULT_PRINT.clearance;
+      const tabs = { ys: lay.caseTabs!, floorTop: lay.floorTop, clearance: c };
+      const plain = [casePiece(shell, on.caseX, 0), casePiece(shell, on.caseX, 1)];
+      const parts = [casePiece(shell, on.caseX, 0, tabs), casePiece(shell, on.caseX, 1, tabs)];
+      for (const p of parts) {
+        expect(isValidShape(p)).toBe(true);
+        expect(p.solids.length).toBe(1);
+        const bb = p.boundingBox.bounds;
+        expect(bb[1][0] - bb[0][0]).toBeLessThanOrEqual(245);
+      }
+      // lewa część zyskuje wypusty (tylko na grubość dna), prawa traci gniazda z luzem
+      const { depth, neck, head } = CASE_DOVETAIL;
+      const area = ((neck + head) / 2) * depth;
+      const gained = measureVolume(parts[0]) - measureVolume(plain[0]);
+      const lost = measureVolume(plain[1]) - measureVolume(parts[1]);
+      const n = lay.caseTabs!.length;
+      expect(gained).toBeGreaterThan(n * area * cfg.cp.floor * 0.85);
+      expect(gained).toBeLessThan(n * area * cfg.cp.floor * 1.05);
+      expect(lost).toBeGreaterThan(gained);
+      expect(lost - gained).toBeLessThan(n * 30 * c * cfg.cp.floor);
+      expect(parts[0].boundingBox.bounds[1][0]).toBeCloseTo(on.caseX + depth - c / 3, 1);
+      // wypust nie wychodzi nad dno
+      const above = makeBox([on.caseX, -200, lay.floorTop + 0.01], [on.caseX + depth + 1, 200, 50]);
+      expect(measureVolume(parts[0].clone().intersect(above) as never)).toBeLessThan(0.01);
+      // części nie nachodzą na siebie
+      expect(measureVolume(parts[0].clone().intersect(parts[1].clone()) as never)).toBeLessThan(0.01);
+      // wypust nie trafia w wybranie na łeb, słupek ani podporę
+      for (const y of lay.caseTabs!) {
+        for (const [sx, sy] of lay.screws)
+          if (sx > on.caseX - 2 && sx < on.caseX + depth + 2) expect(Math.abs(sy - y)).toBeGreaterThan(head / 2 + lay.screw.boss / 2);
+        for (const [sx, sy] of lay.supports)
+          if (sx > on.caseX - 2 && sx < on.caseX + depth + 2) expect(Math.abs(sy - y)).toBeGreaterThan(head / 2 + 2);
+      }
+    }, 600000);
 
   for (const size of ['M3', 'M2.5'] as ScrewSize[])
     test(`śruby ${size}: słupki bez kolizji z płytą, kontrolerem, USB i modułem, łeb schowany w dnie`, async () => {
