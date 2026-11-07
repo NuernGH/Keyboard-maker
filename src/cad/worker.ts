@@ -8,6 +8,7 @@ import type { Request, Response, BuildInput, DactylInput, KeycapInput } from './
 import { applyLegend, buildKeycap, buildCalibration, buildInsert, inlayPart, insertPrintPose, printPose } from '../lib/keycap';
 import { buildDactyl } from '../lib/dactyl';
 import { buildDactylShell, buildDactylBottom } from '../lib/dactyl-geometry';
+import { buildFeetSet } from '../lib/feet-geometry';
 import { controllerHolder } from '../lib/dactyl-parts';
 import { dactylExtras, mergeParts } from '../lib/dactyl-extras';
 import { loadSwitch } from '../lib/switch-model';
@@ -135,6 +136,24 @@ async function plateFor(input: BuildInput): Promise<Shape3D> {
     if (!input.island) throw new Error('Brak wyspy');
     await init();
     const shape = buildWedge(input.island);
+    remember(key, shape);
+    return shape;
+  }
+  if (input.part === 'feet') {
+    const c = input.case;
+    const f = c?.layout.feet;
+    if (!c || !f) throw new Error('Brak nóżek');
+    await init();
+    const shape = buildFeetSet(
+      f,
+      c.layout.bottom,
+      c.layout.screw,
+      c.layout.headDepth,
+      c.params.feet?.pegs !== false,
+      input.pose ?? 'place',
+      input.piece !== undefined && input.split ? { caseX: input.split.plan.caseX, piece: input.piece } : undefined,
+    );
+    if (!shape) throw new Error('Nóżki nie mieszczą się w tej obudowie');
     remember(key, shape);
     return shape;
   }
