@@ -3,7 +3,7 @@ import { measureVolume, makeBox, makeCylinder, type Shape3D } from 'replicad';
 import { initOC, cellStep } from './oc';
 import { loadCell, buildPlate, buildCase, buildWedge, screwPilots, isValidShape, stabCuts, platePiece, casePiece } from '../src/lib/geometry';
 import { TEMPLATES, splitLeft, switchOffsets, switchSpots, ANSI_60, parseRowLayout, rowLayoutToText, keysOverlap, PITCH } from '../src/lib/layout';
-import { islandFor, DEFAULT_ISLAND, type IslandParams } from '../src/lib/island';
+import { islandFor, gridBounds, DEFAULT_ISLAND, type IslandParams } from '../src/lib/island';
 import { caseLayout, DEFAULT_CASE, SCREW_MARGIN, SCREW_SPECS, type ScrewSize } from '../src/lib/case';
 import { planSplit, plateBounds, pieceOf, seamScrewTargets, DEFAULT_PRINT } from '../src/lib/split';
 
@@ -62,11 +62,11 @@ describe('dwa MX zamiast stabilizatora', () => {
 describe('podział do druku', () => {
   const keys = splitLeft(tpl);
   const island = islandFor(tpl, ip, 'left', 'hotswap', 8.58);
-  test('stół 250 × 250: dwie części, każda się mieści, szwy w różnych miejscach', () => {
+  test('stół 245 × 245: dwie części, każda się mieści, szwy w różnych miejscach', () => {
     const sp = planSplit(keys, island, SCREW_MARGIN, caseExtra, DEFAULT_PRINT)!;
     expect(sp).not.toBeNull();
     expect(sp.fits).toBe(true);
-    for (const [w, h] of [...sp.plateParts, ...sp.caseParts]) expect(Math.min(w, h)).toBeLessThanOrEqual(250);
+    for (const [w, h] of [...sp.plateParts, ...sp.caseParts]) expect(Math.min(w, h)).toBeLessThanOrEqual(245);
     const xs = sp.seam.map((p) => p[0]);
     expect(Math.min(Math.abs(sp.caseX - Math.min(...xs)), Math.abs(sp.caseX - Math.max(...xs)))).toBeGreaterThanOrEqual(PITCH - 1e-6);
     // szew nie przecina klawiszy: każdy klawisz w całości po jednej stronie
@@ -248,17 +248,29 @@ describe('bryły 60%', () => {
     }
   }, 300000);
 
-  for (const [controller, dir] of [
-    ['esp32s3', 'left'],
-    ['esp32s3', 'right'],
-    ['esp32s3', 'back'],
-    ['nicenano', 'left'],
-    ['nicenano', 'back'],
+  // wyrównanie 'end' (wyspa po prawej): USB w lewo idzie do środka klawiatury, kontroler przy tylnej krawędzi
+  for (const [controller, dir, align] of [
+    ['esp32s3', 'left', 'end'],
+    ['esp32s3', 'right', 'end'],
+    ['esp32s3', 'back', 'end'],
+    ['nicenano', 'left', 'end'],
+    ['nicenano', 'left', 'start'],
+    ['nicenano', 'right', 'start'],
+    ['nicenano', 'back', 'end'],
+    ['s2mini', 'left', 'end'],
   ] as const)
-    test(`kierunek USB ${dir} (${controller}) z klinem: gniazdo przy krawędzi płyty, wolna droga wtyku, klin bez kolizji`, async () => {
+    test(`kierunek USB ${dir} (${controller}, wyspa ${align}) z klinem: gniazdo przy krawędzi płyty, wolna droga wtyku, klin bez kolizji`, async () => {
       const cell = await loadCell({ step: cellStep(), up: 'auto' }, 'hotswap');
       const keys = splitLeft(tpl);
-      const island = islandFor(tpl, { ...ip, controller, tilt: 25, usbDir: dir }, 'left', 'hotswap', cell.height, SCREW_MARGIN)!;
+      const island = islandFor(tpl, { ...ip, align, controller, tilt: 25, usbDir: dir }, 'left', 'hotswap', cell.height, SCREW_MARGIN)!;
+      // wyspa zostaje tam, gdzie ją wyrównano, niezależnie od kierunku USB; tylko długi ESP32-S3
+      // (bez miejsca na śruby klina obok kieszeni) dosuwa ją do krawędzi po stronie USB
+      const { kx0, kx1 } = gridBounds(tpl);
+      const forced = controller === 'esp32s3' && dir !== 'back';
+      const at = forced ? (dir === 'left' ? 'start' : 'end') : align;
+      if (at === 'end') expect(island.rect.x1).toBeCloseTo(kx1, 6);
+      else expect(island.rect.x0).toBeCloseTo(kx0, 6);
+      const inward = !forced && ((dir === 'left' && align === 'end') || (dir === 'right' && align === 'start'));
       const w = island.wedge!;
       expect(w.deg).toBe(25);
       const r = island.rect;
@@ -277,6 +289,11 @@ describe('bryły 60%', () => {
         const out = x + 2.5 < nano.x0 - 0.3 || x - 2.5 > nano.x1 + 0.3 || y + 2.5 < nano.y0 - 0.3 || y - 2.5 > nano.y1 + 0.3;
         expect(out).toBe(true);
       }
+      if (inward) {
+        // kontroler przy tylnej krawędzi wyspy: wtyk (12,5 mm) cały ponad brzegiem obudowy obok wyspy
+        expect(nano.y0 - r.y0).toBeGreaterThan((r.y1 - r.y0) / 4);
+        for (const u of usbs) expect((u.y0 + u.y1) / 2 - 6.25).toBeGreaterThan(r.y0 + SCREW_MARGIN + DEFAULT_CASE.gap + DEFAULT_CASE.wall + 1);
+      }
       // gniazdo równo z krawędzią płyty po wybranej stronie; kierunek wyjścia wtyku
       const edge = dir === 'left' ? r.x0 - SCREW_MARGIN : dir === 'right' ? r.x1 + SCREW_MARGIN : r.y1 + SCREW_MARGIN;
       for (const u of usbs) expect(dir === 'left' ? u.x0 : dir === 'right' ? u.x1 : u.y1).toBeCloseTo(edge, 6);
@@ -291,6 +308,7 @@ describe('bryły 60%', () => {
       expect(measureVolume(plate.clone().intersect(shell.clone()) as never)).toBeLessThan(0.01);
       const vol = (a: Shape3D, b: [number, number, number], c: [number, number, number]) =>
         measureVolume(a.clone().intersect(makeBox(b, c)));
+      for (const g of [nano, ...usbs]) expect(vol(wedge, [g.x0, g.y0, g.z0], [g.x1, g.y1, g.z1])).toBeLessThan(0.01);
       for (const g of [nano, ...usbs]) {
         expect(vol(plate, [g.x0, g.y0, g.z0], [g.x1, g.y1, g.z1])).toBeLessThan(0.01);
         expect(vol(shell, [g.x0, g.y0, g.z0], [g.x1, g.y1, g.z1])).toBeLessThan(0.01);
@@ -360,7 +378,7 @@ describe('bryły 60%', () => {
       expect(isValidShape(p)).toBe(true);
       expect(p.solids.length).toBe(1);
       const bb = p.boundingBox.bounds;
-      expect(bb[1][0] - bb[0][0]).toBeLessThanOrEqual(250);
+      expect(bb[1][0] - bb[0][0]).toBeLessThanOrEqual(245);
     }
     // luz w szwie zabiera bardzo mało materiału
     const lost = v - measureVolume(parts[0]) - measureVolume(parts[1]);
@@ -375,7 +393,7 @@ describe('bryły 60%', () => {
     for (const p of cparts) {
       expect(p.solids.length).toBe(1);
       const bb = p.boundingBox.bounds;
-      expect(bb[1][0] - bb[0][0]).toBeLessThanOrEqual(250);
+      expect(bb[1][0] - bb[0][0]).toBeLessThanOrEqual(245);
     }
     expect(measureVolume(cparts[0]) + measureVolume(cparts[1])).toBeCloseTo(measureVolume(shell), 0);
     expect(measureVolume(plate.clone().intersect(shell.clone()) as never)).toBeLessThan(0.01);

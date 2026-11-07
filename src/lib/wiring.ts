@@ -131,13 +131,32 @@ export interface PinDef {
 
 export type Firmware = 'zmk' | 'qmk' | 'kmk';
 
+/**
+ * Element na wierzchu płytki, rysowany dla orientacji (żeby było widać, że to strona elementów).
+ * x od osi płytki (mm), fy: położenie wzdłuż płytki od krawędzi z USB (0) do drugiego końca (1).
+ */
+export interface BoardPart {
+  kind: 'chip' | 'can' | 'button' | 'led';
+  x: number;
+  fy: number;
+  w: number;
+  h: number;
+  rot?: number;
+  label?: string;
+}
+
 export interface ControllerPins {
   name: string;
+  /** scalak, moduł, przyciski: tylko do rysunku */
+  parts?: BoardPart[];
   firmware: Firmware;
   wireless: boolean;
   /** listwy w kolejności od USB (lewa i prawa patrząc od strony elementów) i piny dodatkowe */
   left: PinDef[];
   right: PinDef[];
+  /** płytki z podwójnymi listwami (S2 mini): wewnętrzne rzędy pinów, w tej samej kolejności co zewnętrzne */
+  leftInner?: PinDef[];
+  rightInner?: PinDef[];
   extra: PinDef[];
   /** gdzie jest USB na rysunku */
   usb: 'top' | 'bottom';
@@ -166,6 +185,7 @@ const NICENANO: ControllerPins = {
   left: [nn(1, 'P0.06'), nn(0, 'P0.08'), P('gnd', 'GND'), P('gnd', 'GND'), nn(2, 'P0.17'), nn(3, 'P0.20'), nn(4, 'P0.22'), nn(5, 'P0.24'), nn(6, 'P1.00'), nn(7, 'P0.11'), nn(8, 'P1.04'), nn(9, 'P1.06')],
   right: [P('bat', 'B+'), P('gnd', 'GND'), P('rst', 'RST'), P('vcc', 'VCC'), nn(21, 'P0.31'), nn(20, 'P0.29'), nn(19, 'P0.02'), nn(18, 'P1.15'), nn(15, 'P1.13'), nn(14, 'P1.11'), nn(16, 'P0.10'), nn(10, 'P0.09')],
   extra: [G('P1.01', 'P1.01 · 101', '&gpio1 1'), G('P1.02', 'P1.02 · 102', '&gpio1 2'), G('P1.07', 'P1.07 · 107', '&gpio1 7')],
+  parts: [{ kind: 'chip', x: 0, fy: 0.58, w: 6, h: 6, rot: 45, label: 'nRF52840' }],
   rowPref: ['D4', 'D5', 'D6', 'D7', 'D8', 'D9'],
   colPref: ['D21', 'D20', 'D19', 'D18', 'D15', 'D14', 'D16', 'D10'],
   i2c: ['D2', 'D3'],
@@ -186,6 +206,7 @@ const PROMICRO = (name: string): ControllerPins => ({
   left: [pm('TX0', 'D3'), pm('RX1', 'D2'), P('gnd', 'GND'), P('gnd', 'GND'), pm('2', 'D1'), pm('3', 'D0'), pm('4', 'D4'), pm('5', 'C6'), pm('6', 'D7'), pm('7', 'E6'), pm('8', 'B4'), pm('9', 'B5')],
   right: [P('raw', 'RAW'), P('gnd', 'GND'), P('rst', 'RST'), P('vcc', 'VCC'), pm('A3', 'F4'), pm('A2', 'F5'), pm('A1', 'F6'), pm('A0', 'F7'), pm('15', 'B1'), pm('14', 'B3'), pm('16', 'B2'), pm('10', 'B6')],
   extra: [],
+  parts: [{ kind: 'chip', x: 0, fy: 0.55, w: 6, h: 6, rot: 45, label: 'ATmega32U4' }],
   rowPref: ['D4', 'C6', 'D7', 'E6', 'B4', 'B5'],
   colPref: ['F4', 'F5', 'F6', 'F7', 'B1', 'B3', 'B2', 'B6'],
   i2c: ['D1', 'D0'],
@@ -203,6 +224,7 @@ const KB2040: ControllerPins = {
   left: [kb('D0', 0), kb('D1', 1), P('gnd', 'GND'), P('gnd', 'GND'), kb('D2', 2), kb('D3', 3), kb('D4', 4), kb('D5', 5), kb('D6', 6), kb('D7', 7), kb('D8', 8), kb('D9', 9)],
   right: [P('raw', 'RAW'), P('gnd', 'GND'), P('rst', 'RST'), P('vcc', '3V'), kb('A3', 29), kb('A2', 28), kb('A1', 27), kb('A0', 26), kb('SCK', 18), kb('MI', 20), kb('MO', 19), kb('D10', 10)],
   extra: [],
+  parts: [{ kind: 'chip', x: 0, fy: 0.55, w: 6, h: 6, rot: 45, label: 'RP2040' }],
   rowPref: ['GP4', 'GP5', 'GP6', 'GP7', 'GP8', 'GP9'],
   colPref: ['GP29', 'GP28', 'GP27', 'GP26', 'GP18', 'GP20', 'GP19', 'GP10'],
   i2c: ['GP2', 'GP3'],
@@ -225,6 +247,7 @@ const ESP32S3: ControllerPins = {
     io(0, undefined, 'IO0 · BOOT'), io(45, STRAP), io(48, { pl: 'dioda RGB', en: 'RGB LED' }), io(47), io(21), io(20, { pl: 'USB D+', en: 'USB D+' }), io(19, { pl: 'USB D−', en: 'USB D−' }), P('gnd', 'GND'), P('gnd', 'GND'),
   ],
   extra: [],
+  parts: [{ kind: 'can', x: 0, fy: 0.7, w: 18, h: 17.6, label: 'ESP32-S3-WROOM' }],
   rowPref: ['IO4', 'IO5', 'IO6', 'IO7', 'IO15', 'IO1', 'IO2'],
   colPref: ['IO16', 'IO17', 'IO18', 'IO8', 'IO9', 'IO10', 'IO11', 'IO12', 'IO13', 'IO14', 'IO21', 'IO47', 'IO1', 'IO2', 'IO39', 'IO40'],
   i2c: ['IO41', 'IO42'],
@@ -236,24 +259,33 @@ const ESP32S3: ControllerPins = {
   },
 };
 
-const S2_OK = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 21, 33, 34, 35, 36, 37, 38, 39, 40];
+// Wemos S2 mini v1.0.0: dwie podwójne listwy, kolejność od anteny do USB (pinout oprosthetics.org, v1 rev 5).
 const S2MINI: ControllerPins = {
   name: 'Wemos S2 mini',
   firmware: 'kmk',
   wireless: false,
-  usb: 'top',
-  drawn: false,
-  left: S2_OK.map((n) => io(n)),
-  right: [P('vcc', '3V3'), P('gnd', 'GND'), P('raw', 'VBUS')],
+  usb: 'bottom',
+  drawn: true,
+  left: [P('rst', 'EN'), io(3), io(5), io(7), io(9), io(11), io(12), P('vcc', '3V3')],
+  leftInner: [io(1), io(2), io(4), io(6), io(8), io(10), io(13), io(14)],
+  right: [io(39), io(37), io(35), io(33), io(18), io(16), P('gnd', 'GND'), P('raw', 'VBUS')],
+  rightInner: [io(40), io(38), io(36), io(34), io(21), io(17), P('gnd', 'GND'), io(15, { pl: 'dioda LED', en: 'LED' })],
   extra: [],
-  rowPref: ['IO1', 'IO2', 'IO3', 'IO4', 'IO5', 'IO6', 'IO7'],
-  colPref: ['IO8', 'IO9', 'IO10', 'IO11', 'IO12', 'IO13', 'IO14', 'IO16', 'IO17', 'IO18', 'IO21', 'IO33', 'IO34', 'IO37', 'IO38'],
-  i2c: ['IO35', 'IO36'],
-  modulePref: ['IO39', 'IO40', 'IO37', 'IO38', 'IO34'],
-  splitPin: 'IO33',
+  // rzędy na lewej zewnętrznej listwie, kolumny na lewej wewnętrznej i prawej wewnętrznej, moduł na prawej zewnętrznej
+  parts: [
+    { kind: 'chip', x: 0, fy: 0.6, w: 7, h: 7, label: 'ESP32-S2' },
+    { kind: 'button', x: -8.3, fy: 0.08, w: 3, h: 4.4, label: 'RST' },
+    { kind: 'button', x: 8.3, fy: 0.08, w: 3, h: 4.4, label: '0' },
+    { kind: 'led', x: 5.2, fy: 0.05, w: 1, h: 1.6, label: '15' },
+  ],
+  rowPref: ['IO3', 'IO5', 'IO7', 'IO9', 'IO11', 'IO12'],
+  colPref: ['IO1', 'IO2', 'IO4', 'IO6', 'IO8', 'IO10', 'IO13', 'IO14', 'IO40', 'IO38', 'IO36', 'IO34', 'IO21', 'IO17'],
+  i2c: ['IO39', 'IO37'],
+  modulePref: ['IO35', 'IO33', 'IO18', 'IO21', 'IO17'],
+  splitPin: 'IO16',
   note: {
-    pl: 'Nie używamy IO0 (BOOT), IO15 (dioda LED), IO19/IO20 (USB), IO45/IO46 (piny startowe). Kolejność pinów na listwach sprawdź na płytce.',
-    en: 'Not used: IO0 (BOOT), IO15 (LED), IO19/IO20 (USB), IO45/IO46 (strapping). Check the header order on the board.',
+    pl: 'Płytka ma po dwie listwy z każdej strony (zewnętrzną i wewnętrzną). Nie używamy IO15 (dioda LED na płytce); IO0 to przycisk BOOT i nie wychodzi na listwę. Wgrywanie: przytrzymaj przycisk 0, naciśnij RST, puść 0.',
+    en: 'The board has two headers on each side (outer and inner). IO15 is not used (on-board LED); IO0 is the BOOT button and is not on a header. Flashing: hold button 0, press RST, release 0.',
   },
 };
 
@@ -310,7 +342,7 @@ export interface Assignment {
   byPin: Map<string, Role>;
 }
 
-const allPins = (c: ControllerPins) => [...c.left, ...c.right, ...c.extra];
+const allPins = (c: ControllerPins) => [...c.left, ...(c.leftInner ?? []), ...c.right, ...(c.rightInner ?? []), ...c.extra];
 
 /**
  * Przypisuje piny: najpierw I2C modułu i enkoder, potem linia między połówkami, rzędy, kolumny,

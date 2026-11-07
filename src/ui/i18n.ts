@@ -3,6 +3,10 @@ export type Lang = 'pl' | 'en';
 
 const dict = {
   title: { pl: 'Generator płyt klawiatury', en: 'Keyboard plate generator' },
+  tab_keyboard: { pl: 'Klawiatura', en: 'Keyboard' },
+  tab_keycaps: { pl: 'Nakładki', en: 'Keycaps' },
+  tab_colors: { pl: 'Kolory', en: 'Colours' },
+  tab_wiring: { pl: 'Okablowanie', en: 'Wiring' },
   template: { pl: 'Szablon', en: 'Template' },
   cell: { pl: 'Komórka klawisza', en: 'Key cell' },
   variant: { pl: 'Wariant', en: 'Variant' },
@@ -115,6 +119,8 @@ const dict = {
   caseBottomOn: { pl: 'Spód obudowy przykręcany do płyty', en: 'Bottom case screwed to the plate' },
   caseThin: { pl: 'Cienka płyta 1,5 mm nie utrzyma śrub. Spód działa z wariantem hot-swap albo bez hot-swap.', en: 'A 1.5 mm thin plate cannot hold screws. The bottom works with the hot-swap or no-hot-swap variant.' },
   caseWall: { pl: 'Ścianka (mm)', en: 'Wall (mm)' },
+  slimCase: { pl: 'Cienka obudowa', en: 'Slim case' },
+  tipSlimCase: { pl: 'Niższy spód: 1,5 mm miejsca na przewody, dno 2 mm (można zejść do 1,6), śruby M2,5. Bez hot-swap dno 1,2 mm pod końcami pinów MX. 60% z hot-swap: 12,1 mm zamiast 14,6. Wyłączenie przywraca poprzednie wartości.', en: 'Lower bottom: 1.5 mm wiring space, 2 mm floor (down to 1.6), M2.5 screws. Without hot-swap the floor is 1.2 mm below the MX pin tips. 60% hot-swap: 12.1 mm instead of 14.6. Turning it off restores the previous values.' },
   caseFloor: { pl: 'Dno (mm)', en: 'Floor (mm)' },
   caseSpace: { pl: 'Miejsce na przewody (mm)', en: 'Wiring space (mm)' },
   caseScrews: { pl: 'Śruby na połówkę', en: 'Screws per half' },
@@ -135,7 +141,7 @@ const dict = {
   tipCase: { pl: 'Wanna pod płytą: ścianki do wierzchu płyty, płyta leży na słupkach i jest przykręcona od spodu śrubami M3 albo M2,5. Płyta dostaje wtedy pas 6 mm na śruby, a ścianka ma wycięcie na USB.', en: 'A tray under the plate: walls up to the plate top, the plate rests on standoffs and is screwed from below with M3 or M2.5 screws. The plate gets a 6 mm band for the screws and the wall gets a USB opening.' },
   tipCaseWall: { pl: 'Grubość ścianki bocznej spodu.', en: 'Side wall thickness.' },
   tipCaseFloor: { pl: 'Grubość dna. Łby śrub chowają się w nim na 2,6 mm.', en: 'Floor thickness. Screw heads sink 2.6 mm into it.' },
-  tipCaseSpace: { pl: 'Wolne miejsce między najniższym punktem płyty lub wyspy a dnem, na przewody i diody.', en: 'Free space between the lowest point of the plate or island and the floor, for wires and diodes.' },
+  tipCaseSpace: { pl: 'Wolne miejsce między najniższym punktem płyty lub wyspy a dnem, na przewody i diody. Bez hot-swap dno i tak zostaje pod końcami pinów MX (8,3 mm pod wierzchem płyty).', en: 'Free space between the lowest point of the plate or island and the floor, for wires and diodes. Without hot-swap the floor always stays below the MX pin tips (8.3 mm under the plate top).' },
   tipCaseScrews: { pl: 'Ile śrub na połówkę. Generator rozkłada je w pasie wokół klawiszy, jak najdalej od siebie.', en: 'Screws per half. They are spread in the band around the keys, as far apart as possible.' },
   tipCaseGap: { pl: 'Luz między krawędzią płyty a ścianką, żeby płyta weszła po druku.', en: 'Clearance between plate edge and wall, so the printed plate fits.' },
   tipExplode: { pl: 'O ile w podglądzie odsunąć spód w dół, żeby było widać oba elementy. Nie wpływa na eksport.', en: 'How far the bottom is moved down in the preview so both parts are visible. Does not affect the export.' },

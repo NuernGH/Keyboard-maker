@@ -4,7 +4,8 @@ import opencascade from 'replicad-opencascadejs';
 import wasmUrl from 'replicad-opencascadejs/wasm?url';
 import { setOC, importSTEP, type Shape3D } from 'replicad';
 import { buildPlate, buildCase, buildWedge, screwPilots, loadCell, platePiece, casePiece, type Cell } from '../lib/geometry';
-import type { Request, Response, BuildInput, DactylInput } from './protocol';
+import type { Request, Response, BuildInput, DactylInput, KeycapInput } from './protocol';
+import { applyLegend, buildKeycap, buildCalibration, buildInsert, insertPrintPose, printPose } from '../lib/keycap';
 import { buildDactyl } from '../lib/dactyl';
 import { buildDactylShell, buildDactylBottom } from '../lib/dactyl-geometry';
 import { controllerHolder } from '../lib/dactyl-parts';
@@ -96,7 +97,7 @@ async function dactylFor(input: DactylInput): Promise<Shape3D | TriMesh> {
   // obrys organicznej: domknięty szerzej i bliżej klawiszy (dno ma ten sam obrys)
   const model = organic ? withBlanket(base, ORGANIC_OUTLINE) : blanket ? withBlanket(base) : base;
   const controller = input.controller ? controllerHolder(model, input.controller) : null;
-  const b = { floor: input.floor, bossHeight: 7, controller, chamfer: input.chamfer ?? 1 };
+  const b = { floor: input.floor, bossHeight: 7, controller, chamfer: input.chamfer ?? 0, slotCover: input.slotCover ?? false };
   if ((blanket || organic) && input.part === 'shell') {
     const M = await manifoldLib(manifoldWasm);
     const m = (organic
@@ -144,6 +145,27 @@ async function plateFor(input: BuildInput): Promise<Shape3D> {
   return shape;
 }
 
+async function keycapFor(input: KeycapInput): Promise<Shape3D> {
+  const key = 'keycap:' + JSON.stringify(input);
+  const hit = shapeCache.get(key);
+  if (hit) return hit;
+  await init();
+  let shape: Shape3D;
+  const p = input.params;
+  const lg = input.legend;
+  const withLegend = (s: Shape3D) => (lg && input.cap ? applyLegend(p, input.cap, s, lg) : s);
+  if (input.pose === 'insert' || input.pose === 'insert-turned') shape = insertPrintPose(p, buildInsert(p, input.pose === 'insert-turned'));
+  else if (!input.cap) shape = buildCalibration(p);
+  else if (input.pose === 'print' && p.orient === 'side')
+    shape = printPose(p, withLegend(buildKeycap(p, input.cap, p.sideStem === 'rib' ? { ribs: true } : { sockets: 'holes' })), input.cap);
+  // wypukła legenda w kolorze: druk górą do góry (zmiana filamentu na wysokości góry nakładki)
+  else if (input.pose === 'print') shape = printPose(p, await keycapFor({ ...input, pose: 'rest' }), input.cap, lg?.method === 'color' && lg.contours.length > 0);
+  else if (lg) shape = withLegend(await keycapFor({ ...input, legend: undefined }));
+  else shape = buildKeycap(p, input.cap);
+  remember(key, shape);
+  return shape;
+}
+
 const post = (msg: Response, transfer: Transferable[] = []) =>
   (self as unknown as Worker).postMessage(msg, transfer);
 
@@ -163,11 +185,13 @@ self.onmessage = async (e: MessageEvent<Request>) => {
           ? (await init(), (await importSTEP(new Blob([req.step]))) as Shape3D)
         : req.type === 'dactyl-mesh' || req.type === 'dactyl-export'
           ? await dactylFor(req.input)
+        : req.type === 'keycap-mesh' || req.type === 'keycap-export'
+          ? await keycapFor(req.input)
           : await plateFor(req.input);
     if ('vertices' in shape) {
-      // skorupa „koc”: gotowa siatka
+      // skorupa „koc” / organiczna: gotowa siatka
       if (req.type === 'dactyl-export') {
-        if (req.format !== 'stl') throw new Error('Skorupa „koc” jest siatką: eksport tylko do STL.');
+        if (req.format !== 'stl') throw new Error('Ta skorupa jest siatką: eksport tylko do STL.');
         const data = stlBinary(shape);
         post({ id: req.id, type: 'file', data, ms: performance.now() - t0 }, [data]);
       } else {
@@ -179,7 +203,7 @@ self.onmessage = async (e: MessageEvent<Request>) => {
       }
       return;
     }
-    if (req.type === 'mesh' || req.type === 'switch' || req.type === 'step-mesh' || req.type === 'dactyl-mesh') {
+    if (req.type === 'mesh' || req.type === 'switch' || req.type === 'step-mesh' || req.type === 'dactyl-mesh' || req.type === 'keycap-mesh') {
       const m = shape.mesh({ tolerance: 0.05, angularTolerance: 0.3 });
       const vertices = new Float32Array(m.vertices);
       const normals = new Float32Array(m.normals);
@@ -189,7 +213,7 @@ self.onmessage = async (e: MessageEvent<Request>) => {
         { id: req.id, type: 'mesh', vertices, normals, triangles, bounds: bb, ms: performance.now() - t0 },
         [vertices.buffer, normals.buffer, triangles.buffer],
       );
-    } else if (req.type === 'export' || req.type === 'dactyl-export') {
+    } else if (req.type === 'export' || req.type === 'dactyl-export' || req.type === 'keycap-export') {
       const blob =
         req.format === 'stl'
           ? shape.blobSTL({ binary: true, tolerance: 0.02, angularTolerance: 0.2 })

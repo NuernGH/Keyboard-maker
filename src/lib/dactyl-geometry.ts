@@ -89,11 +89,13 @@ export interface DactylBuild {
   /** wysokość tulei pod śruby w skorupie (mm) */
   bossHeight: number;
   controller: DactylController | null;
-  /** fazka 45° ostrych krawędzi wierzchu skorupy (mm, 0 = bez); domyślnie 1 mm (wybór Marcina) */
+  /** fazka 45° ostrych krawędzi wierzchu skorupy (mm, 0 = bez); domyślnie bez, jak dotąd */
   chamfer?: number;
+  /** łączniki: zakryj boczne kanały gniazd hot-swap fartuchami; domyślnie nie, jak dotąd */
+  slotCover?: boolean;
 }
 
-export const DEFAULT_DACTYL_BUILD: DactylBuild = { floor: 4, bossHeight: 7, controller: null, chamfer: 1 };
+export const DEFAULT_DACTYL_BUILD: DactylBuild = { floor: 4, bossHeight: 7, controller: null, chamfer: 0, slotCover: false };
 
 /** Bryła skorupy bez komórek (otoczki + tuleje), przycięta do podłogi z = 0. */
 export function shellBody(model: DactylModel, b: DactylBuild, extra: Shape3D[] = []): Shape3D {
@@ -127,10 +129,11 @@ export function boxOf(b: BoxSpec): Shape3D {
 
 /**
  * Skorupa: otoczki, komórki wycięte w pozycjach klawiszy, otwory pilotowe śrub, otwór USB.
- * Boczne kanały komórek zakryte fartuchami, ostre krawędzie wierzchu sfazowane (b.chamfer).
+ * Opcje (domyślnie wyłączone, żeby projekty w druku się nie zmieniały): fartuchy na boczne kanały
+ * komórek (b.slotCover) i fazka ostrych krawędzi wierzchu (b.chamfer).
  */
 export function buildDactylShell(model: DactylModel, cell: Cell, b: DactylBuild = DEFAULT_DACTYL_BUILD): Shape3D {
-  const covers = slotCovers(model, cell);
+  const covers = b.slotCover ? slotCovers(model, cell) : [];
   const raw = shellBody(model, b, covers.map(hullSolid));
   const body = unifyFaces(raw);
   raw.delete();

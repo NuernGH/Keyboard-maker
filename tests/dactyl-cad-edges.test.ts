@@ -21,7 +21,7 @@ describe('Dactyl: dziura przy kciuku i fazka', () => {
     expect(open.length).toBe(2);
     const m = buildDactyl(DACTYL_DEFAULT, { cellHeight: cell.height });
     const controller = controllerHolder(m, DEFAULT_DACTYL_CONTROLLER);
-    const shell = buildDactylShell(m, cell, { floor: 4, bossHeight: 7, controller, chamfer: 1 });
+    const shell = buildDactylShell(m, cell, { floor: 4, bossHeight: 7, controller, chamfer: 1, slotCover: true });
     expect(isValidShape(shell)).toBe(true);
     const tr = m.keys.find((k) => k.thumb === 'tr')!;
     // górny klawisz kciuka stoi nad środkowym palcem: tuż za bokiem z kanałem jest teraz materiał

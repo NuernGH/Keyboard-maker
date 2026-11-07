@@ -6,6 +6,10 @@
   import { PITCH, switchOffsets, switchSpots, type Key } from '../lib/layout';
   import type { IslandGeom, GhostPart } from '../lib/island';
   import { loadControllerModel, placeOnBoard } from './controllerModel';
+  import { capType } from '../lib/keycap-spec';
+  import type { PreviewColors, KeyLook } from '../lib/colors';
+  import type { PlacedLegend } from '../lib/legend';
+  import { disposeGlow, glowGroup, legendPlane, loadLegendFace, meshTop } from './previewDecor';
 
   export interface PreviewMesh {
     vertices: Float32Array;
@@ -13,6 +17,8 @@
     triangles: Uint32Array;
   }
   export interface PreviewHalf {
+    /** strona (klucze kolorów i legend to `strona:id`); domyślnie lewa */
+    side?: 'left' | 'right';
     keys: Key[];
     offsetX: number;
     /** dokładna bryła z CAD; gdy brak lub nieaktualna, pokazujemy szybki podgląd komórek */
@@ -33,6 +39,12 @@
     holeSize = 14,
     stabs = 'cherry',
     switchMesh = null,
+    capMeshes = null,
+    colors = null,
+    looks = null,
+    labels = null,
+    pickKey = null,
+    selected = null,
   }: {
     halves: PreviewHalf[];
     cellHeight: number;
@@ -40,7 +52,20 @@
     stabs?: 'cherry' | 'mx' | 'none';
     /** przełącznik ustawiony jak komórka (wierzch płyty z = 0); null = bez przełączników */
     switchMesh?: PreviewMesh | null;
+    /** nakładki w spoczynku (układ klawisza) wg typu (capType().id); null = bez nakładek */
+    capMeshes?: Record<string, PreviewMesh> | null;
+    /** kolory podglądu; null albo `on: false` = jak dotąd (kolory z motywu strony) */
+    colors?: PreviewColors | null;
+    /** kolor nakładki i legendy każdego klawisza (`strona:id`) */
+    looks?: Record<string, KeyLook> | null;
+    /** legendy na wierzchu nakładek (`strona:id`), jak z legendLayout (mm od środka wierzchu) */
+    labels?: Record<string, PlacedLegend[]> | null;
+    /** kliknięcie nakładki w podglądzie (wybór klawisza); null = wyłączone */
+    pickKey?: ((ref: string) => void) | null;
+    /** wybrany klawisz (`strona:id`): podświetlony w podglądzie */
+    selected?: string | null;
   } = $props();
+  const colorsOn = $derived(!!colors?.on);
 
   let host: HTMLDivElement;
   let renderer: THREE.WebGLRenderer;
@@ -50,6 +75,7 @@
   let group = new THREE.Group();
   let framed = false;
   let grid: THREE.GridHelper | undefined;
+  let fromBelowView = false;
 
   // Kolory sceny pochodzą z tokenów CSS (app.css), więc nadążają za jasnym/ciemnym motywem.
   const wedgeMat = new THREE.MeshStandardMaterial({ color: 0x8fa9bf, metalness: 0.05, roughness: 0.6 });
@@ -66,6 +92,21 @@
   });
 
   const switchMat = new THREE.MeshStandardMaterial({ color: 0x3b4148, metalness: 0.05, roughness: 0.5 });
+  const capMat = new THREE.MeshStandardMaterial({ color: 0xe9e4d8, metalness: 0, roughness: 0.6 });
+  /** nakładki z kolorem na instancję (kolory podglądu) */
+  const capTintMat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0, roughness: 0.55 });
+  /** podświetlenie pod obudową (osobna grupa, przebudowywana razem z podglądem) */
+  let glow = new THREE.Group();
+  const legendTex = new Map<string, THREE.CanvasTexture>();
+  const selMat = new THREE.MeshBasicMaterial({ color: 0xffb020, transparent: true, opacity: 0.35, depthWrite: false });
+  const selEdgeMat = new THREE.LineBasicMaterial({ color: 0xff8a00 });
+  // po wczytaniu czcionki legend rysujemy je od nowa (wcześniej tekstury miały czcionkę zastępczą)
+  let faceReady = $state(false);
+  void loadLegendFace().then(() => {
+    legendTex.forEach((t) => t.dispose());
+    legendTex.clear();
+    faceReady = true;
+  });
 
   const ghostMats: Record<GhostPart['kind'], THREE.Material> = {
     nano: new THREE.MeshStandardMaterial({ color: 0x2a6f97, roughness: 0.6 }),
@@ -200,6 +241,65 @@
           hg.add(im);
         }
       }
+      if (capMeshes) {
+        // jedna siatka na typ nakładki, instancje w pozycjach klawiszy
+        const byType = new Map<string, Key[]>();
+        for (const k of half.keys) {
+          const id = capType(k, stabs).id;
+          if (!capMeshes[id]) continue;
+          byType.set(id, [...(byType.get(id) ?? []), k]);
+        }
+        for (const [id, ks] of byType) {
+          const cm = capMeshes[id];
+          let g = geoCache.get('cap:' + id);
+          if (!g) {
+            g = new THREE.BufferGeometry();
+            g.setAttribute('position', new THREE.BufferAttribute(cm.vertices, 3));
+            g.setAttribute('normal', new THREE.BufferAttribute(cm.normals, 3));
+            g.setIndex(new THREE.BufferAttribute(cm.triangles, 1));
+            geoCache.set('cap:' + id, g);
+          }
+          const tint = colorsOn && looks;
+          const im = new THREE.InstancedMesh(g, tint ? capTintMat : capMat, ks.length);
+          const m4 = new THREE.Matrix4();
+          const side = half.side ?? 'left';
+          const col = new THREE.Color();
+          ks.forEach((k, i) => {
+            im.setMatrixAt(i, m4.makeRotationZ((k.rot * Math.PI) / 180).setPosition(k.x, k.y, 0));
+            if (tint) im.setColorAt(i, col.set(looks[`${side}:${k.id}`]?.cap ?? '#e9e4d8'));
+          });
+          im.userData.refs = ks.map((k) => `${side}:${k.id}`);
+          hg.add(im);
+          const sk = selected ? ks.find((k) => `${side}:${k.id}` === selected) : undefined;
+          if (sk) {
+            // wybrany klawisz: półprzezroczysta poświata na nakładce i obrys
+            const hl = new THREE.Group();
+            hl.position.set(sk.x, sk.y, 0);
+            hl.rotation.z = (sk.rot * Math.PI) / 180;
+            const hm = new THREE.Mesh(g, selMat);
+            hm.scale.setScalar(1.03);
+            hl.add(hm);
+            hl.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 40), selEdgeMat));
+            hl.userData.highlight = true;
+            hg.add(hl);
+          }
+          if (labels) {
+            const top = meshTop(g);
+            for (const k of ks) {
+              const ref = `${side}:${k.id}`;
+              const items = labels[ref];
+              if (!items?.length) continue;
+              const lm = legendPlane(legendTex, items, (colorsOn && looks?.[ref]?.legend) || '#3a3f46', top.w, top.h);
+              lm.position.set(0, 0, top.z + 0.04);
+              const holder = new THREE.Group();
+              holder.position.set(k.x, k.y, 0);
+              holder.rotation.z = (k.rot * Math.PI) / 180;
+              holder.add(lm);
+              hg.add(holder);
+            }
+          }
+        }
+      }
       if (half.mesh) {
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.BufferAttribute(half.mesh.vertices, 3));
@@ -225,10 +325,21 @@
       group.add(hg);
     }
     scene.add(group);
+    buildGlow();
+    // poświata zastępuje siatkę pod klawiaturą (siatka prześwitywałaby przez nią)
+    if (grid) grid.visible = !(colorsOn && colors?.glow.on) && !fromBelowView;
     if (!framed && halves.some((h) => h.keys.length)) {
       frame();
       framed = true;
     }
+  }
+
+  /** podświetlenie RGB pod obudową (wspólne z Dactylem: previewDecor.ts) */
+  function buildGlow() {
+    disposeGlow(glow);
+    scene.remove(glow);
+    glow = colorsOn && colors?.glow.on ? glowGroup(group, colors.glow) : new THREE.Group();
+    scene.add(glow);
   }
 
   function frame(fromBelow = false) {
@@ -241,7 +352,8 @@
     const dist = fit * 1.25;
     controls.target.copy(c);
     // widok z góry, lekko z przodu
-    if (grid) grid.visible = !fromBelow;
+    fromBelowView = fromBelow;
+    if (grid) grid.visible = !fromBelow && !(colorsOn && colors?.glow.on);
     if (fromBelow) camera.position.set(c.x, c.y - dist * 0.45, c.z - dist * 0.9);
     else camera.position.set(c.x, c.y - dist * 0.45, c.z + dist * 0.9);
     camera.near = dist / 100;
@@ -268,6 +380,13 @@
     void cellHeight;
     void stabs;
     void switchMesh;
+    void capMeshes;
+    void colors;
+    void looks;
+    void labels;
+    void selected;
+    void faceReady;
+    applyColors();
     rebuild();
   });
 
@@ -291,6 +410,27 @@
     const mo = new MutationObserver(applyTheme);
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class', 'style'] });
 
+    // wybór klawisza kliknięciem (bez przeciągania widoku)
+    let down: { x: number; y: number } | null = null;
+    const onDown = (e: PointerEvent) => (down = { x: e.clientX, y: e.clientY });
+    const onUp = (e: PointerEvent) => {
+      const d = down;
+      down = null;
+      if (!pickKey || !d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) return;
+      const r = renderer.domElement.getBoundingClientRect();
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
+      const caps: THREE.Object3D[] = [];
+      group.traverse((o) => {
+        if (o instanceof THREE.InstancedMesh && o.userData.refs) caps.push(o);
+      });
+      const hit = ray.intersectObjects(caps, false)[0];
+      const ref = hit && hit.instanceId !== undefined ? (hit.object.userData.refs as string[])[hit.instanceId] : null;
+      if (ref) pickKey(ref);
+    };
+    renderer.domElement.addEventListener('pointerdown', onDown);
+    renderer.domElement.addEventListener('pointerup', onUp);
+
     const resize = () => {
       const { clientWidth: w, clientHeight: h } = host;
       renderer.setSize(w, h);
@@ -312,6 +452,9 @@
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      renderer.domElement.removeEventListener('pointerdown', onDown);
+      renderer.domElement.removeEventListener('pointerup', onUp);
+      for (const t of legendTex.values()) t.dispose();
       media.removeEventListener('change', applyTheme);
       mo.disconnect();
       renderer.dispose();
@@ -331,6 +474,8 @@
     plateEdgeMat.color.set(token(css, '--plate-edge', '#5b6875'));
     caseMat.color.set(token(css, '--case', '#3f4b58'));
     caseEdgeMat.color.set(token(css, '--case-edge', '#1b232b'));
+    wedgeMat.color.set(0x8fa9bf);
+    applyColors();
     const visible = grid ? grid.visible : true;
     if (grid) {
       scene.remove(grid);
@@ -343,6 +488,26 @@
     grid.visible = visible;
     scene.add(grid);
   }
+
+  /** kolory podglądu nałożone na materiały (gdy wyłączone, zostają kolory motywu) */
+  function applyColors() {
+    if (!scene || !colorsOn || !colors) return;
+    if (colors.background) (scene.background as THREE.Color).set(colors.background);
+    exactMat.color.set(colors.plate);
+    quickMat.color.set(colors.plate);
+    caseMat.color.set(colors.case);
+    wedgeMat.color.set(colors.wedge);
+  }
+  // wyłączenie kolorów: powrót do kolorów motywu
+  let wasOn = false;
+  $effect(() => {
+    if (wasOn && !colorsOn) applyTheme();
+    else if (colorsOn && colors && !colors.background && scene) {
+      const css = getComputedStyle(document.documentElement);
+      (scene.background as THREE.Color).set(token(css, '--scene', '#e9edf1'));
+    }
+    wasOn = colorsOn;
+  });
 
   export function resetView() {
     frame();

@@ -11,6 +11,20 @@
   import qh from 'quickhull3d/dist/quickhull3d.js';
   import { t, type Lang } from './i18n';
   import WiringPanel from './WiringPanel.svelte';
+  import KeycapPanel from './KeycapPanel.svelte';
+  import LegendPanel from './LegendPanel.svelte';
+  import { DEFAULT_LEGEND, legendLayout, legendRef, type LegendSet, type PlacedLegend } from '../lib/legend';
+  import { DEFAULT_KEYCAP, capTop, capType, type KeycapParams } from '../lib/keycap-spec';
+  import { legendFont } from './font';
+  import type { Font } from 'opentype.js';
+  import ColorPanel from './ColorPanel.svelte';
+  import { DEFAULT_COLORS, resolveKeys, type PreviewColors } from '../lib/colors';
+  import { dactylLegends } from '../lib/legend-defaults';
+  import { disposeGlow, glowGroup, legendPlane, loadLegendFace, meshTop } from './previewDecor';
+  import ProjectBar from './ProjectBar.svelte';
+  import Tabs from './Tabs.svelte';
+  import { PANEL_TABS, type PanelTab } from './tabs';
+  import { makeProject, mergeDefaults, type DactylProject, type ProjectFile } from '../lib/project';
   import { dactylWiringInput } from '../lib/wiring-doc';
   import Tooltip from './Tooltip.svelte';
   import { TEMPLATES } from '../lib/layout';
@@ -35,12 +49,23 @@
   import type { PreviewMesh } from './Preview.svelte';
   import type { DactylInput } from '../cad/protocol';
   import { zipStore } from '../lib/zip';
+  import { DEFAULT_PRINT } from '../lib/split';
 
   let {
     lang = $bindable(),
     onTemplate,
     switchMesh = null,
-  }: { lang: Lang; onTemplate: (id: string) => void; switchMesh?: PreviewMesh | null } = $props();
+    init = null,
+    onProject,
+  }: {
+    lang: Lang;
+    onTemplate: (id: string) => void;
+    switchMesh?: PreviewMesh | null;
+    /** ustawienia z wczytanego projektu (null = domyślne) */
+    init?: DactylProject | null;
+    /** wczytanie pliku projektu (płaskiego albo Dactyla) obsługuje App */
+    onProject: (p: ProjectFile) => void;
+  } = $props();
   // model przełącznika Cherry MX (ten sam co w podglądzie płaskiej klawiatury), środek wierzchu płyty = 0
   const switchGeo = $derived.by(() => {
     if (!switchMesh) return null;
@@ -89,6 +114,8 @@
       smoothFull: 'gładkie',
       wall: 'Ściana (mm)',
       chamfer: 'Fazka krawędzi (mm)',
+      slotCover: 'Zakryj boczne kanały gniazd',
+      tipSlotCover: 'Fartuch 2 mm na bokach klawiszy, gdzie kanał gniazda hot-swap wychodzi na zewnątrz (np. pod wysokim kciukiem). Domyślnie wyłączone, jak dotąd.',
       tipChamfer: 'Ostre krawędzie wierzchu (uskoki przy kciuku, grzbiety) ścięte pod 45°. 0 = bez fazki.',
       floor: 'Dno (mm)',
       controller: 'Kontroler przy tylnej ścianie',
@@ -101,8 +128,8 @@
       shell: 'Skorupa',
       bottom: 'Dno',
       size: 'Połówka: {x} × {y} mm, wysokość {z} mm',
-      bed: 'Mieści się na stole 250 × 250 mm.',
-      bedNo: 'Nie mieści się na stole 250 × 250 mm.',
+      bed: 'Mieści się na stole {bed} mm.',
+      bedNo: 'Nie mieści się na stole {bed} mm.',
       capHit: 'Nakładki zahaczają o siebie: {l}',
       cellHit: 'Komórki wchodzą w siebie: {l}',
       lift: 'Model podniesiony o {v} mm, żeby komórki nie schodziły pod dno.',
@@ -150,6 +177,8 @@
       smoothFull: 'smooth',
       wall: 'Wall (mm)',
       chamfer: 'Edge chamfer (mm)',
+      slotCover: 'Cover socket side channels',
+      tipSlotCover: 'A 2 mm apron on key sides where the hot-swap socket channel opens to the outside (e.g. under a high thumb key). Off by default, as before.',
       tipChamfer: 'Sharp top edges (steps at the thumb, ridges) cut at 45°. 0 = no chamfer.',
       floor: 'Bottom (mm)',
       controller: 'Controller at the back wall',
@@ -162,8 +191,8 @@
       shell: 'Shell',
       bottom: 'Bottom',
       size: 'Half: {x} × {y} mm, height {z} mm',
-      bed: 'Fits a 250 × 250 mm bed.',
-      bedNo: 'Does not fit a 250 × 250 mm bed.',
+      bed: 'Fits a {bed} mm bed.',
+      bedNo: 'Does not fit a {bed} mm bed.',
       capHit: 'Keycaps collide: {l}',
       cellHit: 'Cells cut into each other: {l}',
       lift: 'Model raised by {v} mm so the cells stay above the bottom.',
@@ -177,21 +206,63 @@
   } as const;
   const tx = (k: keyof (typeof L)['pl']) => L[lang][k];
 
-  let p = $state<DactylParams>(structuredClone(DACTYL_DEFAULT));
-  let variant = $state<'hotswap' | 'no-hotswap'>('hotswap');
-  let show = $state<'left' | 'right' | 'both'>('both');
-  let ctrlOn = $state(true);
-  let ctrl = $state<ControllerParams>({ ...DEFAULT_DACTYL_CONTROLLER });
-  let floor = $state(4);
-  let chamfer = $state(1);
+  // wartości startowe: z wczytanego projektu (brakujące pola = domyślne) albo domyślne
+  // svelte-ignore state_referenced_locally
+  const i0 = init;
+  const pick = <T,>(v: unknown, ok: (x: unknown) => boolean, def: T): T => (i0 && ok(v) ? (v as T) : def);
+  const isNum = (x: unknown) => typeof x === 'number' && Number.isFinite(x);
+  const isBool = (x: unknown) => typeof x === 'boolean';
+  let p = $state<DactylParams>(i0 ? mergeDefaults(DACTYL_DEFAULT, i0.params) : structuredClone(DACTYL_DEFAULT));
+  let variant = $state<'hotswap' | 'no-hotswap'>(pick(i0?.variant, (x) => x === 'hotswap' || x === 'no-hotswap', 'hotswap'));
+  let show = $state<'left' | 'right' | 'both'>(pick(i0?.show, (x) => x === 'left' || x === 'right' || x === 'both', 'both'));
+  let ctrlOn = $state(pick(i0?.ctrlOn, isBool, true));
+  let ctrl = $state<ControllerParams>(i0 ? mergeDefaults(DEFAULT_DACTYL_CONTROLLER, i0.ctrl) : { ...DEFAULT_DACTYL_CONTROLLER });
+  let floor = $state(pick(i0?.floor, isNum, 4));
+  let chamfer = $state(pick(i0?.chamfer, isNum, 0));
+  let slotCover = $state(pick(i0?.slotCover, isBool, false));
   // domyślnie łączniki jak na main (projekty Marcina w druku się nie zmieniają); organiczna i koc jako opcje
-  let shellKind = $state<'organic' | 'blanket' | 'hulls'>('hulls');
-  let organic = $state<OrganicParams>({ ...DEFAULT_ORGANIC });
+  let shellKind = $state<'organic' | 'blanket' | 'hulls'>(pick(i0?.shellKind, (x) => x === 'organic' || x === 'blanket' || x === 'hulls', 'hulls'));
+  let organic = $state<OrganicParams>(i0 ? mergeDefaults(DEFAULT_ORGANIC, i0.organic) : { ...DEFAULT_ORGANIC });
   /** skorupa z siatki (Manifold): eksport tylko STL */
   const meshShell = $derived(shellKind !== 'hulls');
-  let screwSize = $state<ScrewSize>('M3');
-  let explode = $state(20);
-  let showCaps = $state(true);
+  let screwSize = $state<ScrewSize>(pick(i0?.screwSize, (x) => x === 'M3' || x === 'M2.5', 'M3'));
+  let explode = $state(pick(i0?.explode, isNum, 20));
+  let tab = $state<PanelTab>('keyboard');
+  $effect(() => {
+    if (tab === 'keycaps') showCaps = true;
+  });
+  let showCaps = $state(pick(i0?.showCaps, isBool, true));
+  const dactylProject = (): ProjectFile =>
+    makeProject('dactyl', {
+      params: snap(),
+      variant,
+      show,
+      ctrlOn,
+      ctrl: $state.snapshot(ctrl),
+      floor,
+      screwSize,
+      chamfer,
+      slotCover,
+      shellKind,
+      organic: $state.snapshot(organic),
+      explode,
+      showCaps,
+      keycap: $state.snapshot(keycap),
+      colors: $state.snapshot(colors),
+    });
+  /** nakładki: profil i siatki typów (gdy są, podgląd pokazuje prawdziwe nakładki zamiast uproszczonych) */
+  let keycap = $state<KeycapParams>(i0 ? mergeDefaults(DEFAULT_KEYCAP, i0.keycap) : structuredClone(DEFAULT_KEYCAP));
+  let capLabels = $state<Record<string, PlacedLegend[]>>({});
+  /** kolory podglądu (domyślnie wyłączone = podgląd jak dotąd) */
+  let colors = $state<PreviewColors>(i0 ? mergeDefaults(DEFAULT_COLORS, i0.colors) : structuredClone(DEFAULT_COLORS));
+  /** wybrany klawisz (`strona:id`): wiersz w tabeli legend, kolory klawisza, podświetlenie w podglądzie */
+  let pickedKey = $state<string | null>(null);
+  let capMeshes = $state<Record<string, PreviewMesh>>({});
+  /** rozmiar nakładki klawisza Dactyla w U: szeroki mały palec 1,5U wzdłuż X, górne klawisze kciuka 1,5U wzdłuż Y */
+  const capSize = (m: DactylModel, k: DactylModel['keys'][number]) => ({
+    w: m.params.widePinky && k.col === m.params.cols - 1 && k.row !== m.params.rows - 1 ? 1.5 : 1,
+    h: k.thumb === 'tl' || k.thumb === 'tr' ? 1.5 : 1,
+  });
   let cellStep = $state<ArrayBuffer | null>(null);
   let status = $state('');
   let error = $state('');
@@ -243,6 +314,7 @@
       floor,
       screwSize,
       chamfer,
+      slotCover,
       shell: shellKind,
       ...(shellKind === 'organic' ? { organic: $state.snapshot(organic) as OrganicParams } : {}),
     };
@@ -316,7 +388,8 @@
     const claude = (window as any).claude;
     const downloads = claude?.use ? await claude.use('downloads') : null;
     if (downloads) {
-      const zip = zipStore([{ name, data: new Uint8Array(data) }]);
+      // ZIP (np. komplet nakładek) zapisujemy bez ponownego pakowania
+      const zip = name.endsWith('.zip') ? new Blob([data], { type: 'application/zip' }) : zipStore([{ name, data: new Uint8Array(data) }]);
       try {
         await downloads.save({ filename: name.replace(/\.[^.]+$/, '') + '.zip', data: zip });
       } catch (e) {
@@ -325,7 +398,7 @@
       }
       return;
     }
-    const blob = new Blob([data], { type: name.endsWith('.html') ? 'text/html' : name.endsWith('.stl') ? 'model/stl' : 'model/step' });
+    const blob = new Blob([data], { type: name.endsWith('.html') ? 'text/html' : name.endsWith('.zip') ? 'application/zip' : name.endsWith('.stl') ? 'model/stl' : 'model/step' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = name;
@@ -396,7 +469,69 @@
     return o;
   }
 
-  function halfGroup(m: DactylModel): THREE.Group {
+  // ---------- kolory podglądu ----------
+  const sidesShown = $derived(show === 'both' ? (['left', 'right'] as const) : [show]);
+  const legends = $derived(
+    model ? { left: dactylLegends(model.keys, model.params.rows, 'left'), right: dactylLegends(model.keys, model.params.rows, 'right') } : null,
+  );
+  const defaultSets = $derived(
+    legends ? (Object.fromEntries((['left', 'right'] as const).flatMap((sd) => Object.entries(legends[sd]).map(([id, l]) => [legendRef(sd, id), l]))) as Record<string, LegendSet>) : {},
+  );
+  const mainOf = (ref: string) => keycap.legends?.[ref]?.main ?? defaultSets[ref]?.main ?? '';
+  const looks = $derived.by(() => {
+    if (!colors.on || !model) return null;
+    const m = model;
+    // tęcza: x klawisza w widoku (lewa połówka to lustro przesunięte w lewo, jak w rebuild)
+    const minX = Math.min(...m.keys.map((k) => k.frame.t[0]));
+    const keys = sidesShown.flatMap((s) =>
+      m.keys.map((k) => {
+        const sz = capSize(m, k);
+        const x = k.frame.t[0];
+        const ref = `${s}:${k.id}`;
+        return { ref, main: mainOf(ref), w: sz.w, h: sz.h, x: s === 'left' ? 2 * minX - 30 - x : x, y: k.frame.t[1] };
+      }),
+    );
+    return resolveKeys(colors, keys, true);
+  });
+  let font = $state.raw<Font | null>(null);
+  void legendFont().then((f) => (font = f), () => {});
+  /** legendy w podglądzie: z tabeli, a bez własnych (przy kolorach z nazwami klawiszy) domyślne opisy */
+  const labels = $derived.by<Record<string, PlacedLegend[]> | null>(() => {
+    if (!font || !model) return null;
+    const m = model;
+    const own = keycap.legends ?? {};
+    const withDefaults = colors.on && colors.legends.show;
+    const lp = keycap.legend ?? DEFAULT_LEGEND;
+    const kp = $state.snapshot(keycap) as KeycapParams;
+    const out: Record<string, PlacedLegend[]> = {};
+    for (const s of ['left', 'right'] as const)
+      for (const k of m.keys) {
+        const ref = legendRef(s, k.id);
+        const set = own[ref] ?? (withDefaults ? defaultSets[ref] : undefined);
+        if (!set || !Object.keys(set).length) continue;
+        const sz = capSize(m, k);
+        const [tw, th] = capTop(kp, sz.w, sz.h);
+        out[ref] = legendLayout(font, $state.snapshot(set) as LegendSet, tw, th, lp);
+      }
+    return out;
+  });
+  function keyInfo(ref: string) {
+    const [, id] = ref.split(':') as ['left' | 'right', string];
+    const k = model?.keys.find((q) => q.id === id);
+    if (!k || !model) return null;
+    const sz = capSize(model, k);
+    return { main: mainOf(ref), w: sz.w, h: sz.h, named: true };
+  }
+  const capMatCache = new Map<string, THREE.MeshStandardMaterial>();
+  const tintMat = (c: string) => {
+    let mt = capMatCache.get(c);
+    if (!mt) capMatCache.set(c, (mt = new THREE.MeshStandardMaterial({ color: c, roughness: 0.55 })));
+    return mt;
+  };
+  const legendTex = new Map<string, THREE.CanvasTexture>();
+  let glow = new THREE.Group();
+
+  function halfGroup(m: DactylModel, side: 'left' | 'right' = 'right'): THREE.Group {
     const g = new THREE.Group();
     const k = keyOf(inputFor('shell', 'right') ?? ({} as DactylInput));
     const sh = exact.shell?.key === k ? exact.shell.mesh : null;
@@ -441,6 +576,22 @@
         sw.matrixAutoUpdate = false;
         sw.matrix.copy(mx);
         g.add(sw);
+        const real = capMeshes[capType(capSize(m, key), 'none').id];
+        if (real) {
+          const rg = new THREE.BufferGeometry();
+          rg.setAttribute('position', new THREE.BufferAttribute(real.vertices, 3));
+          rg.setAttribute('normal', new THREE.BufferAttribute(real.normals, 3));
+          rg.setIndex(new THREE.BufferAttribute(real.triangles, 1));
+          const look = looks?.[`${side}:${key.id}`];
+          const rm = new THREE.Mesh(rg, hit.has(key.id) ? mats.capHit : look ? tintMat(look.cap) : mats.cap);
+          rm.matrixAutoUpdate = false;
+          rm.matrix.copy(mx);
+          rm.userData.ref = `${side}:${key.id}`;
+          g.add(rm);
+          addLegend(g, side, key.id, mx, meshTop(rg));
+          if (pickedKey === `${side}:${key.id}` && (tab === 'keycaps' || tab === 'colors')) addHighlight(g, rg, mx);
+          continue;
+        }
         const wide = m.params.widePinky && key.col === m.params.cols - 1 && key.row !== m.params.rows - 1;
         const tall = key.thumb === 'tl' || key.thumb === 'tr';
         const w = CAP.size + (wide ? 9.525 : 0), h = CAP.size + (tall ? 9.525 : 0);
@@ -454,14 +605,53 @@
           }
         cg.translate(0, 0, (CAP.z0 + CAP.z1) / 2);
         cg.computeVertexNormals();
-        const cm = new THREE.Mesh(cg, hit.has(key.id) ? mats.capHit : mats.cap);
+        const look = looks?.[`${side}:${key.id}`];
+        const cm = new THREE.Mesh(cg, hit.has(key.id) ? mats.capHit : look ? tintMat(look.cap) : mats.cap);
         cm.matrixAutoUpdate = false;
         cm.matrix.copy(mx);
+        cm.userData.ref = `${side}:${key.id}`;
         g.add(cm);
+        addLegend(g, side, key.id, mx, { w: w - (CAP.size - CAP.top), h: h - (CAP.size - CAP.top), z: CAP.z1 });
+        if (pickedKey === `${side}:${key.id}` && (tab === 'keycaps' || tab === 'colors')) addHighlight(g, cg, mx);
       }
     }
     return g;
   }
+
+  /** legenda na wierzchu nakładki; w lewej (lustrzanej) połówce napis odbity z powrotem */
+  function addLegend(g: THREE.Group, side: 'left' | 'right', id: string, mx: THREE.Matrix4, top: { w: number; h: number; z: number }) {
+    const ref = `${side}:${id}`;
+    const items = labels?.[ref];
+    if (!items?.length) return;
+    const lm = legendPlane(legendTex, items, (colors.on && looks?.[ref]?.legend) || '#3a3f46', top.w, top.h);
+    lm.position.z = top.z + 0.04;
+    if (side === 'left') lm.scale.x = -1;
+    const holder = new THREE.Group();
+    holder.matrixAutoUpdate = false;
+    holder.matrix.copy(mx);
+    holder.add(lm);
+    g.add(holder);
+  }
+
+  const selMat = new THREE.MeshBasicMaterial({ color: 0xffb020, transparent: true, opacity: 0.35, depthWrite: false });
+  const selEdgeMat = new THREE.LineBasicMaterial({ color: 0xff8a00 });
+  /** wybrany klawisz: półprzezroczysta poświata na nakładce i obrys */
+  function addHighlight(g: THREE.Group, geo: THREE.BufferGeometry, mx: THREE.Matrix4) {
+    const hl = new THREE.Group();
+    hl.matrixAutoUpdate = false;
+    hl.matrix.copy(mx);
+    const hm = new THREE.Mesh(geo, selMat);
+    hm.scale.setScalar(1.03);
+    hl.add(hm);
+    hl.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 40), selEdgeMat));
+    g.add(hl);
+  }
+  let faceReady = $state(false);
+  void loadLegendFace().then(() => {
+    legendTex.forEach((t) => t.dispose());
+    legendTex.clear();
+    faceReady = true;
+  });
 
   function rebuild() {
     if (!scene) return;
@@ -476,7 +666,7 @@
       // model liczony jest dla prawej połówki; lewa to lustro w X
       const minX = Math.min(...m.hulls.flat().map((q) => q[0]));
       for (const s of sides) {
-        const hg = halfGroup(m);
+        const hg = halfGroup(m, s);
         if (s === 'left') {
           hg.scale.x = -1;
           if (sides.length === 2) hg.position.x = 2 * minX - 30;
@@ -485,6 +675,11 @@
       }
     }
     scene.add(group);
+    disposeGlow(glow);
+    scene.remove(glow);
+    glow = colors.on && colors.glow.on ? glowGroup(group, colors.glow) : new THREE.Group();
+    scene.add(glow);
+    applyColors();
     if (!framed && m) {
       frame();
       framed = true;
@@ -513,11 +708,22 @@
     void exact.bottom;
     void show;
     void showCaps;
+    void capMeshes;
     void switchGeo;
     void explode;
     void holder;
     void ctrlGeo;
     void caps;
+    void looks;
+    void labels;
+    void pickedKey;
+    void tab;
+    void faceReady;
+    void colors.on;
+    void colors.glow.on;
+    void colors.glow.mode;
+    void colors.glow.color;
+    void colors.glow.strength;
     rebuild();
   });
 
@@ -530,7 +736,32 @@
     mats.quick.color.set(tok('--plate', '#dfe3e8'));
     mats.bottom.color.set(tok('--case', '#3f4b58'));
     mats.edge.color.set(tok('--plate-edge', '#5b6875'));
+    applyColors();
   }
+
+  /** kolory podglądu: skorupa = „obudowa”, dno = „płyta”, tło */
+  function applyColors() {
+    if (!scene || !colors.on) return;
+    if (colors.background) (scene.background as THREE.Color).set(colors.background);
+    mats.shell.color.set(colors.case);
+    mats.quick.color.set(colors.case);
+    mats.bottom.color.set(colors.plate);
+  }
+  let wasOn = false;
+  $effect(() => {
+    void colors.background;
+    void colors.case;
+    void colors.plate;
+    if (wasOn && !colors.on) applyTheme();
+    else if (colors.on) {
+      if (!colors.background && scene) {
+        const css = getComputedStyle(document.documentElement);
+        (scene.background as THREE.Color).set(css.getPropertyValue('--scene').trim() || '#e9edf1');
+      }
+      applyColors();
+    }
+    wasOn = colors.on;
+  });
 
   onMount(() => {
     renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -551,6 +782,25 @@
     media.addEventListener('change', applyTheme);
     const mo = new MutationObserver(applyTheme);
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class', 'style'] });
+    // wybór klawisza kliknięciem (bez przeciągania widoku)
+    let down: { x: number; y: number } | null = null;
+    const onDown = (e: PointerEvent) => (down = { x: e.clientX, y: e.clientY });
+    const onUp = (e: PointerEvent) => {
+      const d = down;
+      down = null;
+      if (!(tab === 'keycaps' || tab === 'colors') || !d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) return;
+      const r = renderer.domElement.getBoundingClientRect();
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
+      const caps: THREE.Object3D[] = [];
+      group.traverse((o) => {
+        if (o.userData.ref) caps.push(o);
+      });
+      const hit = ray.intersectObjects(caps, false)[0];
+      if (hit) pickedKey = hit.object.userData.ref as string;
+    };
+    renderer.domElement.addEventListener('pointerdown', onDown);
+    renderer.domElement.addEventListener('pointerup', onUp);
     const resize = () => {
       const { clientWidth: w, clientHeight: h } = host;
       renderer.setSize(w, h);
@@ -580,6 +830,9 @@
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      renderer.domElement.removeEventListener('pointerdown', onDown);
+      renderer.domElement.removeEventListener('pointerup', onUp);
+      for (const tx of legendTex.values()) tx.dispose();
       media.removeEventListener('change', applyTheme);
       mo.disconnect();
       renderer.dispose();
@@ -588,7 +841,8 @@
 
   const ctrlIds = Object.keys(CONTROLLERS) as ControllerId[];
   const list = (pairs: [string, string][]) => pairs.map((q) => q.join('/')).join(', ');
-  const fits = $derived(size ? size.x <= 250 && size.y <= 250 : true);
+  const bed = DEFAULT_PRINT;
+  const fits = $derived(size ? size.x <= bed.bedX && size.y <= bed.bedY : true);
   void apply;
 </script>
 
@@ -603,6 +857,14 @@
       </select>
     </header>
 
+    <section>
+      <h2>{lang === 'pl' ? 'Projekt' : 'Project'}</h2>
+      <ProjectBar {lang} name={`dactyl-${p.rows}x${p.cols}`} get={dactylProject} onLoad={onProject} />
+    </section>
+
+    <Tabs tabs={PANEL_TABS.map((id) => ({ id, label: t(lang, `tab_${id}` as const) }))} bind:value={tab} />
+
+    {#if tab === 'keyboard'}
     <section>
       <h2>{t(lang, 'template')}</h2>
       <select value="dactyl" onchange={(e) => onTemplate(e.currentTarget.value)} aria-label={t(lang, 'template')}>
@@ -685,6 +947,7 @@
         {/if}
       {/if}
       {#if shellKind === 'hulls'}
+        <label class="check" data-tip={tx('tipSlotCover')}><input type="checkbox" bind:checked={slotCover} /> {tx('slotCover')}</label>
         <label>{tx('smooth')}
           <select bind:value={p.wallSmooth}>
             <option value="off">{tx('smoothOff')}</option>
@@ -748,7 +1011,7 @@
       {#if size}
         <p class={fits ? 'muted' : 'warn'}>
           {tx('size').replace('{x}', String(Math.round(size.x))).replace('{y}', String(Math.round(size.y))).replace('{z}', String(Math.round(size.z)))}
-          {fits ? tx('bed') : tx('bedNo')}
+          {(fits ? tx('bed') : tx('bedNo')).replace('{bed}', `${bed.bedX} × ${bed.bedY}`)}
         </p>
       {/if}
       {#if model && model.lift > 0.05}<p class="muted">{tx('lift').replace('{v}', model.lift.toFixed(1))}</p>{/if}
@@ -763,10 +1026,45 @@
       {/each}
       <p class="muted">{tx('slow')}</p>
     </section>
+    {/if}
 
     {#if model}
       {@const m = model}
+      {#if tab === 'keycaps'}
+      <KeycapPanel
+        {lang}
+        keys={[...m.keys, ...m.keys].map((k) => capSize(m, k))}
+        refs={[...m.keys.map((k) => legendRef('left', k.id)), ...m.keys.map((k) => legendRef('right', k.id))]}
+        stabs="none"
+        client={() => client}
+        fileBase={`dactyl-${p.rows}x${p.cols}`}
+        save={saveFile}
+        bind:params={keycap}
+        bind:show={showCaps}
+        bind:meshes={capMeshes}
+      />
+      <LegendPanel
+        {lang}
+        keys={[...m.keys, ...m.keys].map((k) => capSize(m, k))}
+        refs={[...m.keys.map((k) => legendRef('left', k.id)), ...m.keys.map((k) => legendRef('right', k.id))]}
+        bind:params={keycap}
+        bind:labels={capLabels}
+        bind:selected={pickedKey}
+        defaults={defaultSets}
+      />
+      {:else if tab === 'colors'}
+      <ColorPanel
+        {lang}
+        kind="dactyl"
+        bind:colors
+        bind:selected={pickedKey}
+        {keyInfo}
+        capsShown={showCaps}
+        showCaps={() => (showCaps = true)}
+      />
+      {:else if tab === 'wiring'}
       <WiringPanel {lang} input={() => dactylWiringInput({ model: m, controller: ctrlOn ? ctrl.controller : null, hotswap: variant === 'hotswap', lang })} fileBase={`dactyl-${p.rows}x${p.cols}`} save={saveFile} />
+      {/if}
     {/if}
 
     <footer class="muted">

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { BuildInput, DactylInput, Request, Response } from './protocol';
+import type { BuildInput, DactylInput, KeycapInput, Request, Response } from './protocol';
 import type { UpAxis } from '../lib/cell-spec';
 
 type MeshResponse = Extract<Response, { type: 'mesh' }>;
@@ -61,6 +61,16 @@ export class CadClient {
 
   async dactylExport(input: DactylInput, format: 'stl' | 'step'): Promise<ArrayBuffer> {
     const r = await this.call({ type: 'dactyl-export', format, input });
+    if (r.type !== 'file') throw new Error('Nieoczekiwana odpowiedź workera');
+    return r.data;
+  }
+
+  async keycapMesh(input: KeycapInput): Promise<MeshResponse> {
+    return (await this.call({ type: 'keycap-mesh', input })) as MeshResponse;
+  }
+
+  async keycapExport(input: KeycapInput, format: 'stl' | 'step'): Promise<ArrayBuffer> {
+    const r = await this.call({ type: 'keycap-export', format, input });
     if (r.type !== 'file') throw new Error('Nieoczekiwana odpowiedź workera');
     return r.data;
   }

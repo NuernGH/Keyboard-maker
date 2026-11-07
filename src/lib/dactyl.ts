@@ -16,6 +16,7 @@
 
 import { PITCH } from './layout';
 import { screwSpec, type ScrewSize, type ScrewSpec } from './case';
+import { capLevels, DEFAULT_KEYCAP } from './keycap-spec';
 
 export type V3 = [number, number, number];
 
@@ -766,8 +767,18 @@ export function cellCollisions(m: DactylModel, H = m.web, wall = (PITCH - 15.2) 
 /** Lustrzane odbicie punktu (lewa połówka = odbicie prawej względem płaszczyzny YZ). */
 export const mirrorX = (q: V3): V3 => [-q[0], q[1], q[2]];
 
-/** Nakładka (uproszczona, dwa prostopadłościany): podstawa 18,2 mm, wierzch 13 mm, od 6,6 do 14 mm nad płytą. */
-export const CAP = { size: 18.2, top: 13, z0: 6.6, zMid: 9.5, z1: 14 };
+/**
+ * Nakładka (uproszczona, dwa prostopadłościany) z domyślnego profilu generatora nakładek:
+ * podstawa 18,0 mm, wierzch 12,8 mm, od 5,7 do 13,1 mm nad płytą.
+ */
+const CAP_L = capLevels(DEFAULT_KEYCAP);
+export const CAP = {
+  size: PITCH - DEFAULT_KEYCAP.gap,
+  top: DEFAULT_KEYCAP.topSize,
+  z0: CAP_L.z0,
+  zMid: CAP_L.z0 + 0.4 * (CAP_L.topEdge - CAP_L.z0),
+  z1: CAP_L.topEdge,
+};
 
 /** Wymiary nakładki klawisza w jego układzie: 1,5U dla kciuka tl/tr (wzdłuż Y) i szerokiego małego palca (wzdłuż X). */
 export function capBox(m: DactylModel, k: DKey): { m: Mat; h: V3; c: V3 } {

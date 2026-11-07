@@ -7,6 +7,20 @@ import type { PrintSplit } from '../lib/split';
 import type { DactylParams } from '../lib/dactyl';
 import type { ControllerParams } from '../lib/dactyl-parts';
 import type { ScrewSize } from '../lib/case';
+import type { CapType, KeycapParams } from '../lib/keycap-spec';
+import type { KeycapLegend } from '../lib/keycap';
+
+/**
+ * Nakładka (albo plik kalibracji luzu, gdy `cap` = null): w spoczynku na przełączniku, ustawiona do druku
+ * albo wkładka z krzyżem do druku na boku (wariant B; `insert-turned` = krzyż obrócony o 90°).
+ */
+export interface KeycapInput {
+  params: KeycapParams;
+  cap: CapType | null;
+  pose: 'rest' | 'print' | 'insert' | 'insert-turned';
+  /** legenda tego klawisza (kontury już ułożone na górze); bez niej nakładka gładka */
+  legend?: KeycapLegend;
+}
 
 /** Dactyl: skorupa albo dno jednej połówki. Model liczymy dla prawej, lewa to lustro. */
 import type { OrganicParams } from '../lib/dactyl-blanket';
@@ -24,8 +38,10 @@ export interface DactylInput {
   floor: number;
   /** rozmiar śrub dna; brak = M3 */
   screwSize?: ScrewSize;
-  /** fazka ostrych krawędzi wierzchu skorupy (mm); brak = 1, 0 = bez */
+  /** fazka ostrych krawędzi wierzchu skorupy (mm); brak = 0 (bez) */
   chamfer?: number;
+  /** łączniki: fartuchy na boczne kanały gniazd hot-swap; brak = nie */
+  slotCover?: boolean;
   /** skorupa: otoczki jak w Dactylu (OpenCascade), gładki „koc” albo organiczna (siatki, tylko STL); brak = otoczki */
   shell?: 'hulls' | 'blanket' | 'organic';
   /** skorupa organiczna: wzór Woronoja na ściankach i jego wymiary */
@@ -59,7 +75,9 @@ export type Request =
   | { id: number; type: 'step-mesh'; step: ArrayBuffer }
   | { id: number; type: 'export'; format: 'stl' | 'step'; input: BuildInput }
   | { id: number; type: 'dactyl-mesh'; input: DactylInput }
-  | { id: number; type: 'dactyl-export'; format: 'stl' | 'step'; input: DactylInput };
+  | { id: number; type: 'dactyl-export'; format: 'stl' | 'step'; input: DactylInput }
+  | { id: number; type: 'keycap-mesh'; input: KeycapInput }
+  | { id: number; type: 'keycap-export'; format: 'stl' | 'step'; input: KeycapInput };
 
 export type Response =
   | { id: number; type: 'ready' }

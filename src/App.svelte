@@ -20,8 +20,30 @@
   import { CONTROLLERS, DEFAULT_ISLAND, islandFor, controllerOf, type IslandParams, type CtrlFit } from './lib/island';
   import CustomController from './ui/CustomController.svelte';
   import WiringPanel from './ui/WiringPanel.svelte';
+  import KeycapPanel from './ui/KeycapPanel.svelte';
+  import LegendPanel from './ui/LegendPanel.svelte';
+  import { DEFAULT_LEGEND, legendLayout, legendRef, type LegendSet, type PlacedLegend } from './lib/legend';
+  import { DEFAULT_KEYCAP, capTop, type KeycapParams } from './lib/keycap-spec';
+  import { legendFont } from './ui/font';
+  import type { Font } from 'opentype.js';
+  import ColorPanel from './ui/ColorPanel.svelte';
+  import { DEFAULT_COLORS, resolveKeys, type ColorKey, type PreviewColors } from './lib/colors';
+  import { defaultLegends, isAnsi60 } from './lib/legend-defaults';
+  import ProjectBar from './ui/ProjectBar.svelte';
+  import Tabs from './ui/Tabs.svelte';
+  import { PANEL_TABS, type PanelTab } from './ui/tabs';
+  import {
+    base64ToBytes,
+    bytesToBase64,
+    decodeLink,
+    linkFromHash,
+    makeProject,
+    mergeDefaults,
+    type DactylProject,
+    type ProjectFile,
+  } from './lib/project';
   import { splitWiringInput } from './lib/wiring-doc';
-  import { DEFAULT_CASE, SCREW_MARGIN, STANDARD_LENGTHS, caseLayout, type CaseParams } from './lib/case';
+  import { DEFAULT_CASE, FLOOR_MIN, SCREW_MARGIN, SLIM_CASE, STANDARD_LENGTHS, caseLayout, type CaseParams } from './lib/case';
   import { DEFAULT_PRINT, planSplit, pieceOf, type PrintParams, type PrintSplit } from './lib/split';
 
   type Side = 'left' | 'right';
@@ -34,13 +56,36 @@
   /** przełączniki Cherry MX w podglądzie (tylko widok, nie trafiają do eksportu) */
   let showSwitches = $state(true);
   let switchMesh = $state<PreviewMesh | null>(null);
+  /** nakładki: parametry profilu, widoczność w podglądzie i siatki typów */
+  let keycap = $state<KeycapParams>(structuredClone(DEFAULT_KEYCAP));
+  /** ułożone legendy klawiszy (do podglądu 3D), klucz `${strona}:${id}` */
+  let capLabels = $state<Record<string, PlacedLegend[]>>({});
+  let showCaps = $state(false);
+  let capMeshes = $state<Record<string, PreviewMesh>>({});
+  /** kolory podglądu (domyślnie wyłączone = podgląd jak dotąd) */
+  let colors = $state<PreviewColors>(structuredClone(DEFAULT_COLORS));
+  /** wybrany klawisz (`strona:id`): wiersz w tabeli legend, kolory klawisza, podświetlenie w podglądzie */
+  let pickedKey = $state<string | null>(null);
   let caseP = $state<CaseParams>({ ...DEFAULT_CASE });
   /** obudowa ma sens tylko dla pełnych komórek (cienka płyta nie utrzyma śrub) */
+  /** wartości sprzed włączenia cienkiej obudowy, przywracane po jej wyłączeniu */
+  let beforeSlim: Pick<CaseParams, 'space' | 'floor' | 'screwSize'> | null = null;
+  function toggleSlim(on: boolean) {
+    if (on) {
+      beforeSlim = { space: caseP.space, floor: caseP.floor, screwSize: caseP.screwSize };
+      Object.assign(caseP, SLIM_CASE, { slim: true });
+    } else {
+      const back = beforeSlim ?? { space: DEFAULT_CASE.space, floor: DEFAULT_CASE.floor, screwSize: DEFAULT_CASE.screwSize };
+      Object.assign(caseP, back, { slim: false, floor: Math.max(back.floor, FLOOR_MIN.normal) });
+      beforeSlim = null;
+    }
+  }
   const caseOn = $derived(caseP.enabled && variant !== 'thin-plate');
   let print = $state<PrintParams>({ ...DEFAULT_PRINT });
   /** układ rzędami jako tekst (60% itp.) */
   let rowText = $state('');
   function applyTemplate(id: string) {
+    dactylInit = null;
     templateId = id;
     const tpl = TEMPLATES.find((x) => x.id === id);
     if (!tpl) return;
@@ -190,6 +235,7 @@
           return inp && m && m.key === inputKey(inp) ? m.mesh : null;
         };
         return {
+          side: 'left' as const,
           keys: leftKeys.filter((k) => pieceOf(sp, k.x, k.y) === pc),
           offsetX: pc * splitGap,
           mesh: mesh('plate'),
@@ -210,9 +256,61 @@
       const cm = meshes[job(s, 'case')];
       const caseMesh = cin && cm && cm.key === inputKey(cin) ? cm.mesh : null;
       const offsetX = s === 'right' && sides.length === 2 ? reachL + reachR + gap + 2 * pad : 0;
-      return { keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), wedgeMesh: wedgeMeshFor(s), showElectronics, caseMesh, caseOn, explode: caseP.explode };
+      return { side: s, keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), wedgeMesh: wedgeMeshFor(s), showElectronics, caseMesh, caseOn, explode: caseP.explode };
     });
   });
+
+  // ---------- kolory podglądu ----------
+  const sideKeys = $derived(single ? (['left'] as const) : (['left', 'right'] as const));
+  const legendsBySide = $derived(
+    Object.fromEntries(sideKeys.map((s) => [s, defaultLegends(templateId, $state.snapshot(params) as SplitParams, keysFor(s), s)])) as Record<Side, ReturnType<typeof defaultLegends>>,
+  );
+  /** domyślne opisy klawiszy (`strona:id`), do przycisku w tabeli legend i podglądu */
+  const defaultSets = $derived(
+    Object.fromEntries(sideKeys.flatMap((s) => Object.entries(legendsBySide[s]).map(([id, l]) => [legendRef(s, id), l]))) as Record<string, LegendSet>,
+  );
+  // prawdziwe nazwy (60% ANSI, split); macropad i własne rzędy mają numery, więc grupy tylko wg rozmiaru
+  const namedLayout = $derived(!templateId.startsWith('macropad') && (!params.rowLayout?.length || isAnsi60(params.rowLayout)));
+  /** główna legenda klawisza: własna z tabeli, inaczej domyślna */
+  const mainOf = (ref: string) => keycap.legends?.[ref]?.main ?? defaultSets[ref]?.main ?? '';
+  const colorKeys = $derived.by<ColorKey[]>(() =>
+    halves.flatMap((h) =>
+      h.keys.map((k) => {
+        const ref = `${h.side ?? 'left'}:${k.id}`;
+        return { ref, main: mainOf(ref), w: k.w, h: k.h, x: h.offsetX + k.x, y: k.y };
+      }),
+    ),
+  );
+  const looks = $derived(colors.on ? resolveKeys(colors, colorKeys, namedLayout) : null);
+  let font = $state.raw<Font | null>(null);
+  void legendFont().then((f) => (font = f), () => {});
+  /**
+   * legendy w podglądzie 3D: wpisane w tabeli (to samo, co trafi do druku), a gdy klawisz nie ma własnych
+   * i włączone są kolory z nazwami klawiszy, domyślne opisy (tylko podgląd)
+   */
+  const labels = $derived.by<Record<string, PlacedLegend[]> | null>(() => {
+    if (!font) return null;
+    const own = keycap.legends ?? {};
+    const withDefaults = colors.on && colors.legends.show;
+    const lp = keycap.legend ?? DEFAULT_LEGEND;
+    const kp = $state.snapshot(keycap) as KeycapParams;
+    const out: Record<string, PlacedLegend[]> = {};
+    for (const s of sideKeys)
+      for (const k of keysFor(s)) {
+        const ref = legendRef(s, k.id);
+        const set = own[ref] ?? (withDefaults ? defaultSets[ref] : undefined);
+        if (!set || !Object.keys(set).length) continue;
+        const [tw, th] = capTop(kp, k.w, k.h);
+        out[ref] = legendLayout(font, $state.snapshot(set) as LegendSet, tw, th, lp);
+      }
+    return out;
+  });
+  function keyInfo(ref: string) {
+    const [s, id] = ref.split(':') as [Side, string];
+    const k = keysFor(s).find((q) => q.id === id);
+    if (!k) return null;
+    return { main: mainOf(ref), w: k.w, h: k.h, named: namedLayout };
+  }
 
   const clients: Partial<Record<Side, CadClient>> = {};
   const client = (s: Side) => (clients[s] ??= new CadClient());
@@ -289,7 +387,8 @@
     const claude = (window as any).claude;
     const downloads = claude?.use ? await claude.use('downloads') : null;
     if (downloads) {
-      const zip = zipStore([{ name, data: new Uint8Array(data) }]);
+      // ZIP (np. komplet nakładek) zapisujemy bez ponownego pakowania
+      const zip = name.endsWith('.zip') ? new Blob([data], { type: 'application/zip' }) : zipStore([{ name, data: new Uint8Array(data) }]);
       try {
         await downloads.save({ filename: name.replace(/\.[^.]+$/, '') + '.zip', data: zip });
       } catch (e) {
@@ -298,12 +397,86 @@
       }
       return;
     }
-    const blob = new Blob([data], { type: name.endsWith('.html') ? 'text/html' : name.endsWith('.stl') ? 'model/stl' : 'model/step' });
+    const blob = new Blob([data], { type: name.endsWith('.html') ? 'text/html' : name.endsWith('.zip') ? 'application/zip' : name.endsWith('.stl') ? 'model/stl' : 'model/step' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = name;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  }
+
+  // ---------- zapis i odczyt projektu ----------
+  /** ustawienia Dactyla z wczytanego projektu (Dactyl startuje od nich zamiast od domyślnych) */
+  let dactylInit = $state.raw<DactylProject | null>(null);
+  /** zmiana tej liczby tworzy panel Dactyla od nowa (żeby przejął wczytane ustawienia) */
+  let dactylSeq = $state(0);
+
+  function flatProject(): ProjectFile {
+    const isl = $state.snapshot(island) as IslandParams;
+    // model własnego kontrolera żyje tylko w tej sesji przeglądarki; w projekcie zostają liczby
+    if (isl.custom?.model?.startsWith('custom-model:')) {
+      const { model: _m, ...c } = isl.custom;
+      isl.custom = c;
+    }
+    return makeProject('flat', {
+      templateId,
+      params: $state.snapshot(params),
+      rowText,
+      island: isl,
+      caseP: $state.snapshot(caseP),
+      print: $state.snapshot(print),
+      variant,
+      plate: $state.snapshot(plate),
+      up,
+      show,
+      showElectronics,
+      showSwitches,
+      keycap: $state.snapshot(keycap),
+      showCaps,
+      colors: $state.snapshot(colors),
+      cell: cellId !== 'default' && cellStep ? { name: cellName, data: bytesToBase64(cellStep) } : undefined,
+    });
+  }
+
+  const oneOf = <T extends string>(v: unknown, list: readonly T[], def: T): T => (list.includes(v as T) ? (v as T) : def);
+
+  function applyProject(pf: ProjectFile) {
+    error = '';
+    if (pf.kind === 'dactyl' && pf.dactyl) {
+      dactylInit = pf.dactyl;
+      dactylSeq++;
+      templateId = 'dactyl';
+      return;
+    }
+    const f = pf.flat;
+    if (!f) return;
+    const tpl = TEMPLATES.find((x) => x.id === f.templateId) ?? TEMPLATES[0];
+    dactylInit = null;
+    templateId = tpl.id;
+    params = mergeDefaults(tpl.params, f.params);
+    rowText = typeof f.rowText === 'string' ? f.rowText : params.rowLayout ? rowLayoutToText(params.rowLayout) : '';
+    island = mergeDefaults(DEFAULT_ISLAND, f.island);
+    caseP = mergeDefaults(DEFAULT_CASE, f.caseP);
+    beforeSlim = null;
+    print = mergeDefaults(DEFAULT_PRINT, f.print);
+    variant = oneOf<CellVariant>(f.variant, ['hotswap', 'no-hotswap', 'thin-plate'], 'hotswap');
+    plate = mergeDefaults(DEFAULT_PLATE_OPTIONS, f.plate);
+    up = oneOf<UpAxis | 'auto'>(f.up, ['auto', '+X', '-X', '+Y', '-Y', '+Z', '-Z'] as (UpAxis | 'auto')[], 'auto');
+    show = oneOf(f.show, ['left', 'right', 'both'] as const, 'both');
+    showElectronics = typeof f.showElectronics === 'boolean' ? f.showElectronics : true;
+    showSwitches = typeof f.showSwitches === 'boolean' ? f.showSwitches : true;
+    keycap = mergeDefaults(DEFAULT_KEYCAP, f.keycap);
+    if (typeof f.showCaps === 'boolean') showCaps = f.showCaps;
+    colors = mergeDefaults(DEFAULT_COLORS, f.colors);
+    pickedKey = null;
+    if (f.cell?.data) {
+      const bytes = base64ToBytes(f.cell.data);
+      cellStep = bytes.buffer as ArrayBuffer;
+      cellName = f.cell.name || 'cell.step';
+      cellId = `project:${cellName}:${bytes.length}`;
+    } else if (cellId !== 'default') {
+      void loadDefaultCell();
+    }
   }
 
   async function loadDefaultCell() {
@@ -332,6 +505,12 @@
   }
 
   onMount(() => {
+    // link z projektem (…/#projekt=…)
+    const code = linkFromHash(location.hash);
+    if (code)
+      decodeLink(code)
+        .then(applyProject)
+        .catch(() => (error = lang === 'pl' ? 'link z projektem jest uszkodzony albo z nowszej wersji' : 'the project link is damaged or from a newer version'));
     status = t(lang, 'loadingCad');
     void loadDefaultCell();
     Promise.all((['left', 'right'] as Side[]).map((s) => client(s).init()))
@@ -354,11 +533,19 @@
       lang,
       layout: TEMPLATES.find((x) => x.id === templateId)?.name[lang] ?? templateId,
     });
+  let tab = $state<PanelTab>('keyboard');
+  const capRefs = $derived(leftKeys.map((k) => legendRef('left', k.id)).concat(single ? [] : rightKeys.map((k) => legendRef('right', k.id))));
+  // na zakładce Nakładki podgląd pokazuje nakładki
+  $effect(() => {
+    if (tab === 'keycaps') showCaps = true;
+  });
   const allExact = $derived(halves.every((h) => h.mesh && (!h.caseOn || h.caseMesh)));
 </script>
 
 {#if templateId === 'dactyl'}
-<DactylApp bind:lang onTemplate={applyTemplate} {switchMesh} />
+{#key dactylSeq}
+<DactylApp bind:lang onTemplate={applyTemplate} {switchMesh} init={dactylInit} onProject={applyProject} />
+{/key}
 {:else}
 <Tooltip />
 <div class="app">
@@ -371,6 +558,20 @@
       </select>
     </header>
 
+    <section>
+      <h2>{lang === 'pl' ? 'Projekt' : 'Project'}</h2>
+      <ProjectBar
+        {lang}
+        name={TEMPLATES.find((x) => x.id === templateId)?.name[lang] ?? templateId}
+        get={flatProject}
+        onLoad={applyProject}
+        hasCell={cellId !== 'default'}
+      />
+    </section>
+
+    <Tabs tabs={PANEL_TABS.map((id) => ({ id, label: t(lang, `tab_${id}` as const) }))} bind:value={tab} />
+
+    {#if tab === 'keyboard'}
     <section>
       <h2>{t(lang, 'template')}</h2>
       <select
@@ -623,9 +824,10 @@
       <label class="check" data-tip={t(lang, 'tipCase')}><input type="checkbox" bind:checked={caseP.enabled} /> {t(lang, 'caseBottomOn')}</label>
       {#if caseP.enabled && variant === 'thin-plate'}<p class="warn">{t(lang, 'caseThin')}</p>{/if}
       {#if caseOn}
+        <label class="check" data-tip={t(lang, 'tipSlimCase')}><input type="checkbox" checked={!!caseP.slim} onchange={(e) => toggleSlim(e.currentTarget.checked)} /> {t(lang, 'slimCase')}</label>
         <div class="grid2">
           <label data-tip={t(lang, 'tipCaseWall')}>{t(lang, 'caseWall')} <input type="number" min="1.2" step="0.2" bind:value={caseP.wall} /></label>
-          <label data-tip={t(lang, 'tipCaseFloor')}>{t(lang, 'caseFloor')} <input type="number" min="2.6" step="0.2" bind:value={caseP.floor} /></label>
+          <label data-tip={t(lang, 'tipCaseFloor')}>{t(lang, 'caseFloor')} <input type="number" min={caseP.slim ? FLOOR_MIN.slim : FLOOR_MIN.normal} step="0.2" bind:value={caseP.floor} /></label>
           <label data-tip={t(lang, 'tipCaseSpace')}>{t(lang, 'caseSpace')} <input type="number" min="0" step="0.5" bind:value={caseP.space} /></label>
           <label data-tip={t(lang, 'tipCaseScrews')}>{t(lang, 'caseScrews')} <input type="number" min="3" max="12" step="1" bind:value={caseP.screws} /></label>
           <label data-tip={t(lang, 'tipScrewSize')}>{t(lang, 'screwSize')}
@@ -725,7 +927,36 @@
       {/each}
     </section>
 
+    {/if}
+
+    {#if tab === 'keycaps'}
+    <KeycapPanel
+      {lang}
+      keys={leftKeys.concat(single ? [] : rightKeys)}
+      refs={capRefs}
+      stabs={plate.stabs ?? 'cherry'}
+      client={() => client('right')}
+      fileBase={templateId}
+      save={saveFile}
+      bind:params={keycap}
+      bind:show={showCaps}
+      bind:meshes={capMeshes}
+    />
+    <LegendPanel {lang} keys={leftKeys.concat(single ? [] : rightKeys)} refs={capRefs} bind:params={keycap} bind:labels={capLabels} bind:selected={pickedKey} defaults={defaultSets} />
+    {/if}
+    {#if tab === 'colors'}
+    <ColorPanel
+      {lang}
+      bind:colors
+      bind:selected={pickedKey}
+      {keyInfo}
+      capsShown={showCaps}
+      showCaps={() => (showCaps = true)}
+    />
+    {/if}
+    {#if tab === 'wiring'}
     <WiringPanel {lang} input={wiringInput} fileBase={templateId} save={saveFile} />
+    {/if}
 
     <footer class="muted">
       <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noreferrer">{t(lang, 'license')}</a>
@@ -734,7 +965,13 @@
   </aside>
 
   <main>
-    <Preview bind:this={preview} {halves} {cellHeight} stabs={plate.stabs ?? 'cherry'} switchMesh={showSwitches ? switchMesh : null} />
+    <Preview bind:this={preview} {halves} {cellHeight} stabs={plate.stabs ?? 'cherry'} switchMesh={showSwitches ? switchMesh : null} capMeshes={showCaps ? capMeshes : null}
+      {colors}
+      {looks}
+      {labels}
+      pickKey={tab === 'keycaps' || tab === 'colors' ? (ref) => (pickedKey = ref) : null}
+      selected={tab === 'keycaps' || tab === 'colors' ? pickedKey : null}
+    />
     <div class="hud">
       <span class="badge" class:exact={allExact} data-tip={t(lang, 'tipBadge')}>
         {#if anyBusy}{t(lang, 'computing')}{:else if allExact}{t(lang, 'exact')}{#if lastMs}&nbsp;· {lastMs} ms{/if}{:else}{t(lang, 'quick')}{/if}
