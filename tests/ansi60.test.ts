@@ -62,11 +62,11 @@ describe('dwa MX zamiast stabilizatora', () => {
 describe('podział do druku', () => {
   const keys = splitLeft(tpl);
   const island = islandFor(tpl, ip, 'left', 'hotswap', 8.58);
-  test('stół 250 × 250: dwie części, każda się mieści, szwy w różnych miejscach', () => {
+  test('stół 245 × 245: dwie części, każda się mieści, szwy w różnych miejscach', () => {
     const sp = planSplit(keys, island, SCREW_MARGIN, caseExtra, DEFAULT_PRINT)!;
     expect(sp).not.toBeNull();
     expect(sp.fits).toBe(true);
-    for (const [w, h] of [...sp.plateParts, ...sp.caseParts]) expect(Math.min(w, h)).toBeLessThanOrEqual(250);
+    for (const [w, h] of [...sp.plateParts, ...sp.caseParts]) expect(Math.min(w, h)).toBeLessThanOrEqual(245);
     const xs = sp.seam.map((p) => p[0]);
     expect(Math.min(Math.abs(sp.caseX - Math.min(...xs)), Math.abs(sp.caseX - Math.max(...xs)))).toBeGreaterThanOrEqual(PITCH - 1e-6);
     // szew nie przecina klawiszy: każdy klawisz w całości po jednej stronie
@@ -378,7 +378,7 @@ describe('bryły 60%', () => {
       expect(isValidShape(p)).toBe(true);
       expect(p.solids.length).toBe(1);
       const bb = p.boundingBox.bounds;
-      expect(bb[1][0] - bb[0][0]).toBeLessThanOrEqual(250);
+      expect(bb[1][0] - bb[0][0]).toBeLessThanOrEqual(245);
     }
     // luz w szwie zabiera bardzo mało materiału
     const lost = v - measureVolume(parts[0]) - measureVolume(parts[1]);
@@ -393,7 +393,7 @@ describe('bryły 60%', () => {
     for (const p of cparts) {
       expect(p.solids.length).toBe(1);
       const bb = p.boundingBox.bounds;
-      expect(bb[1][0] - bb[0][0]).toBeLessThanOrEqual(250);
+      expect(bb[1][0] - bb[0][0]).toBeLessThanOrEqual(245);
     }
     expect(measureVolume(cparts[0]) + measureVolume(cparts[1])).toBeCloseTo(measureVolume(shell), 0);
     expect(measureVolume(plate.clone().intersect(shell.clone()) as never)).toBeLessThan(0.01);

@@ -76,15 +76,15 @@ describe('Dactyl: rozmieszczenie', () => {
     }
   });
 
-  test('domyślny model: 34 klawisze, bez kolizji nakładek i komórek, mieści się na stole 250 × 250', () => {
+  test('domyślny model: 34 klawisze, bez kolizji nakładek i komórek, mieści się na stole 245 × 245', () => {
     for (const h of [8.58, 5.08]) {
       const m = buildDactyl(DACTYL_DEFAULT, { cellHeight: h });
       expect(m.keys.length).toBe(34);
       expect(capCollisions(m)).toEqual([]);
       expect(cellCollisions(m)).toEqual([]);
       const s = modelSize(m);
-      expect(s.x).toBeLessThan(250);
-      expect(s.y).toBeLessThan(250);
+      expect(s.x).toBeLessThan(245);
+      expect(s.y).toBeLessThan(245);
       // spód najniższej komórki co najmniej 2 mm nad podłogą
       const minZ = Math.min(...m.keys.flatMap((k) => [-1, 1].flatMap((sx) => [-1, 1].map((sy) => apply(k.frame, [sx * k.hw, sy * k.hh, -h])[2]))));
       expect(minZ).toBeGreaterThan(2 - 1e-6);

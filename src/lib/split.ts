@@ -18,7 +18,8 @@ export interface PrintParams {
   clearance: number;
 }
 
-export const DEFAULT_PRINT: PrintParams = { bedX: 250, bedY: 250, mode: 'auto', clearance: 0.15 };
+// QIDI Q1 Pro: pole druku 245 × 245 mm wg specyfikacji producenta
+export const DEFAULT_PRINT: PrintParams = { bedX: 245, bedY: 245, mode: 'auto', clearance: 0.15 };
 
 /** Zamek na jaskółczy ogon: wypust na lewej części, wchodzi w prawą (w stronę +X). */
 export const DOVETAIL = { depth: 3.5, neck: 2.4, head: 4.4 };

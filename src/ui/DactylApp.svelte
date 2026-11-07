@@ -34,6 +34,7 @@
   import type { PreviewMesh } from './Preview.svelte';
   import type { DactylInput } from '../cad/protocol';
   import { zipStore } from '../lib/zip';
+  import { DEFAULT_PRINT } from '../lib/split';
 
   let {
     lang = $bindable(),
@@ -83,8 +84,8 @@
       shell: 'Skorupa',
       bottom: 'Dno',
       size: 'Połówka: {x} × {y} mm, wysokość {z} mm',
-      bed: 'Mieści się na stole 250 × 250 mm.',
-      bedNo: 'Nie mieści się na stole 250 × 250 mm.',
+      bed: 'Mieści się na stole {bed} mm.',
+      bedNo: 'Nie mieści się na stole {bed} mm.',
       capHit: 'Nakładki zahaczają o siebie: {l}',
       cellHit: 'Komórki wchodzą w siebie: {l}',
       lift: 'Model podniesiony o {v} mm, żeby komórki nie schodziły pod dno.',
@@ -127,8 +128,8 @@
       shell: 'Shell',
       bottom: 'Bottom',
       size: 'Half: {x} × {y} mm, height {z} mm',
-      bed: 'Fits a 250 × 250 mm bed.',
-      bedNo: 'Does not fit a 250 × 250 mm bed.',
+      bed: 'Fits a {bed} mm bed.',
+      bedNo: 'Does not fit a {bed} mm bed.',
       capHit: 'Keycaps collide: {l}',
       cellHit: 'Cells cut into each other: {l}',
       lift: 'Model raised by {v} mm so the cells stay above the bottom.',
@@ -540,7 +541,8 @@
 
   const ctrlIds = Object.keys(CONTROLLERS) as ControllerId[];
   const list = (pairs: [string, string][]) => pairs.map((q) => q.join('/')).join(', ');
-  const fits = $derived(size ? size.x <= 250 && size.y <= 250 : true);
+  const bed = DEFAULT_PRINT;
+  const fits = $derived(size ? size.x <= bed.bedX && size.y <= bed.bedY : true);
   void apply;
 </script>
 
@@ -672,7 +674,7 @@
       {#if size}
         <p class={fits ? 'muted' : 'warn'}>
           {tx('size').replace('{x}', String(Math.round(size.x))).replace('{y}', String(Math.round(size.y))).replace('{z}', String(Math.round(size.z)))}
-          {fits ? tx('bed') : tx('bedNo')}
+          {(fits ? tx('bed') : tx('bedNo')).replace('{bed}', `${bed.bedX} × ${bed.bedY}`)}
         </p>
       {/if}
       {#if model && model.lift > 0.05}<p class="muted">{tx('lift').replace('{v}', model.lift.toFixed(1))}</p>{/if}
