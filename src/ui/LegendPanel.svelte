@@ -7,14 +7,14 @@
 <script lang="ts">
   import type { Font } from 'opentype.js';
   import type { Lang } from './i18n';
-  import { capLevels, capTop, legendMethod, DEFAULT_KEYCAP, type KeycapParams } from '../lib/keycap-spec';
+  import { capFrontFace, capLevels, capTop, layoutKeyLegends, legendMethod, DEFAULT_KEYCAP, type KeycapParams } from '../lib/keycap-spec';
   import {
     DEFAULT_LEGEND,
     LEGEND_LAYERS,
     LEGEND_MIN_STROKE,
-    legendLayout,
-    strokeWidth,
-    textContours,
+    placedContours,
+    thinCheck,
+    THIN_WARN,
     type LegendLayer,
     type LegendSet,
     type PlacedLegend,
@@ -53,10 +53,12 @@
       colorNote: 'Nakładka drukuje się górą do góry (gniazdo wymaga podpór w slicerze albo druku na boku). Dodaj w slicerze zmianę filamentu (M600) na wysokości {h} mm: od niej drukuje się legenda.',
       grooveNote: 'Po druku wetrzyj farbę (akryl, lakier do paznokci) w rowki i zetrzyj nadmiar z góry.',
       mainSize: 'Wysokość legendy głównej (mm)',
-      subSize: 'Wysokość legend Shift / AltGr / Fn (mm)',
+      subSize: 'Wysokość Shift / AltGr / Fn (mm)',
       depth: 'Głębokość rowka (mm)',
       raise: 'Wysokość legendy (mm)',
-      thin: 'Kreska legend {l} ma ok. {w} mm, a przy dyszy 0,4 potrzeba co najmniej {m} mm: zwiększ wysokość liter.',
+      topFace: 'góra',
+      frontFace: 'przednia ścianka (Fn)',
+      thinShare: 'za cienkie dla dyszy 0,4 (na czerwono):',
       key: 'Klawisz',
       main: 'Główna',
       shift: 'Shift',
@@ -66,10 +68,8 @@
       fill: 'Wstaw domyślne opisy',
       preview: 'Podgląd góry klawisza',
       pick: 'Kliknij wiersz albo nakładkę w podglądzie, żeby zobaczyć górę klawisza.',
-      fontNote: 'Czcionka: Noto Sans Bold (SIL OFL 1.1).',
+      fontNote: 'Czcionka: Noto Sans Black (SIL OFL 1.1).',
       loading: 'Wczytuję czcionkę…',
-      sub: 'pomocniczych',
-      mainL: 'głównej',
     },
     en: {
       title: 'Legends',
@@ -84,7 +84,9 @@
       subSize: 'Shift / AltGr / Fn legend height (mm)',
       depth: 'Groove depth (mm)',
       raise: 'Legend height (mm)',
-      thin: 'The {l} legend stroke is about {w} mm; a 0.4 nozzle needs at least {m} mm: make the letters taller.',
+      topFace: 'top',
+      frontFace: 'front wall (Fn)',
+      thinShare: 'too thin for a 0.4 nozzle (red):',
       key: 'Key',
       main: 'Main',
       shift: 'Shift',
@@ -94,10 +96,8 @@
       fill: 'Insert default names',
       preview: 'Key top preview',
       pick: 'Click a row or a keycap in the preview to see the key top.',
-      fontNote: 'Font: Noto Sans Bold (SIL OFL 1.1).',
+      fontNote: 'Font: Noto Sans Black (SIL OFL 1.1).',
       loading: 'Loading font…',
-      sub: 'secondary',
-      mainL: 'main',
     },
   } as const;
   type K = keyof (typeof L)['pl'];
@@ -177,42 +177,25 @@
     for (const r of rows) {
       const set = map[r.ref];
       if (!set) continue;
-      const [tw, th] = capTop(p, r.key.w, r.key.h);
-      out[r.ref] = legendLayout(font, $state.snapshot(set), tw, th, l);
+      out[r.ref] = layoutKeyLegends(font, $state.snapshot(set), { ...p, legend: { ...l, method: p.legend?.method ?? 'color' } }, r.key.w, r.key.h);
     }
     labels = out;
   });
 
-  const thin = $derived.by(() => {
-    if (!font) return [];
-    const m = LEGEND_MIN_STROKE[method];
-    const out: string[] = [];
-    for (const [size, name] of [
-      [lp.mainSize, tx('mainL')],
-      [lp.subSize, tx('sub')],
-    ] as const) {
-      const w = strokeWidth(font, size);
-      if (w < m - 1e-6) out.push(tx('thin').replace('{l}', name).replace('{w}', num(w)).replace('{m}', num(m)));
-    }
-    return out;
-  });
-
-  /** podgląd góry wybranego klawisza: obrys góry i kontury liter (SVG, mm) */
-  const topView = $derived.by(() => {
+  /** podgląd wybranego klawisza: góra i przednia ścianka z konturami liter (SVG, mm) i za cienkie fragmenty */
+  const view = $derived.by(() => {
     if (!font || !selected) return null;
     const r = rows.find((x) => x.ref === selected);
     if (!r) return null;
     const [tw, th] = capTop(params, r.key.w, r.key.h);
-    const placed = labels?.[r.ref] ?? [];
-    const d = placed
-      .flatMap((pl) =>
-        textContours(font!, pl.text, pl.size).contours.map(
-          (c) => 'M' + c.map(([x, y]) => `${(x + pl.x).toFixed(3)},${(-(y + pl.y)).toFixed(3)}`).join('L') + 'Z',
-        ),
-      )
-      .join('');
-    return { tw, th, d, name: r.name };
+    const f = capFrontFace(params, r.key.w, r.key.h);
+    const { top, front } = placedContours(font, labels?.[r.ref] ?? []);
+    const svgPath = (cs: typeof top) => cs.map((c) => 'M' + c.map(([x, y]) => `${x.toFixed(3)},${(-y).toFixed(3)}`).join('L') + 'Z').join('');
+    const tTop = thinCheck(top, LEGEND_MIN_STROKE[method]);
+    const tFront = thinCheck(front, LEGEND_MIN_STROKE.groove);
+    return { tw, th, fw: f.width, fh: f.slant, top: svgPath(top), front: svgPath(front), thinTop: tTop, thinFront: tFront, name: r.name };
   });
+  const pct = (v: number) => num(v * 100, 1) + ' %';
 </script>
 
 <section>
@@ -249,18 +232,31 @@
     </div>
   {/if}
   <p class="muted">{method === 'color' ? tx('colorNote').replace('{h}', num(lv.topEdge - lv.z0, 2)) : tx('grooveNote')}</p>
-  {#each thin as w (w)}<p class="warn">{w}</p>{/each}
   {#if !font && !fontError}<p class="muted">{tx('loading')}</p>{/if}
   {#if fontError}<p class="warn">{fontError}</p>{/if}
 
-  {#if topView}
-    <figure class="top">
-      <svg viewBox={`${-topView.tw / 2 - 1} ${-topView.th / 2 - 1} ${topView.tw + 2} ${topView.th + 2}`} aria-label={tx('preview')}>
-        <rect x={-topView.tw / 2} y={-topView.th / 2} width={topView.tw} height={topView.th} rx={params.radius} class="cap" />
-        <path d={topView.d} fill-rule="evenodd" class="glyphs" />
-      </svg>
-      <figcaption>{topView.name}</figcaption>
-    </figure>
+  {#if view}
+    <div class="faces">
+      <figure class="top">
+        <svg viewBox={`${-view.tw / 2 - 0.6} ${-view.th / 2 - 0.6} ${view.tw + 1.2} ${view.th + 1.2}`} aria-label={tx('preview')}>
+          <rect x={-view.tw / 2} y={-view.th / 2} width={view.tw} height={view.th} rx={params.radius} class="cap" />
+          <path d={view.top} fill-rule="evenodd" class="glyphs" />
+          <path d={view.thinTop.path} class="thin" />
+        </svg>
+        <figcaption>{tx('topFace')}</figcaption>
+      </figure>
+      <figure class="front">
+        <svg viewBox={`${-view.fw / 2 - 0.6} ${-view.fh / 2 - 0.6} ${view.fw + 1.2} ${view.fh + 1.2}`} aria-label={tx('frontFace')}>
+          <rect x={-view.fw / 2} y={-view.fh / 2} width={view.fw} height={view.fh} rx={params.radius} class="cap" />
+          <path d={view.front} fill-rule="evenodd" class="glyphs" />
+          <path d={view.thinFront.path} class="thin" />
+        </svg>
+        <figcaption>{tx('frontFace')}</figcaption>
+      </figure>
+    </div>
+    <p class="muted" class:warn={view.thinTop.fraction > THIN_WARN || view.thinFront.fraction > THIN_WARN}>
+      {view.name}: {tx('thinShare')} {pct(Math.max(view.thinTop.fraction, view.thinFront.fraction))}
+    </p>
   {:else}
     <p class="muted">{tx('pick')}</p>
   {/if}
@@ -374,13 +370,15 @@
   tr.sel td {
     background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
-  .top {
+  .top,
+  .front {
     margin: 0 0 8px;
     display: flex;
     flex-direction: column;
     align-items: center;
   }
-  .top svg {
+  .top svg,
+  .front svg {
     width: 100%;
     max-height: 150px;
   }
@@ -388,6 +386,15 @@
     fill: #d9a95b;
     stroke: #a37a3a;
     stroke-width: 0.15;
+  }
+  .faces {
+    display: grid;
+    grid-template-columns: 1fr 1.3fr;
+    gap: 8px;
+    align-items: end;
+  }
+  .thin {
+    fill: #e5322d;
   }
   .glyphs {
     fill: #2a2a2a;

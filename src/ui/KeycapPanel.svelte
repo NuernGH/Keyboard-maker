@@ -9,15 +9,15 @@
   import type { CadClient } from '../cad/client';
   import type { PreviewMesh } from './Preview.svelte';
   import { zipStore } from '../lib/zip';
-  import { hasLegend, keyLegendContours, DEFAULT_LEGEND } from '../lib/legend';
+  import { hasLegend, placedContours, thinCheck, DEFAULT_LEGEND, LEGEND_MIN_STROKE, THIN_WARN } from '../lib/legend';
   import type { KeycapLegend } from '../lib/keycap';
   import { legendFont } from './font';
   import {
     CALIBRATION_CLEARANCES,
     capLevels,
     capSet,
-    capTop,
     capType,
+    layoutKeyLegends,
     capWarnings,
     legendMethod,
     orientPreset,
@@ -89,6 +89,7 @@
       ribNote: 'Pod każdym gniazdem cienkie żebro (0,6 mm) do ścianki na stole. Po druku odłam je kombinerkami i wygładź walec: po wciśnięciu żebro uderzyłoby w przełącznik.',
       insertNote: 'Gniazda drukują się osobno jako wkładki (wejściem krzyża na stole). Wciśnij bolec z płaską ścianką w otwór w suficie nakładki i przyklej klejem CA; płaska ścianka ustawia krzyż.',
       inserts: 'wkładki',
+      thinExport: 'Za cienkie fragmenty legend dla dyszy 0,4 (pokazane na czerwono w podglądzie klawisza): {k}. Pliki zapisane; zwiększ litery albo zmień tekst.',
       capSideOverhang: 'Boki mają mniejszą zbieżność niż 22,5°: wnętrze będzie miało nawis większy niż 45°. Zmniejsz bok góry albo wysokość.',
       levels: 'Dolna krawędź {z0} mm nad płytą (po wciśnięciu {zp} mm), góra {top} mm.',
       computing: 'Liczę…',
@@ -134,6 +135,7 @@
       ribNote: 'A thin rib (0.6 mm) under every stem down to the wall on the bed. Break it off with pliers after printing and smooth the stem: it would hit the switch when pressed.',
       insertNote: 'Stems print separately as inserts (cross opening on the bed). Push the D-shaped pin into the hole in the cap ceiling and glue with CA; the flat orients the cross.',
       inserts: 'inserts',
+      thinExport: 'Legend parts too thin for a 0.4 nozzle (shown red in the key preview): {k}. Files saved; make the letters bigger or change the text.',
       capSideOverhang: 'Sides taper less than 22.5°: the cavity roof overhang will exceed 45°. Reduce the top size or height.',
       levels: 'Bottom edge {z0} mm above plate ({zp} mm when pressed), top {top} mm.',
       computing: 'Computing…',
@@ -213,9 +215,11 @@
   /** nazwa pliku z tekstu legendy (bez znaków niedozwolonych w nazwach plików) */
   const safe = (v: string) => v.replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 24) || 'x';
 
+  let thinWarn = $state('');
   async function exportAll(format: 'stl' | 'step') {
     busy = true;
     error = '';
+    thinWarn = '';
     try {
       const files: { name: string; data: Uint8Array<ArrayBuffer> }[] = [];
       const map = params.legends ?? {};
@@ -227,11 +231,14 @@
         const lp = params.legend ?? { ...DEFAULT_LEGEND, method: 'color' as const };
         const m = legendMethod(p);
         const rest = keys.filter((_, i) => !withText.includes(i));
+        const thinKeys: string[] = [];
         for (const i of withText) {
           const type = capType(keys[i], stabs);
           const set = $state.snapshot(map[refs[i]]);
-          const [tw, th] = capTop(p, type.w, type.h);
-          const legend: KeycapLegend = { contours: keyLegendContours(font, set, tw, th, lp), method: m, depth: lp.depth, raise: lp.raise };
+          const placed = placedContours(font, layoutKeyLegends(font, set, { ...p, legend: lp }, type.w, type.h));
+          const legend: KeycapLegend = { contours: placed.top, front: placed.front, method: m, depth: lp.depth, raise: lp.raise };
+          const thinShare = Math.max(thinCheck(placed.top, LEGEND_MIN_STROKE[m]).fraction, thinCheck(placed.front, LEGEND_MIN_STROKE.groove).fraction);
+          if (thinShare > THIN_WARN) thinKeys.push(`${set.main ?? refs[i]} ${Math.round(thinShare * 100)} %`);
           const data = await client().keycapExport({ ...input(type, 'print'), legend }, format);
           const label = set.main ?? set.shift ?? set.fn ?? set.altgr ?? refs[i];
           files.push({ name: `${fileBase}-keycap-${String(i + 1).padStart(2, '0')}-${safe(label)}-${type.id}.${format}`, data: new Uint8Array(data) });
@@ -240,6 +247,7 @@
           const data = await client().keycapExport(input(type, 'print'), format);
           files.push({ name: `${fileBase}-keycap-${type.id}-x${count}.${format}`, data: new Uint8Array(data) });
         }
+        if (thinKeys.length) thinWarn = tx('thinExport').replace('{k}', thinKeys.join(', '));
         if (m === 'color') {
           const h = capLevels(p).topEdge - capLevels(p).z0;
           const note = (lang === 'pl' ? `Zmiana filamentu (M600) na wysokości ${h.toFixed(2)} mm: od niej drukuje się legenda.\n` : `Filament change (M600) at ${h.toFixed(2)} mm: the legend prints from there.\n`);
@@ -359,6 +367,7 @@
   <p class="muted">{tx('calibrationNote')}</p>
   {#if busy}<p class="muted">{tx('computing')}</p>{/if}
   {#if error}<p class="warn">{error}</p>{/if}
+  {#if thinWarn}<p class="warn">{thinWarn}</p>{/if}
 </section>
 
 <style>

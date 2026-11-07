@@ -35,7 +35,7 @@ let facePending: Promise<boolean> | null = null;
 export function loadLegendFace(): Promise<boolean> {
   facePending ??= (async () => {
     try {
-      const f = new FontFace(FACE, `url(${import.meta.env.BASE_URL}fonts/NotoSans-Bold.ttf)`, { weight: '700' });
+      const f = new FontFace(FACE, `url(${import.meta.env.BASE_URL}fonts/NotoSans-Black.ttf)`, { weight: '900' });
       await f.load();
       document.fonts.add(f);
       return true;
@@ -55,6 +55,8 @@ const CAP_EM = 0.714;
  */
 export function legendPlane(cache: Map<string, THREE.CanvasTexture>, items: PlacedLegend[], color: string, w: number, h: number): THREE.Mesh {
   const PX = 24; // pikseli na mm
+  // legendy przedniej ścianki (Fn) widać w podglądzie klawisza w zakładce Nakładki, nie na wierzchu
+  items = items.filter((it) => it.face !== 'front');
   const key = JSON.stringify([items, color, w.toFixed(2), h.toFixed(2)]);
   let tex = cache.get(key);
   if (!tex) {
@@ -66,7 +68,7 @@ export function legendPlane(cache: Map<string, THREE.CanvasTexture>, items: Plac
     c2.textAlign = 'center';
     c2.textBaseline = 'alphabetic';
     for (const it of items) {
-      c2.font = `700 ${(it.size / CAP_EM) * PX}px ${FACE}, system-ui, Arial, sans-serif`;
+      c2.font = `900 ${(it.size / CAP_EM) * PX}px ${FACE}, system-ui, Arial, sans-serif`;
       // linia bazowa pół wysokości wielkiej litery pod środkiem napisu
       c2.fillText(it.text, (it.x + w / 2) * PX, (h / 2 - it.y + it.size / 2) * PX);
     }

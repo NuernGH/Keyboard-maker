@@ -11,7 +11,9 @@ import {
   CAP_LIMITS,
   SIDE,
   capBottom,
+  capFrontFace,
   capLevels,
+  frontGrooveDepth,
   socketCross,
   stemOd,
   topInset,
@@ -100,6 +102,8 @@ export interface KeycapLegend {
   depth: number;
   /** wysokość wypukłej legendy (mm) */
   raise: number;
+  /** kontury na przedniej ściance (mm od środka ścianki, +y w górę wzdłuż ścianki): zawsze rowek */
+  front?: Contour[];
 }
 
 /** Graniastosłup z konturów liter (otwory i wyspy wg zagnieżdżenia, operacje 2D), od z0 do z1. */
@@ -126,24 +130,33 @@ export function legendPart(p: KeycapParams, lg: KeycapLegend): Shape3D | null {
 
 /** Nakładka z legendą: rowek wycięty w górze (wzdłuż misy) albo wypukła legenda dołączona na płaskiej górze. */
 export function applyLegend(p: KeycapParams, type: CapType, cap: Shape3D, lg: KeycapLegend): Shape3D {
-  if (!lg.contours.length) return cap;
+  let out = cap;
+  if (lg.front?.length) {
+    // rowek w przedniej ściance (także przy legendzie w kolorze: ścianka jest prawie pionowa, więc kolor
+    // zmieniałby się w połowie liter); głębokość tak, by została ścianka ≥ 0,45 mm
+    const f = capFrontFace(p, type.w, type.h);
+    const prism = contourPrism(lg.front, -frontGrooveDepth(p), 1);
+    if (prism) out = cutMany(out, [prism.rotate(90 - f.tilt, [0, 0, 0], [1, 0, 0]).translate(0, f.y, f.z) as Shape3D]);
+  }
+  if (!lg.contours.length) return out;
   const L = capLevels(p);
   if (lg.method === 'color' && p.top === 'flat') {
     // zachodzi 0,05 mm w górę nakładki: bez wspólnych płaszczyzn przy łączeniu
     const part = contourPrism(lg.contours, L.topEdge - 0.05, L.topEdge + lg.raise);
-    return part ? fuseMany([cap, part]) : cap;
+    return part ? fuseMany([out, part]) : out;
   }
   const prism = contourPrism(lg.contours, L.topLow - lg.depth - 0.5, L.topEdge + 1);
-  if (!prism) return cap;
-  let tool: Shape3D = prism;
+  if (!prism) return out;
+  // warstwa pod płaską górą (przy misie: rogi poza czaszą kuli, gdzie góra zostaje płaska)
+  const tools: Shape3D[] = [prism.clone().intersect(makeBox([-99, -99, L.topEdge - lg.depth], [99, 99, L.topEdge + 1])) as Shape3D];
   if (p.top === 'dish') {
     const [bw, bh] = capBottom(p, type.w, type.h);
     const ins = topInset(p);
     const dish = dishTool(p, bw - 2 * ins, bh - 2 * ins, L.topLow);
     // obszar nad powierzchnią misy przesuniętą w dół o głębokość rowka
-    if (dish) tool = prism.intersect(dish.translate(0, 0, -lg.depth) as Shape3D) as Shape3D;
-  } else tool = prism.intersect(makeBox([-99, -99, L.topEdge - lg.depth], [99, 99, L.topEdge + 1])) as Shape3D;
-  return cutMany(cap, [tool]);
+    if (dish) tools.push(prism.intersect(dish.translate(0, 0, -lg.depth) as Shape3D) as Shape3D);
+  }
+  return cutMany(out, tools);
 }
 
 export interface KeycapOptions {

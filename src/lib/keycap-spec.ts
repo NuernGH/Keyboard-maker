@@ -5,7 +5,8 @@
 
 import { PITCH, switchOffsets, type Key } from './layout';
 import { stabOffset } from './cell-spec';
-import { DEFAULT_LEGEND, type LegendMap, type LegendMethod, type LegendParams } from './legend';
+import { DEFAULT_LEGEND, legendLayout, type LegendMap, type LegendMethod, type LegendParams, type LegendSet, type PlacedLegend } from './legend';
+import type { Font } from 'opentype.js';
 
 /** Przełącznik Cherry MX (z modelu): wysokości nad wierzchem płyty, mm. */
 export const MX = {
@@ -136,6 +137,38 @@ export function capTop(p: KeycapParams, w: number, h: number): [number, number] 
   const [bw, bh] = capBottom(p, w, h);
   const ins = topInset(p);
   return [bw - 2 * ins, bh - 2 * ins];
+}
+
+/**
+ * Przednia ścianka nakładki (strona −y) w układzie klawisza: środek (y, z), nachylenie od pionu (stopnie,
+ * górna krawędź cofnięta do środka), długość wzdłuż spadku i szerokość w połowie wysokości (mm).
+ */
+export function capFrontFace(p: KeycapParams, w: number, h: number): { y: number; z: number; tilt: number; slant: number; width: number } {
+  const L = capLevels(p);
+  const [bw, bh] = capBottom(p, w, h);
+  const [tw, th] = capTop(p, w, h);
+  const H = L.topEdge - L.z0;
+  const dy = (bh - th) / 2;
+  return { y: -(bh + th) / 4, z: L.z0 + H / 2, tilt: (Math.atan2(dy, H) * 180) / Math.PI, slant: Math.hypot(dy, H), width: (bw + tw) / 2 };
+}
+
+/** Pole na legendy przedniej ścianki (szerokość × wysokość wzdłuż ścianki, mm): bez zaokrągleń naroży i z marginesem. */
+export function capFront(p: KeycapParams, w: number, h: number): [number, number] {
+  const f = capFrontFace(p, w, h);
+  const m = p.legend?.margin ?? DEFAULT_LEGEND.margin;
+  return [Math.max(1, f.width - 2 * p.radius - 2 * m), Math.max(1, f.slant - 2 * m)];
+}
+
+/** Głębokość rowka legendy na przedniej ściance: zostawia co najmniej 0,45 mm ścianki (cieńsza przy suficie wnętrza). */
+export function frontGrooveDepth(p: KeycapParams): number {
+  const wall = p.orient === 'side' ? SIDE.wall : wallAtCeiling(p);
+  return Math.max(0.2, Math.min(p.legend?.depth ?? DEFAULT_LEGEND.depth, wall - 0.45));
+}
+
+/** Legendy klawisza w × h (U) ułożone na górze i przedniej ściance nakładki. */
+export function layoutKeyLegends(font: Font, set: LegendSet, p: KeycapParams, w: number, h: number): PlacedLegend[] {
+  const [tw, th] = capTop(p, w, h);
+  return legendLayout(font, set, tw, th, p.legend ?? DEFAULT_LEGEND, capFront(p, w, h));
 }
 
 /** Parametry nakładki bez tekstów legend (kształt nie zależy od nich: klucz pamięci podręcznej siatek typów). */
