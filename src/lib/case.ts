@@ -259,7 +259,10 @@ export function screwPositions(
   // ścianki: przy cienkiej ściance śruba dosuwa się do klawiszy, ale nie bliżej niż `clear`
   const room = reach - sp.boss / 2 - BOSS_SKIN;
   const s = Math.min(SCREW_INSET, room);
-  const d = Math.min(SCREW_INSET * Math.SQRT2, room) / Math.SQRT2; // narożnik: po skosie od rogu klawisza
+  // narożnik: odsunięty o s w obie strony (dobry przy rogu, gdzie obok jest inny klawisz) albo po skosie
+  // o s od rogu (przy zewnętrznym, zaokrąglonym narożniku płyty); który zostaje, rozstrzyga filtr niżej
+  const d = s;
+  const dd = s / Math.SQRT2;
   const cand: [number, number][] = [];
   for (const k of keys) {
     const hw = (k.w * PITCH) / 2;
@@ -268,7 +271,7 @@ export function screwPositions(
     const local: [number, number][] = [];
     for (const sx of [-1, 0, 1])
       for (const sy of [-1, 0, 1])
-        if (sx && sy) local.push([sx * (hw + d), sy * (hh + d)]);
+        if (sx && sy) local.push([sx * (hw + d), sy * (hh + d)], [sx * (hw + dd), sy * (hh + dd)]);
         else if (sx || sy) local.push([sx * (hw + s), sy * (hh + s)]);
     // wzdłuż długich klawiszy (spacja, Shift) co pół U, żeby śruby mogły stać blisko szwów
     for (let lx = -hw + PITCH / 2; lx < hw - 1e-6; lx += PITCH / 2)
@@ -280,6 +283,9 @@ export function screwPositions(
   const ok = cand.filter(
     ([x, y]) =>
       keys.every((k) => distToKey(k, x, y) >= clear - 1e-6) &&
+      // do krawędzi płyty (obrys = klawisze i wyspa + margines, zaokrąglony w narożnikach) zostaje
+      // co najmniej tyle co przy krawędziach: punkt najwyżej s od najbliższego klawisza albo wyspy
+      Math.min(...keys.map((k) => distToKey(k, x, y)), island ? distToRect(island.rect, x, y) : Infinity) <= s + 1e-6 &&
       // słupek pod płytą nie może dotykać ścianek wyspy (schodzą niżej niż płyta)
       (!island || distToRect(island.rect, x, y) >= Math.max(clear + 1, sp.boss / 2 + 0.5)) &&
       // przy podziale: z dala od szwu płyty i zamków (otwór pilotowy) i od szwu spodu (słupek)
