@@ -59,6 +59,8 @@ export interface DactylProject {
   shellKind?: string;
   /** skorupa organiczna: wzór Woronoja (OrganicParams) */
   organic?: unknown;
+  /** dodatki: włącznik, gniazdo między połówkami, bateria (CaseExtras) */
+  extras?: unknown;
 }
 
 export interface ProjectFile {

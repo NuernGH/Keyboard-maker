@@ -46,8 +46,11 @@ export function fromShape(M: ManifoldToplevel, s: Shape3D, tolerance = 0.01): Ma
 const negCache = new WeakMap<Cell, Manifold>();
 
 /** Prostopadłościan (opcjonalnie w układzie klawisza) jako Manifold. */
-export function box(M: ManifoldToplevel, b: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; m?: Mat }): Manifold {
-  const c = M.Manifold.cube([b.x1 - b.x0, b.y1 - b.y0, b.z1 - b.z0]).translate([b.x0, b.y0, b.z0]);
+export function box(M: ManifoldToplevel, b: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; m?: Mat; round?: boolean }): Manifold {
+  // walec wzdłuż Y wpisany w pudełko (otwór na gniazdo jack): oś Z obrócona na Y
+  const c = b.round
+    ? M.Manifold.cylinder(b.y1 - b.y0, (b.x1 - b.x0) / 2, (b.x1 - b.x0) / 2, 48).rotate([-90, 0, 0]).translate([(b.x0 + b.x1) / 2, b.y0, (b.z0 + b.z1) / 2])
+    : M.Manifold.cube([b.x1 - b.x0, b.y1 - b.y0, b.z1 - b.z0]).translate([b.x0, b.y0, b.z0]);
   return b.m ? c.transform(mat4(b.m)) : c;
 }
 

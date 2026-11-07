@@ -9,6 +9,7 @@ import { applyLegend, buildKeycap, buildCalibration, buildInsert, insertPrintPos
 import { buildDactyl } from '../lib/dactyl';
 import { buildDactylShell, buildDactylBottom } from '../lib/dactyl-geometry';
 import { controllerHolder } from '../lib/dactyl-parts';
+import { dactylExtras, mergeParts } from '../lib/dactyl-extras';
 import { loadSwitch } from '../lib/switch-model';
 import { withBlanket } from '../lib/dactyl-blanket';
 import { DEFAULT_ORGANIC, ORGANIC_OUTLINE, organicShellMesh } from '../lib/dactyl-organic';
@@ -96,7 +97,9 @@ async function dactylFor(input: DactylInput): Promise<Shape3D | TriMesh> {
   const blanket = input.shell === 'blanket', organic = input.shell === 'organic';
   // obrys organicznej: domknięty szerzej i bliżej klawiszy (dno ma ten sam obrys)
   const model = organic ? withBlanket(base, ORGANIC_OUTLINE) : blanket ? withBlanket(base) : base;
-  const controller = input.controller ? controllerHolder(model, input.controller) : null;
+  const holder = input.controller ? controllerHolder(model, input.controller) : null;
+  // dodatki (włącznik, gniazdo, bateria) dokładane do uchwytu kontrolera: te same wycięcia i kołyski
+  const controller = mergeParts(holder, dactylExtras(model, input.extras, holder));
   const b = { floor: input.floor, bossHeight: 7, controller, chamfer: input.chamfer ?? 0, slotCover: input.slotCover ?? false };
   if ((blanket || organic) && input.part === 'shell') {
     const M = await manifoldLib(manifoldWasm);
