@@ -22,8 +22,13 @@
   import WiringPanel from './ui/WiringPanel.svelte';
   import KeycapPanel from './ui/KeycapPanel.svelte';
   import LegendPanel from './ui/LegendPanel.svelte';
-  import { legendRef, type PlacedLegend } from './lib/legend';
-  import { DEFAULT_KEYCAP, type KeycapParams } from './lib/keycap-spec';
+  import { DEFAULT_LEGEND, legendLayout, legendRef, type LegendSet, type PlacedLegend } from './lib/legend';
+  import { DEFAULT_KEYCAP, capTop, type KeycapParams } from './lib/keycap-spec';
+  import { legendFont } from './ui/font';
+  import type { Font } from 'opentype.js';
+  import ColorPanel from './ui/ColorPanel.svelte';
+  import { DEFAULT_COLORS, resolveKeys, type ColorKey, type PreviewColors } from './lib/colors';
+  import { defaultLegends, isAnsi60 } from './lib/legend-defaults';
   import ProjectBar from './ui/ProjectBar.svelte';
   import Tabs from './ui/Tabs.svelte';
   import { PANEL_TABS, type PanelTab } from './ui/tabs';
@@ -57,6 +62,10 @@
   let capLabels = $state<Record<string, PlacedLegend[]>>({});
   let showCaps = $state(false);
   let capMeshes = $state<Record<string, PreviewMesh>>({});
+  /** kolory podglądu (domyślnie wyłączone = podgląd jak dotąd) */
+  let colors = $state<PreviewColors>(structuredClone(DEFAULT_COLORS));
+  /** wybrany klawisz (`strona:id`): wiersz w tabeli legend, kolory klawisza, podświetlenie w podglądzie */
+  let pickedKey = $state<string | null>(null);
   let caseP = $state<CaseParams>({ ...DEFAULT_CASE });
   /** obudowa ma sens tylko dla pełnych komórek (cienka płyta nie utrzyma śrub) */
   /** wartości sprzed włączenia cienkiej obudowy, przywracane po jej wyłączeniu */
@@ -226,6 +235,7 @@
           return inp && m && m.key === inputKey(inp) ? m.mesh : null;
         };
         return {
+          side: 'left' as const,
           keys: leftKeys.filter((k) => pieceOf(sp, k.x, k.y) === pc),
           offsetX: pc * splitGap,
           mesh: mesh('plate'),
@@ -246,9 +256,61 @@
       const cm = meshes[job(s, 'case')];
       const caseMesh = cin && cm && cm.key === inputKey(cin) ? cm.mesh : null;
       const offsetX = s === 'right' && sides.length === 2 ? reachL + reachR + gap + 2 * pad : 0;
-      return { keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), wedgeMesh: wedgeMeshFor(s), showElectronics, caseMesh, caseOn, explode: caseP.explode };
+      return { side: s, keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), wedgeMesh: wedgeMeshFor(s), showElectronics, caseMesh, caseOn, explode: caseP.explode };
     });
   });
+
+  // ---------- kolory podglądu ----------
+  const sideKeys = $derived(single ? (['left'] as const) : (['left', 'right'] as const));
+  const legendsBySide = $derived(
+    Object.fromEntries(sideKeys.map((s) => [s, defaultLegends(templateId, $state.snapshot(params) as SplitParams, keysFor(s), s)])) as Record<Side, ReturnType<typeof defaultLegends>>,
+  );
+  /** domyślne opisy klawiszy (`strona:id`), do przycisku w tabeli legend i podglądu */
+  const defaultSets = $derived(
+    Object.fromEntries(sideKeys.flatMap((s) => Object.entries(legendsBySide[s]).map(([id, l]) => [legendRef(s, id), l]))) as Record<string, LegendSet>,
+  );
+  // prawdziwe nazwy (60% ANSI, split); macropad i własne rzędy mają numery, więc grupy tylko wg rozmiaru
+  const namedLayout = $derived(!templateId.startsWith('macropad') && (!params.rowLayout?.length || isAnsi60(params.rowLayout)));
+  /** główna legenda klawisza: własna z tabeli, inaczej domyślna */
+  const mainOf = (ref: string) => keycap.legends?.[ref]?.main ?? defaultSets[ref]?.main ?? '';
+  const colorKeys = $derived.by<ColorKey[]>(() =>
+    halves.flatMap((h) =>
+      h.keys.map((k) => {
+        const ref = `${h.side ?? 'left'}:${k.id}`;
+        return { ref, main: mainOf(ref), w: k.w, h: k.h, x: h.offsetX + k.x, y: k.y };
+      }),
+    ),
+  );
+  const looks = $derived(colors.on ? resolveKeys(colors, colorKeys, namedLayout) : null);
+  let font = $state.raw<Font | null>(null);
+  void legendFont().then((f) => (font = f), () => {});
+  /**
+   * legendy w podglądzie 3D: wpisane w tabeli (to samo, co trafi do druku), a gdy klawisz nie ma własnych
+   * i włączone są kolory z nazwami klawiszy, domyślne opisy (tylko podgląd)
+   */
+  const labels = $derived.by<Record<string, PlacedLegend[]> | null>(() => {
+    if (!font) return null;
+    const own = keycap.legends ?? {};
+    const withDefaults = colors.on && colors.legends.show;
+    const lp = keycap.legend ?? DEFAULT_LEGEND;
+    const kp = $state.snapshot(keycap) as KeycapParams;
+    const out: Record<string, PlacedLegend[]> = {};
+    for (const s of sideKeys)
+      for (const k of keysFor(s)) {
+        const ref = legendRef(s, k.id);
+        const set = own[ref] ?? (withDefaults ? defaultSets[ref] : undefined);
+        if (!set || !Object.keys(set).length) continue;
+        const [tw, th] = capTop(kp, k.w, k.h);
+        out[ref] = legendLayout(font, $state.snapshot(set) as LegendSet, tw, th, lp);
+      }
+    return out;
+  });
+  function keyInfo(ref: string) {
+    const [s, id] = ref.split(':') as [Side, string];
+    const k = keysFor(s).find((q) => q.id === id);
+    if (!k) return null;
+    return { main: mainOf(ref), w: k.w, h: k.h, named: namedLayout };
+  }
 
   const clients: Partial<Record<Side, CadClient>> = {};
   const client = (s: Side) => (clients[s] ??= new CadClient());
@@ -371,6 +433,7 @@
       showSwitches,
       keycap: $state.snapshot(keycap),
       showCaps,
+      colors: $state.snapshot(colors),
       cell: cellId !== 'default' && cellStep ? { name: cellName, data: bytesToBase64(cellStep) } : undefined,
     });
   }
@@ -404,6 +467,8 @@
     showSwitches = typeof f.showSwitches === 'boolean' ? f.showSwitches : true;
     keycap = mergeDefaults(DEFAULT_KEYCAP, f.keycap);
     if (typeof f.showCaps === 'boolean') showCaps = f.showCaps;
+    colors = mergeDefaults(DEFAULT_COLORS, f.colors);
+    pickedKey = null;
     if (f.cell?.data) {
       const bytes = base64ToBytes(f.cell.data);
       cellStep = bytes.buffer as ArrayBuffer;
@@ -877,7 +942,17 @@
       bind:show={showCaps}
       bind:meshes={capMeshes}
     />
-    <LegendPanel {lang} keys={leftKeys.concat(single ? [] : rightKeys)} refs={capRefs} bind:params={keycap} bind:labels={capLabels} />
+    <LegendPanel {lang} keys={leftKeys.concat(single ? [] : rightKeys)} refs={capRefs} bind:params={keycap} bind:labels={capLabels} bind:selected={pickedKey} defaults={defaultSets} />
+    {/if}
+    {#if tab === 'colors'}
+    <ColorPanel
+      {lang}
+      bind:colors
+      bind:selected={pickedKey}
+      {keyInfo}
+      capsShown={showCaps}
+      showCaps={() => (showCaps = true)}
+    />
     {/if}
     {#if tab === 'wiring'}
     <WiringPanel {lang} input={wiringInput} fileBase={templateId} save={saveFile} />
@@ -890,7 +965,13 @@
   </aside>
 
   <main>
-    <Preview bind:this={preview} {halves} {cellHeight} stabs={plate.stabs ?? 'cherry'} switchMesh={showSwitches ? switchMesh : null} capMeshes={showCaps ? capMeshes : null} />
+    <Preview bind:this={preview} {halves} {cellHeight} stabs={plate.stabs ?? 'cherry'} switchMesh={showSwitches ? switchMesh : null} capMeshes={showCaps ? capMeshes : null}
+      {colors}
+      {looks}
+      {labels}
+      pickKey={tab === 'keycaps' || tab === 'colors' ? (ref) => (pickedKey = ref) : null}
+      selected={tab === 'keycaps' || tab === 'colors' ? pickedKey : null}
+    />
     <div class="hud">
       <span class="badge" class:exact={allExact} data-tip={t(lang, 'tipBadge')}>
         {#if anyBusy}{t(lang, 'computing')}{:else if allExact}{t(lang, 'exact')}{#if lastMs}&nbsp;· {lastMs} ms{/if}{:else}{t(lang, 'quick')}{/if}

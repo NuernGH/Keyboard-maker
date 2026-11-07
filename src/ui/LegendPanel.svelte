@@ -27,6 +27,8 @@
     refs,
     params = $bindable(),
     labels = $bindable(),
+    selected = $bindable(null),
+    defaults = {},
   }: {
     lang: Lang;
     keys: { w: number; h: number }[];
@@ -34,6 +36,10 @@
     refs: string[];
     params: KeycapParams;
     labels?: Record<string, PlacedLegend[]>;
+    /** wybrany klawisz (`strona:id`), wspólny z podglądem 3D (kliknięcie nakładki wybiera wiersz) */
+    selected?: string | null;
+    /** domyślne opisy klawiszy (`strona:id`): podpowiedź w pustych polach i przycisk „Wstaw domyślne opisy” */
+    defaults?: Record<string, LegendSet>;
   } = $props();
 
   const L = {
@@ -57,8 +63,9 @@
       altgr: 'AltGr',
       fn: 'Fn',
       clear: 'Wyczyść wszystkie',
+      fill: 'Wstaw domyślne opisy',
       preview: 'Podgląd góry klawisza',
-      pick: 'Kliknij wiersz, żeby zobaczyć górę klawisza.',
+      pick: 'Kliknij wiersz albo nakładkę w podglądzie, żeby zobaczyć górę klawisza.',
       fontNote: 'Czcionka: Noto Sans Bold (SIL OFL 1.1).',
       loading: 'Wczytuję czcionkę…',
       sub: 'pomocniczych',
@@ -84,8 +91,9 @@
       altgr: 'AltGr',
       fn: 'Fn',
       clear: 'Clear all',
+      fill: 'Insert default names',
       preview: 'Key top preview',
-      pick: 'Click a row to see the key top.',
+      pick: 'Click a row or a keycap in the preview to see the key top.',
       fontNote: 'Font: Noto Sans Bold (SIL OFL 1.1).',
       loading: 'Loading font…',
       sub: 'secondary',
@@ -128,7 +136,27 @@
       .sort((a, b) => a.side.localeCompare(b.side) || a.id.localeCompare(b.id, undefined, { numeric: true }));
   });
 
-  let selected = $state<string | null>(null);
+  /** wstawia domyślne opisy tylko do klawiszy bez własnych legend (wpisane zostają) */
+  function fillDefaults() {
+    const map = { ...(params.legends ?? {}) };
+    for (const r of rows) {
+      const d = defaults[r.ref];
+      if (!d || map[r.ref]) continue;
+      const set: LegendSet = {};
+      for (const l of LEGEND_LAYERS) if (d[l]?.trim()) set[l] = d[l];
+      if (Object.keys(set).length) map[r.ref] = set;
+    }
+    params.legends = map;
+  }
+  const missing = $derived(rows.filter((r) => defaults[r.ref] && !params.legends?.[r.ref]).length);
+  // wiersz wybrany kliknięciem w podglądzie: przewiń tabelę do niego
+  let tbody = $state<HTMLElement>();
+  $effect(() => {
+    const ref = selected;
+    if (!ref || !tbody) return;
+    const tr = tbody.querySelector(`tr[data-ref="${CSS.escape(ref)}"]`) as HTMLElement | null;
+    if (tr && !tr.contains(document.activeElement)) tr.scrollIntoView({ block: 'nearest' });
+  });
 
   function setText(ref: string, layer: LegendLayer, v: string) {
     const map = params.legends ?? (params.legends = {});
@@ -245,15 +273,16 @@
           {#each LEGEND_LAYERS as l (l)}<th>{tx(l)}</th>{/each}
         </tr>
       </thead>
-      <tbody>
+      <tbody bind:this={tbody}>
         {#each rows as r (r.ref)}
-          <tr class:sel={selected === r.ref} onfocusin={() => (selected = r.ref)} onclick={() => (selected = r.ref)}>
+          <tr data-ref={r.ref} class:sel={selected === r.ref} onfocusin={() => (selected = r.ref)} onclick={() => (selected = r.ref)}>
             <td class="name">{r.name}</td>
             {#each LEGEND_LAYERS as l (l)}
               <td>
                 <input
                   type="text"
                   value={params.legends?.[r.ref]?.[l] ?? ''}
+                  placeholder={params.legends?.[r.ref] ? '' : (defaults[r.ref]?.[l] ?? '')}
                   oninput={(e) => setText(r.ref, l, (e.currentTarget as HTMLInputElement).value)}
                   aria-label={`${r.name} ${tx(l)}`}
                 />
@@ -265,6 +294,7 @@
     </table>
   </div>
   <div class="row">
+    <button onclick={fillDefaults} disabled={!missing}>{tx('fill')}{missing ? ` (${missing})` : ''}</button>
     <button onclick={() => (params.legends = {})}>{tx('clear')}</button>
   </div>
   <p class="muted">{tx('fontNote')}</p>
