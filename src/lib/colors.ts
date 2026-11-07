@@ -119,7 +119,7 @@ export function applyTheme(c: PreviewColors, id: string): PreviewColors {
   return { ...c, ...structuredClone(t.set), theme: id, on: true };
 }
 
-const MODS = new Set(['Esc', 'Tab', 'Caps', 'Shift', 'Ctrl', 'Win', 'Alt', 'AltGr', 'Fn', 'Menu', 'Back', 'Enter', 'Space', 'Del', '']);
+const MODS = new Set(['Esc', 'Tab', 'Caps', 'Shift', 'Ctrl', 'Win', 'Alt', 'AltGr', 'Fn', 'Menu', 'Back', 'Enter', 'Space', 'Del', 'Home', '']);
 const ACCENTS = new Set(['Esc', 'Enter']);
 
 /** klawisz do pokolorowania: `ref` = `strona:id`, `main` = główna legenda (do grupy), x/y = środek (mm, do tęczy) */

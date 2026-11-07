@@ -32,7 +32,7 @@ const SPLIT_ROWS = {
   bottom: { left: ['B', 'V', 'C', 'X', 'Z', 'Shift'], right: ['N', 'M', ',', '.', '/', 'Shift'] },
 } as const;
 const SPLIT_SHIFT: Record<string, string> = { '1': '!', '2': '@', '3': '#', '4': '$', '5': '%', '6': '^', '7': '&', '8': '*', '9': '(', '0': ')', ';': ':', "'": '"', ',': '<', '.': '>', '/': '?', '\\': '|' };
-const THUMBS: Record<Side, string[]> = { left: ['Alt', 'Space', 'Win', 'Ctrl', 'Esc', 'Fn'], right: ['AltGr', 'Space', 'Enter', 'Back', 'Del', 'Fn'] };
+const THUMBS: Record<Side, string[]> = { left: ['Alt', 'Space', 'Win', 'Ctrl', 'Del', 'Fn'], right: ['AltGr', 'Space', 'Enter', 'Back', 'Home', 'Fn'] };
 
 /** czy układ rzędami to 60% ANSI (5 rzędów: 14, 14, 13, 12, 8 klawiszy) */
 export function isAnsi60(rows: number[][] | undefined): boolean {
