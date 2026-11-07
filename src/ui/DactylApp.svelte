@@ -13,6 +13,8 @@
   import WiringPanel from './WiringPanel.svelte';
   import KeycapPanel from './KeycapPanel.svelte';
   import { DEFAULT_KEYCAP, capType, type KeycapParams } from '../lib/keycap-spec';
+  import ProjectBar from './ProjectBar.svelte';
+  import { makeProject, mergeDefaults, type DactylProject, type ProjectFile } from '../lib/project';
   import { dactylWiringInput } from '../lib/wiring-doc';
   import Tooltip from './Tooltip.svelte';
   import { TEMPLATES } from '../lib/layout';
@@ -42,7 +44,17 @@
     lang = $bindable(),
     onTemplate,
     switchMesh = null,
-  }: { lang: Lang; onTemplate: (id: string) => void; switchMesh?: PreviewMesh | null } = $props();
+    init = null,
+    onProject,
+  }: {
+    lang: Lang;
+    onTemplate: (id: string) => void;
+    switchMesh?: PreviewMesh | null;
+    /** ustawienia z wczytanego projektu (null = domyślne) */
+    init?: DactylProject | null;
+    /** wczytanie pliku projektu (płaskiego albo Dactyla) obsługuje App */
+    onProject: (p: ProjectFile) => void;
+  } = $props();
   // model przełącznika Cherry MX (ten sam co w podglądzie płaskiej klawiatury), środek wierzchu płyty = 0
   const switchGeo = $derived.by(() => {
     if (!switchMesh) return null;
@@ -145,17 +157,36 @@
   } as const;
   const tx = (k: keyof (typeof L)['pl']) => L[lang][k];
 
-  let p = $state<DactylParams>(structuredClone(DACTYL_DEFAULT));
-  let variant = $state<'hotswap' | 'no-hotswap'>('hotswap');
-  let show = $state<'left' | 'right' | 'both'>('both');
-  let ctrlOn = $state(true);
-  let ctrl = $state<ControllerParams>({ ...DEFAULT_DACTYL_CONTROLLER });
-  let floor = $state(4);
-  let screwSize = $state<ScrewSize>('M3');
-  let explode = $state(20);
-  let showCaps = $state(true);
+  // wartości startowe: z wczytanego projektu (brakujące pola = domyślne) albo domyślne
+  // svelte-ignore state_referenced_locally
+  const i0 = init;
+  const pick = <T,>(v: unknown, ok: (x: unknown) => boolean, def: T): T => (i0 && ok(v) ? (v as T) : def);
+  const isNum = (x: unknown) => typeof x === 'number' && Number.isFinite(x);
+  const isBool = (x: unknown) => typeof x === 'boolean';
+  let p = $state<DactylParams>(i0 ? mergeDefaults(DACTYL_DEFAULT, i0.params) : structuredClone(DACTYL_DEFAULT));
+  let variant = $state<'hotswap' | 'no-hotswap'>(pick(i0?.variant, (x) => x === 'hotswap' || x === 'no-hotswap', 'hotswap'));
+  let show = $state<'left' | 'right' | 'both'>(pick(i0?.show, (x) => x === 'left' || x === 'right' || x === 'both', 'both'));
+  let ctrlOn = $state(pick(i0?.ctrlOn, isBool, true));
+  let ctrl = $state<ControllerParams>(i0 ? mergeDefaults(DEFAULT_DACTYL_CONTROLLER, i0.ctrl) : { ...DEFAULT_DACTYL_CONTROLLER });
+  let floor = $state(pick(i0?.floor, isNum, 4));
+  let screwSize = $state<ScrewSize>(pick(i0?.screwSize, (x) => x === 'M3' || x === 'M2.5', 'M3'));
+  let explode = $state(pick(i0?.explode, isNum, 20));
+  let showCaps = $state(pick(i0?.showCaps, isBool, true));
+  const dactylProject = (): ProjectFile =>
+    makeProject('dactyl', {
+      params: snap(),
+      variant,
+      show,
+      ctrlOn,
+      ctrl: $state.snapshot(ctrl),
+      floor,
+      screwSize,
+      explode,
+      showCaps,
+      keycap: $state.snapshot(keycap),
+    });
   /** nakładki: profil i siatki typów (gdy są, podgląd pokazuje prawdziwe nakładki zamiast uproszczonych) */
-  let keycap = $state<KeycapParams>({ ...DEFAULT_KEYCAP });
+  let keycap = $state<KeycapParams>(i0 ? mergeDefaults(DEFAULT_KEYCAP, i0.keycap) : { ...DEFAULT_KEYCAP });
   let capMeshes = $state<Record<string, PreviewMesh>>({});
   /** rozmiar nakładki klawisza Dactyla w U: szeroki mały palec 1,5U wzdłuż X, górne klawisze kciuka 1,5U wzdłuż Y */
   const capSize = (m: DactylModel, k: DactylModel['keys'][number]) => ({
@@ -580,6 +611,11 @@
         <option value="en">EN</option>
       </select>
     </header>
+
+    <section>
+      <h2>{lang === 'pl' ? 'Projekt' : 'Project'}</h2>
+      <ProjectBar {lang} name={`dactyl-${p.rows}x${p.cols}`} get={dactylProject} onLoad={onProject} />
+    </section>
 
     <section>
       <h2>{t(lang, 'template')}</h2>

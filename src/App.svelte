@@ -22,6 +22,17 @@
   import WiringPanel from './ui/WiringPanel.svelte';
   import KeycapPanel from './ui/KeycapPanel.svelte';
   import { DEFAULT_KEYCAP, type KeycapParams } from './lib/keycap-spec';
+  import ProjectBar from './ui/ProjectBar.svelte';
+  import {
+    base64ToBytes,
+    bytesToBase64,
+    decodeLink,
+    linkFromHash,
+    makeProject,
+    mergeDefaults,
+    type DactylProject,
+    type ProjectFile,
+  } from './lib/project';
   import { splitWiringInput } from './lib/wiring-doc';
   import { DEFAULT_CASE, FLOOR_MIN, SCREW_MARGIN, SLIM_CASE, STANDARD_LENGTHS, caseLayout, type CaseParams } from './lib/case';
   import { DEFAULT_PRINT, planSplit, pieceOf, type PrintParams, type PrintSplit } from './lib/split';
@@ -59,6 +70,7 @@
   /** układ rzędami jako tekst (60% itp.) */
   let rowText = $state('');
   function applyTemplate(id: string) {
+    dactylInit = null;
     templateId = id;
     const tpl = TEMPLATES.find((x) => x.id === id);
     if (!tpl) return;
@@ -325,6 +337,77 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 10000);
   }
 
+  // ---------- zapis i odczyt projektu ----------
+  /** ustawienia Dactyla z wczytanego projektu (Dactyl startuje od nich zamiast od domyślnych) */
+  let dactylInit = $state.raw<DactylProject | null>(null);
+  /** zmiana tej liczby tworzy panel Dactyla od nowa (żeby przejął wczytane ustawienia) */
+  let dactylSeq = $state(0);
+
+  function flatProject(): ProjectFile {
+    const isl = $state.snapshot(island) as IslandParams;
+    // model własnego kontrolera żyje tylko w tej sesji przeglądarki; w projekcie zostają liczby
+    if (isl.custom?.model?.startsWith('custom-model:')) {
+      const { model: _m, ...c } = isl.custom;
+      isl.custom = c;
+    }
+    return makeProject('flat', {
+      templateId,
+      params: $state.snapshot(params),
+      rowText,
+      island: isl,
+      caseP: $state.snapshot(caseP),
+      print: $state.snapshot(print),
+      variant,
+      plate: $state.snapshot(plate),
+      up,
+      show,
+      showElectronics,
+      showSwitches,
+      keycap: $state.snapshot(keycap),
+      showCaps,
+      cell: cellId !== 'default' && cellStep ? { name: cellName, data: bytesToBase64(cellStep) } : undefined,
+    });
+  }
+
+  const oneOf = <T extends string>(v: unknown, list: readonly T[], def: T): T => (list.includes(v as T) ? (v as T) : def);
+
+  function applyProject(pf: ProjectFile) {
+    error = '';
+    if (pf.kind === 'dactyl' && pf.dactyl) {
+      dactylInit = pf.dactyl;
+      dactylSeq++;
+      templateId = 'dactyl';
+      return;
+    }
+    const f = pf.flat;
+    if (!f) return;
+    const tpl = TEMPLATES.find((x) => x.id === f.templateId) ?? TEMPLATES[0];
+    dactylInit = null;
+    templateId = tpl.id;
+    params = mergeDefaults(tpl.params, f.params);
+    rowText = typeof f.rowText === 'string' ? f.rowText : params.rowLayout ? rowLayoutToText(params.rowLayout) : '';
+    island = mergeDefaults(DEFAULT_ISLAND, f.island);
+    caseP = mergeDefaults(DEFAULT_CASE, f.caseP);
+    beforeSlim = null;
+    print = mergeDefaults(DEFAULT_PRINT, f.print);
+    variant = oneOf<CellVariant>(f.variant, ['hotswap', 'no-hotswap', 'thin-plate'], 'hotswap');
+    plate = mergeDefaults(DEFAULT_PLATE_OPTIONS, f.plate);
+    up = oneOf<UpAxis | 'auto'>(f.up, ['auto', '+X', '-X', '+Y', '-Y', '+Z', '-Z'] as (UpAxis | 'auto')[], 'auto');
+    show = oneOf(f.show, ['left', 'right', 'both'] as const, 'both');
+    showElectronics = typeof f.showElectronics === 'boolean' ? f.showElectronics : true;
+    showSwitches = typeof f.showSwitches === 'boolean' ? f.showSwitches : true;
+    keycap = mergeDefaults(DEFAULT_KEYCAP, f.keycap);
+    if (typeof f.showCaps === 'boolean') showCaps = f.showCaps;
+    if (f.cell?.data) {
+      const bytes = base64ToBytes(f.cell.data);
+      cellStep = bytes.buffer as ArrayBuffer;
+      cellName = f.cell.name || 'cell.step';
+      cellId = `project:${cellName}:${bytes.length}`;
+    } else if (cellId !== 'default') {
+      void loadDefaultCell();
+    }
+  }
+
   async function loadDefaultCell() {
     const res = await fetch(`${import.meta.env.BASE_URL}cells/mx-hotswap.step`);
     cellStep = await res.arrayBuffer();
@@ -351,6 +434,12 @@
   }
 
   onMount(() => {
+    // link z projektem (…/#projekt=…)
+    const code = linkFromHash(location.hash);
+    if (code)
+      decodeLink(code)
+        .then(applyProject)
+        .catch(() => (error = lang === 'pl' ? 'link z projektem jest uszkodzony albo z nowszej wersji' : 'the project link is damaged or from a newer version'));
     status = t(lang, 'loadingCad');
     void loadDefaultCell();
     Promise.all((['left', 'right'] as Side[]).map((s) => client(s).init()))
@@ -377,7 +466,9 @@
 </script>
 
 {#if templateId === 'dactyl'}
-<DactylApp bind:lang onTemplate={applyTemplate} {switchMesh} />
+{#key dactylSeq}
+<DactylApp bind:lang onTemplate={applyTemplate} {switchMesh} init={dactylInit} onProject={applyProject} />
+{/key}
 {:else}
 <Tooltip />
 <div class="app">
@@ -389,6 +480,17 @@
         <option value="en">EN</option>
       </select>
     </header>
+
+    <section>
+      <h2>{lang === 'pl' ? 'Projekt' : 'Project'}</h2>
+      <ProjectBar
+        {lang}
+        name={TEMPLATES.find((x) => x.id === templateId)?.name[lang] ?? templateId}
+        get={flatProject}
+        onLoad={applyProject}
+        hasCell={cellId !== 'default'}
+      />
+    </section>
 
     <section>
       <h2>{t(lang, 'template')}</h2>
