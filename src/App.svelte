@@ -45,6 +45,8 @@
   import { splitWiringInput } from './lib/wiring-doc';
   import { DEFAULT_CASE, FLOOR_MIN, SCREW_MARGIN, SLIM_CASE, STANDARD_LENGTHS, caseLayout, type CaseParams } from './lib/case';
   import { DEFAULT_PRINT, planSplit, pieceOf, type PrintParams, type PrintSplit } from './lib/split';
+  import { BATTERY_PRESETS, DEFAULT_EXTRAS, type CaseExtras, type ExtraWarn } from './lib/case-extras';
+  import type { GhostPart } from './lib/island';
 
   type Side = 'left' | 'right';
 
@@ -66,7 +68,10 @@
   let colors = $state<PreviewColors>(structuredClone(DEFAULT_COLORS));
   /** wybrany klawisz (`strona:id`): wiersz w tabeli legend, kolory klawisza, podświetlenie w podglądzie */
   let pickedKey = $state<string | null>(null);
-  let caseP = $state<CaseParams>({ ...DEFAULT_CASE });
+  /** obudowa z dodatkami (włącznik, gniazdo, bateria); dodatki domyślnie wyłączone */
+  const CASE_WITH_EXTRAS: CaseParams = { ...DEFAULT_CASE, extras: DEFAULT_EXTRAS };
+  let caseP = $state<CaseParams>(structuredClone(CASE_WITH_EXTRAS));
+  const ex = $derived(caseP.extras as Required<CaseExtras>);
   /** obudowa ma sens tylko dla pełnych komórek (cienka płyta nie utrzyma śrub) */
   /** wartości sprzed włączenia cienkiej obudowy, przywracane po jej wyłączeniu */
   let beforeSlim: Pick<CaseParams, 'space' | 'floor' | 'screwSize'> | null = null;
@@ -195,7 +200,7 @@
       up,
       island: isl,
       part,
-      case: caseOn ? { params: cp, layout: caseLayout(keysFor(s), isl, cellHeight, cp, s === 'left' ? split : null, plate.stabs ?? 'cherry') } : null,
+      case: caseOn ? { params: cp, layout: layoutFor(s) } : null,
       split: s === 'left' && split ? { plan: $state.snapshot(split) as PrintSplit, clearance: print.clearance } : null,
       piece: s === 'left' && split ? piece : undefined,
     };
@@ -207,10 +212,36 @@
     const m = meshes[job(s, 'wedge')];
     return inp && m && m.key === inputKey(inp) ? m.mesh : null;
   };
-  let screwInfo = $derived(caseOn ? caseLayout(leftKeys, islandGeom('left'), cellHeight, caseP, split, plate.stabs ?? 'cherry') : null);
+  /** układ spodu obudowy dla połówki (śruby, podpory, dodatki) */
+  const layoutFor = (s: Side) =>
+    caseLayout(keysFor(s), islandGeom(s), cellHeight, $state.snapshot(caseP) as CaseParams, s === 'left' ? split : null, plate.stabs ?? 'cherry', {
+      half: s,
+      single,
+      margin: plateMargin,
+    });
+  let screwInfo = $derived(caseOn ? layoutFor('left') : null);
+  /** dodatki w obudowie: bryły do podglądu i ostrzeżenia, dla każdej połówki */
+  let extrasBySide = $derived.by(() => {
+    const out: Partial<Record<Side, { ghosts: GhostPart[]; warns: ExtraWarn[] }>> = {};
+    if (!caseOn) return out;
+    for (const s of (single ? ['left'] : ['left', 'right']) as Side[]) {
+      const e = s === 'left' && screwInfo ? screwInfo.extras : layoutFor(s).extras;
+      out[s] = { ghosts: e.ghosts, warns: e.warns };
+    }
+    return out;
+  });
   // wybrana śruba nie pasuje: eksport zablokowany, dopóki nie zmienisz dna albo długości
   let exportBlocked = $derived(!!screwInfo?.screwWarn);
   const mmTxt = (v: number) => (lang === 'pl' ? String(v).replace('.', ',') : String(v));
+  const WALL_SIDES = ['back', 'front', 'inner', 'outer'] as const;
+  /** nazwa ścianki; w 60% i macropadzie wewnętrzna = prawa, zewnętrzna = lewa */
+  const wallName = (w: (typeof WALL_SIDES)[number]) =>
+    t(lang, single ? ({ back: 'wallBack', front: 'wallFront', inner: 'wallRight', outer: 'wallLeft' } as const)[w] : ({ back: 'wallBack', front: 'wallFront', inner: 'wallInner', outer: 'wallOuter' } as const)[w]);
+  function extraWarnText(w: ExtraWarn): string {
+    const part = t(lang, w.part === 'power' ? 'power' : w.part === 'link' ? 'link' : 'battery');
+    const key = ({ noSpot: 'extraNoSpot', tooTall: 'extraTooTall', moved: 'extraMoved', otherSide: 'extraOtherSide' } as const)[w.kind];
+    return t(lang, key).replace('{p}', part).replace('{s}', w.side ? wallName(w.side) : '');
+  }
   const inputKey = (i: BuildInput) => JSON.stringify({ ...i, cellStep: undefined });
 
   let halves = $derived.by<PreviewHalf[]>(() => {
@@ -245,6 +276,7 @@
           caseMesh: mesh('case'),
           caseOn,
           explode: caseP.explode,
+          caseParts: (extrasBySide.left?.ghosts ?? []).filter((g) => pieceOf(sp, (g.box.x0 + g.box.x1) / 2, (g.box.y0 + g.box.y1) / 2) === pc),
         };
       });
     }
@@ -256,7 +288,7 @@
       const cm = meshes[job(s, 'case')];
       const caseMesh = cin && cm && cm.key === inputKey(cin) ? cm.mesh : null;
       const offsetX = s === 'right' && sides.length === 2 ? reachL + reachR + gap + 2 * pad : 0;
-      return { side: s, keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), wedgeMesh: wedgeMeshFor(s), showElectronics, caseMesh, caseOn, explode: caseP.explode };
+      return { side: s, keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), wedgeMesh: wedgeMeshFor(s), showElectronics, caseMesh, caseOn, explode: caseP.explode, caseParts: extrasBySide[s]?.ghosts ?? [] };
     });
   });
 
@@ -456,7 +488,7 @@
     params = mergeDefaults(tpl.params, f.params);
     rowText = typeof f.rowText === 'string' ? f.rowText : params.rowLayout ? rowLayoutToText(params.rowLayout) : '';
     island = mergeDefaults(DEFAULT_ISLAND, f.island);
-    caseP = mergeDefaults(DEFAULT_CASE, f.caseP);
+    caseP = mergeDefaults(CASE_WITH_EXTRAS, f.caseP);
     beforeSlim = null;
     print = mergeDefaults(DEFAULT_PRINT, f.print);
     variant = oneOf<CellVariant>(f.variant, ['hotswap', 'no-hotswap', 'thin-plate'], 'hotswap');
@@ -864,6 +896,57 @@
             <p class="warn">{t(lang, 'screwTooShort').replace('{l}', String(screwInfo.screwLength))}</p>
           {/if}
         {/if}
+        <h3>{t(lang, 'extras')}</h3>
+        <label class="check" data-tip={t(lang, 'tipPower')}><input type="checkbox" bind:checked={ex.power.on} /> {t(lang, 'power')}</label>
+        {#if ex.power.on}
+          <div class="grid2">
+            <label data-tip={t(lang, 'tipWallSide')}>{t(lang, 'wallSide')}
+              <select bind:value={ex.power.side}>
+                {#each WALL_SIDES as w (w)}<option value={w}>{wallName(w)}</option>{/each}
+              </select>
+            </label>
+            <label data-tip={t(lang, 'tipWallPos')}>{t(lang, 'wallPos')} <input type="range" min="0" max="100" step="5" bind:value={ex.power.pos} /></label>
+          </div>
+        {/if}
+        {#if !single}
+          <label class="check" data-tip={t(lang, 'tipLink')}><input type="checkbox" bind:checked={ex.link.on} /> {t(lang, 'link')}</label>
+          {#if ex.link.on}
+            <div class="grid2">
+              <label data-tip={t(lang, 'tipLink')}>{t(lang, 'linkKind')}
+                <select bind:value={ex.link.kind}>
+                  <option value="trrs">{t(lang, 'linkTrrs')}</option>
+                  <option value="usbc">{t(lang, 'linkUsbc')}</option>
+                </select>
+              </label>
+              <label data-tip={t(lang, 'tipWallSide')}>{t(lang, 'wallSide')}
+                <select bind:value={ex.link.side}>
+                  {#each WALL_SIDES as w (w)}<option value={w}>{wallName(w)}</option>{/each}
+                </select>
+              </label>
+              <label data-tip={t(lang, 'tipWallPos')}>{t(lang, 'wallPos')} <input type="range" min="0" max="100" step="5" bind:value={ex.link.pos} /></label>
+            </div>
+          {/if}
+        {/if}
+        <label class="check" data-tip={t(lang, 'tipBattery')}><input type="checkbox" bind:checked={ex.battery.on} /> {t(lang, 'battery')}</label>
+        {#if ex.battery.on}
+          <div class="grid2">
+            <label data-tip={t(lang, 'tipBattery')}>{t(lang, 'batteryPreset')}
+              <select value={BATTERY_PRESETS.find((b) => b.l === ex.battery.l && b.w === ex.battery.w && b.t === ex.battery.t)?.id ?? ''}
+                onchange={(e) => { const b = BATTERY_PRESETS.find((x) => x.id === e.currentTarget.value); if (b) Object.assign(ex.battery, { l: b.l, w: b.w, t: b.t }); }}>
+                {#each BATTERY_PRESETS as b (b.id)}<option value={b.id}>{b.name}</option>{/each}
+                <option value="">{t(lang, 'batteryCustom')}</option>
+              </select>
+            </label>
+            <label>{t(lang, 'batteryL')} <input type="number" min="10" max="120" step="0.5" bind:value={ex.battery.l} /></label>
+            <label>{t(lang, 'batteryW')} <input type="number" min="5" max="80" step="0.5" bind:value={ex.battery.w} /></label>
+            <label>{t(lang, 'batteryT')} <input type="number" min="1" max="12" step="0.1" bind:value={ex.battery.t} /></label>
+          </div>
+        {/if}
+        {#each Object.entries(extrasBySide) as [s, e] (s)}
+          {#each e?.warns ?? [] as w, i (i)}
+            <p class={w.kind === 'noSpot' || w.kind === 'tooTall' ? 'warn' : 'muted'}>{single ? '' : `${t(lang, s === 'left' ? 'left' : 'right')}: `}{extraWarnText(w)}</p>
+          {/each}
+        {/each}
       {/if}
     </section>
 

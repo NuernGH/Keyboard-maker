@@ -3,7 +3,7 @@
 import opencascade from 'replicad-opencascadejs';
 import wasmUrl from 'replicad-opencascadejs/wasm?url';
 import { setOC, importSTEP, type Shape3D } from 'replicad';
-import { buildPlate, buildCase, buildWedge, screwPilots, loadCell, platePiece, casePiece, type Cell } from '../lib/geometry';
+import { buildPlate, buildCase, buildWedge, screwPilots, extraPlatePockets, loadCell, platePiece, casePiece, type Cell } from '../lib/geometry';
 import type { Request, Response, BuildInput, DactylInput, KeycapInput } from './protocol';
 import { applyLegend, buildKeycap, buildCalibration, buildInsert, insertPrintPose, printPose } from '../lib/keycap';
 import { buildDactyl } from '../lib/dactyl';
@@ -140,7 +140,7 @@ async function plateFor(input: BuildInput): Promise<Shape3D> {
   const shape =
     input.part === 'case' && c
       ? buildCase(input.keys, input.plate, input.island, cell.height, c.params, c.layout)
-      : buildPlate(input.keys, cell, input.plate, input.island, c ? screwPilots(c.layout.screws, cell.height, c.layout.pilotDepth, c.layout.screw) : []);
+      : buildPlate(input.keys, cell, input.plate, input.island, c ? [...screwPilots(c.layout.screws, cell.height, c.layout.pilotDepth, c.layout.screw), ...extraPlatePockets(c.layout.extras)] : []);
   remember(key, shape);
   return shape;
 }

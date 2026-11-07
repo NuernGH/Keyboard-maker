@@ -4,10 +4,11 @@
 // w środku; jest przykręcona od spodu śrubami M2,5.
 // Tu same liczby (pozycje śrub, wymiary); bryłę buduje geometry.ts.
 
-import { PITCH, type Key } from './layout';
+import { PITCH, switchSpots, type Key } from './layout';
 import { stabOffset } from './cell-spec';
 import { USB_PLUG, type Box, type IslandGeom } from './island';
 import { DOVETAIL, distToSeam, seamScrewTargets, type PrintSplit } from './split';
+import { emptyExtras, layoutExtras, type CaseExtras, type ExtrasLayout } from './case-extras';
 
 export interface CaseParams {
   enabled: boolean;
@@ -56,6 +57,11 @@ export interface CaseParams {
    * MX_PINS.slimGap mm pod końcami pinów zamiast MX_PINS.minGap.
    */
   slim?: boolean;
+  /**
+   * Dodatki (opcje, domyślnie brak): włącznik baterii, gniazdo kabla między połówkami, bateria LiPo.
+   * Wycięcia w ściance, kieszenie w płycie i w dnie; śruby, podpory i gzyms je omijają.
+   */
+  extras?: CaseExtras;
 }
 
 /** Wartości cienkiej obudowy (analiza 2026-11-07: 60% hot-swap 14,6 → 12,1 mm). */
@@ -182,6 +188,8 @@ export interface CaseLayout {
   pads: Box[];
   /** podpory pod płytą (środki XY), od dna do 0,1 mm pod spód płyty */
   supports: [number, number][];
+  /** dodatki: włącznik, gniazdo między połówkami, bateria (puste, gdy wyłączone) */
+  extras: ExtrasLayout;
 }
 
 /** Luz między podkładką a płytką kontrolera (mm), pas wolny od pinów przy dłuższych bokach, zwężenie podestu pod gniazdem USB. */
@@ -221,6 +229,15 @@ export function controllerPads(island: IslandGeom | null, floorTop: number): Box
   return pads.filter((b) => b.z1 > b.z0 + 0.3 && b.x1 > b.x0 && b.y1 > b.y0);
 }
 
+/** Klawisze z dodatkowymi komórkami MX w miejscu stabilizatora (wystają poza klawisz, np. Backspace 2U). */
+function withSpots(keys: Key[], stabs: 'cherry' | 'mx' | 'none'): Key[] {
+  const out = [...keys];
+  for (const k of keys)
+    for (const [x, y] of switchSpots(k, stabs))
+      if (Math.hypot(x - k.x, y - k.y) > 1e-6) out.push({ ...k, id: `${k.id}~`, x, y, w: 1, h: 1 });
+  return out;
+}
+
 /** Odległość punktu od prostokąta klawisza (0 w środku). */
 function distToKey(k: Key, x: number, y: number): number {
   const a = (-k.rot * Math.PI) / 180;
@@ -251,6 +268,7 @@ export function screwPositions(
   split: PrintSplit | null = null,
   sp: ScrewSpec = screwSpec(),
   reach = Infinity,
+  keepouts: Box[] = [],
 ): [number, number][] {
   const clear = screwClear(sp);
   // słupek zostaje w obrysie obudowy (reach = odległość zewnętrznej ścianki od klawiszy) z BOSS_SKIN
@@ -280,6 +298,8 @@ export function screwPositions(
       keys.every((k) => distToKey(k, x, y) >= clear - 1e-6) &&
       // słupek pod płytą nie może dotykać ścianek wyspy (schodzą niżej niż płyta)
       (!island || distToRect(island.rect, x, y) >= Math.max(clear + 1, sp.boss / 2 + 0.5)) &&
+      // dodatki (włącznik, gniazdo, bateria): słupek z łbem obok, nie w kieszeni
+      keepouts.every((b) => distToRect(b, x, y) >= sp.boss / 2 + 0.5) &&
       // przy podziale: z dala od szwu płyty i zamków (otwór pilotowy) i od szwu spodu (słupek)
       (!split ||
         (distToSeam(split, x, y) >= 3 + DOVETAIL.depth &&
@@ -357,6 +377,7 @@ export function caseLayout(
   cp: CaseParams,
   split: PrintSplit | null = null,
   stabs: 'cherry' | 'mx' | 'none' = 'cherry',
+  o: { half?: 'left' | 'right'; single?: boolean; margin?: number } = {},
 ): CaseLayout {
   const lowest = Math.max(cellHeight, island?.depth ?? 0);
   let floorTop = -lowest - cp.space;
@@ -393,20 +414,37 @@ export function caseLayout(
     : b > pilotDepth
       ? { kind: 'long', floor: Math.ceil((cp.floor + b - pilotDepth) * 5 - 1e-6) / 5 }
       : { kind: 'short' };
-  const screws = screwPositions(keys, island, cp.screws, split, sp, SCREW_MARGIN + cp.gap + cp.wall);
+  const usbCuts = usbCaseCuts(island, cp);
+  const extras = cp.extras
+    ? layoutExtras(cp.extras, {
+        keys: withSpots(keys, stabs),
+        island,
+        reach: Math.max(o.margin ?? SCREW_MARGIN, SCREW_MARGIN) + cp.gap,
+        wall: cp.wall,
+        cellHeight,
+        floorTop,
+        floor: cp.floor,
+        split,
+        usbCuts,
+        half: o.half ?? 'left',
+        single: !!o.single,
+      })
+    : emptyExtras();
+  const screws = screwPositions(keys, island, cp.screws, split, sp, SCREW_MARGIN + cp.gap + cp.wall, extras.keepouts);
   return {
     screw: sp,
     screws,
     headDepth,
     screwFits,
     screwWarn,
-    supports: cp.supports === false ? [] : supportPositions(keys, island, screws, split, stabs),
+    supports: cp.supports === false ? [] : supportPositions(keys, island, screws, split, stabs, extras.keepouts),
     pilotDepth,
     floorTop,
     bottom,
     screwLength,
-    usbCuts: usbCaseCuts(island, cp),
+    usbCuts,
     pads: controllerPads(island, floorTop),
+    extras,
   };
 }
 
@@ -423,10 +461,11 @@ export function ledgeWidth(cp: CaseParams, plateMargin: number): number {
  * Obszary bez gzymsu (XY): wyspa (sięga niżej niż płyta) i otwory z wyspy wychodzące poza nią
  * (gniazdo USB z miejscem na wtyk) i cała droga wtyku do ścianki, żeby gzyms jej nie zasłaniał.
  */
-export function ledgeKeepouts(island: IslandGeom | null, cellHeight: number, cp: CaseParams): Box[] {
-  if (!island) return [];
+export function ledgeKeepouts(island: IslandGeom | null, cellHeight: number, cp: CaseParams, extra: Box[] = []): Box[] {
+  // dodatki przy ściankach (włącznik, gniazdo): gzyms przerwany, z zapasem 0,5 mm
+  const out: Box[] = extra.map((b) => ({ ...b, x0: b.x0 - 0.5, x1: b.x1 + 0.5, y0: b.y0 - 0.5, y1: b.y1 + 0.5 }));
+  if (!island) return out;
   const r = island.rect;
-  const out: Box[] = [];
   const g = LEDGE.fromIsland;
   if (island.depth > cellHeight - 1e-6) out.push({ x0: r.x0 - g, x1: r.x1 + g, y0: r.y0 - g, y1: r.y1 + g, z0: 0, z1: 0 });
   for (const c of island.cuts) {
@@ -456,6 +495,7 @@ export function supportPositions(
   screws: [number, number][],
   split: PrintSplit | null,
   stabs: 'cherry' | 'mx' | 'none',
+  keepouts: Box[] = [],
 ): [number, number][] {
   const flat = keys.filter((k) => Math.abs(k.rot) < 1e-6);
   if (flat.length < 2) return [];
@@ -488,6 +528,8 @@ export function supportPositions(
       !nearStab(x, y) &&
       (!island || distToRect(island.rect, x, y) >= r + 3) &&
       (!split || Math.abs(x - split.caseX) >= r + 2) &&
+      // bateria i części przy ściankach: podpora obok, nie w kieszeni ani na ogniwie
+      keepouts.every((b) => distToRect(b, x, y) >= r + 1) &&
       screws.every(([sx, sy]) => Math.hypot(sx - x, sy - y) >= SUPPORT.fromScrew),
   );
   const uniq = ok.filter((p, i) => ok.findIndex((q) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 0.5) === i);
