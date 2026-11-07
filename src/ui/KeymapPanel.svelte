@@ -415,15 +415,17 @@
       {T('w repo zmk-s2mini. Po wysłaniu zmian GitHub Actions zbuduje firmware do wgrania.', 'in the zmk-s2mini repo. After pushing, GitHub Actions builds the firmware.')}
     </p>
   {:else}
-    <p class="warn">
-      {T('Kolejność klawiszy jest taka jak w matrix_transform z instrukcji okablowania (zakładka Okablowanie). Sprawdzone tylko z shieldem 60% na S2 mini.', 'Key order follows the matrix_transform from the wiring guide (Wiring tab). Only checked against the 60% S2 mini shield.')}
+    <p class="muted">
+      {T('Eksport .keymap jest na razie tylko dla 60% ANSI z kontrolerem S2 mini (shield s2mini_60). Tu możesz już układać keymapę: zapisze się w projekcie, a eksport dla tego układu dojdzie później.', 'The .keymap export is for now only for the 60% ANSI with the S2 mini controller (s2mini_60 shield). You can already edit the keymap here: it is saved in the project, and export for this layout will come later.')}
     </p>
   {/if}
+  {#if target === 's2mini60'}
   <div class="row">
     <button onclick={download}>{T('Pobierz', 'Download')} {fileName}</button>
     <button onclick={() => (showText = !showText)}>{showText ? T('Ukryj tekst', 'Hide text') : T('Pokaż tekst', 'Show text')}</button>
     {#if showText}<button onclick={copy}>{T('Kopiuj', 'Copy')}</button>{/if}
   </div>
+  {/if}
   {#if exp.problems.length}
     <p class="warn">
       {T('Do poprawienia', 'To fix')}:
@@ -433,7 +435,7 @@
     </p>
   {/if}
   {#if msg}<p class="muted">{msg}</p>{/if}
-  {#if showText}<textarea readonly rows="16">{exp.text}</textarea>{/if}
+  {#if showText && target === 's2mini60'}<textarea readonly rows="16">{exp.text}</textarea>{/if}
   <div class="row">
     <button onclick={() => confirm(T('Przywrócić domyślną keymapę? Twoje zmiany przepadną.', 'Restore the default keymap? Your changes will be lost.')) && onReset()} disabled={!edited}>
       {T('Przywróć domyślną keymapę', 'Restore default keymap')}
