@@ -7,6 +7,14 @@ import type { PrintSplit } from '../lib/split';
 import type { DactylParams } from '../lib/dactyl';
 import type { ControllerParams } from '../lib/dactyl-parts';
 import type { ScrewSize } from '../lib/case';
+import type { CapType, KeycapParams } from '../lib/keycap-spec';
+
+/** Nakładka (albo plik kalibracji luzu, gdy `cap` = null): w spoczynku na przełączniku albo ustawiona do druku. */
+export interface KeycapInput {
+  params: KeycapParams;
+  cap: CapType | null;
+  pose: 'rest' | 'print';
+}
 
 /** Dactyl: skorupa albo dno jednej połówki. Model liczymy dla prawej, lewa to lustro. */
 export interface DactylInput {
@@ -51,7 +59,9 @@ export type Request =
   | { id: number; type: 'step-mesh'; step: ArrayBuffer }
   | { id: number; type: 'export'; format: 'stl' | 'step'; input: BuildInput }
   | { id: number; type: 'dactyl-mesh'; input: DactylInput }
-  | { id: number; type: 'dactyl-export'; format: 'stl' | 'step'; input: DactylInput };
+  | { id: number; type: 'dactyl-export'; format: 'stl' | 'step'; input: DactylInput }
+  | { id: number; type: 'keycap-mesh'; input: KeycapInput }
+  | { id: number; type: 'keycap-export'; format: 'stl' | 'step'; input: KeycapInput };
 
 export type Response =
   | { id: number; type: 'ready' }

@@ -11,6 +11,8 @@
   import qh from 'quickhull3d/dist/quickhull3d.js';
   import { t, type Lang } from './i18n';
   import WiringPanel from './WiringPanel.svelte';
+  import KeycapPanel from './KeycapPanel.svelte';
+  import { DEFAULT_KEYCAP, capType, type KeycapParams } from '../lib/keycap-spec';
   import { dactylWiringInput } from '../lib/wiring-doc';
   import Tooltip from './Tooltip.svelte';
   import { TEMPLATES } from '../lib/layout';
@@ -151,6 +153,14 @@
   let screwSize = $state<ScrewSize>('M3');
   let explode = $state(20);
   let showCaps = $state(true);
+  /** nakładki: profil i siatki typów (gdy są, podgląd pokazuje prawdziwe nakładki zamiast uproszczonych) */
+  let keycap = $state<KeycapParams>({ ...DEFAULT_KEYCAP });
+  let capMeshes = $state<Record<string, PreviewMesh>>({});
+  /** rozmiar nakładki klawisza Dactyla w U: szeroki mały palec 1,5U wzdłuż X, górne klawisze kciuka 1,5U wzdłuż Y */
+  const capSize = (m: DactylModel, k: DactylModel['keys'][number]) => ({
+    w: m.params.widePinky && k.col === m.params.cols - 1 && k.row !== m.params.rows - 1 ? 1.5 : 1,
+    h: k.thumb === 'tl' || k.thumb === 'tr' ? 1.5 : 1,
+  });
   let cellStep = $state<ArrayBuffer | null>(null);
   let status = $state('');
   let error = $state('');
@@ -268,7 +278,8 @@
     const claude = (window as any).claude;
     const downloads = claude?.use ? await claude.use('downloads') : null;
     if (downloads) {
-      const zip = zipStore([{ name, data: new Uint8Array(data) }]);
+      // ZIP (np. komplet nakładek) zapisujemy bez ponownego pakowania
+      const zip = name.endsWith('.zip') ? new Blob([data], { type: 'application/zip' }) : zipStore([{ name, data: new Uint8Array(data) }]);
       try {
         await downloads.save({ filename: name.replace(/\.[^.]+$/, '') + '.zip', data: zip });
       } catch (e) {
@@ -277,7 +288,7 @@
       }
       return;
     }
-    const blob = new Blob([data], { type: name.endsWith('.html') ? 'text/html' : name.endsWith('.stl') ? 'model/stl' : 'model/step' });
+    const blob = new Blob([data], { type: name.endsWith('.html') ? 'text/html' : name.endsWith('.zip') ? 'application/zip' : name.endsWith('.stl') ? 'model/stl' : 'model/step' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = name;
@@ -393,6 +404,18 @@
         sw.matrixAutoUpdate = false;
         sw.matrix.copy(mx);
         g.add(sw);
+        const real = capMeshes[capType(capSize(m, key), 'none').id];
+        if (real) {
+          const rg = new THREE.BufferGeometry();
+          rg.setAttribute('position', new THREE.BufferAttribute(real.vertices, 3));
+          rg.setAttribute('normal', new THREE.BufferAttribute(real.normals, 3));
+          rg.setIndex(new THREE.BufferAttribute(real.triangles, 1));
+          const rm = new THREE.Mesh(rg, hit.has(key.id) ? mats.capHit : mats.cap);
+          rm.matrixAutoUpdate = false;
+          rm.matrix.copy(mx);
+          g.add(rm);
+          continue;
+        }
         const wide = m.params.widePinky && key.col === m.params.cols - 1 && key.row !== m.params.rows - 1;
         const tall = key.thumb === 'tl' || key.thumb === 'tr';
         const w = CAP.size + (wide ? 9.525 : 0), h = CAP.size + (tall ? 9.525 : 0);
@@ -465,6 +488,7 @@
     void exact.bottom;
     void show;
     void showCaps;
+    void capMeshes;
     void switchGeo;
     void explode;
     void holder;
@@ -690,6 +714,17 @@
 
     {#if model}
       {@const m = model}
+      <KeycapPanel
+        {lang}
+        keys={[...m.keys, ...m.keys].map((k) => capSize(m, k))}
+        stabs="none"
+        client={() => client}
+        fileBase={`dactyl-${p.rows}x${p.cols}`}
+        save={saveFile}
+        bind:params={keycap}
+        bind:show={showCaps}
+        bind:meshes={capMeshes}
+      />
       <WiringPanel {lang} input={() => dactylWiringInput({ model: m, controller: ctrlOn ? ctrl.controller : null, hotswap: variant === 'hotswap', lang })} fileBase={`dactyl-${p.rows}x${p.cols}`} save={saveFile} />
     {/if}
 

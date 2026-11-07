@@ -4,7 +4,8 @@ import opencascade from 'replicad-opencascadejs';
 import wasmUrl from 'replicad-opencascadejs/wasm?url';
 import { setOC, importSTEP, type Shape3D } from 'replicad';
 import { buildPlate, buildCase, buildWedge, screwPilots, loadCell, platePiece, casePiece, type Cell } from '../lib/geometry';
-import type { Request, Response, BuildInput, DactylInput } from './protocol';
+import type { Request, Response, BuildInput, DactylInput, KeycapInput } from './protocol';
+import { buildKeycap, buildCalibration, printPose } from '../lib/keycap';
 import { buildDactyl } from '../lib/dactyl';
 import { buildDactylShell, buildDactylBottom } from '../lib/dactyl-geometry';
 import { controllerHolder } from '../lib/dactyl-parts';
@@ -113,6 +114,19 @@ async function plateFor(input: BuildInput): Promise<Shape3D> {
   return shape;
 }
 
+async function keycapFor(input: KeycapInput): Promise<Shape3D> {
+  const key = 'keycap:' + JSON.stringify(input);
+  const hit = shapeCache.get(key);
+  if (hit) return hit;
+  await init();
+  let shape: Shape3D;
+  if (!input.cap) shape = buildCalibration(input.params);
+  else if (input.pose === 'print') shape = printPose(input.params, await keycapFor({ ...input, pose: 'rest' }));
+  else shape = buildKeycap(input.params, input.cap);
+  remember(key, shape);
+  return shape;
+}
+
 const post = (msg: Response, transfer: Transferable[] = []) =>
   (self as unknown as Worker).postMessage(msg, transfer);
 
@@ -132,8 +146,10 @@ self.onmessage = async (e: MessageEvent<Request>) => {
           ? (await init(), (await importSTEP(new Blob([req.step]))) as Shape3D)
         : req.type === 'dactyl-mesh' || req.type === 'dactyl-export'
           ? await dactylFor(req.input)
+        : req.type === 'keycap-mesh' || req.type === 'keycap-export'
+          ? await keycapFor(req.input)
           : await plateFor(req.input);
-    if (req.type === 'mesh' || req.type === 'switch' || req.type === 'step-mesh' || req.type === 'dactyl-mesh') {
+    if (req.type === 'mesh' || req.type === 'switch' || req.type === 'step-mesh' || req.type === 'dactyl-mesh' || req.type === 'keycap-mesh') {
       const m = shape.mesh({ tolerance: 0.05, angularTolerance: 0.3 });
       const vertices = new Float32Array(m.vertices);
       const normals = new Float32Array(m.normals);
@@ -143,7 +159,7 @@ self.onmessage = async (e: MessageEvent<Request>) => {
         { id: req.id, type: 'mesh', vertices, normals, triangles, bounds: bb, ms: performance.now() - t0 },
         [vertices.buffer, normals.buffer, triangles.buffer],
       );
-    } else if (req.type === 'export' || req.type === 'dactyl-export') {
+    } else if (req.type === 'export' || req.type === 'dactyl-export' || req.type === 'keycap-export') {
       const blob =
         req.format === 'stl'
           ? shape.blobSTL({ binary: true, tolerance: 0.02, angularTolerance: 0.2 })
