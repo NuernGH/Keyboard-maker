@@ -23,6 +23,8 @@ export interface KeycapInput {
 }
 
 /** Dactyl: skorupa albo dno jednej połówki. Model liczymy dla prawej, lewa to lustro. */
+import type { OrganicParams } from '../lib/dactyl-blanket';
+
 export interface DactylInput {
   params: DactylParams;
   variant: 'hotswap' | 'no-hotswap';
@@ -36,6 +38,14 @@ export interface DactylInput {
   floor: number;
   /** rozmiar śrub dna; brak = M3 */
   screwSize?: ScrewSize;
+  /** fazka ostrych krawędzi wierzchu skorupy (mm); brak = 0 (bez) */
+  chamfer?: number;
+  /** łączniki: fartuchy na boczne kanały gniazd hot-swap; brak = nie */
+  slotCover?: boolean;
+  /** skorupa: otoczki jak w Dactylu (OpenCascade), gładki „koc” albo organiczna (siatki, tylko STL); brak = otoczki */
+  shell?: 'hulls' | 'blanket' | 'organic';
+  /** skorupa organiczna: wzór Woronoja na ściankach i jego wymiary */
+  organic?: OrganicParams;
 }
 
 export interface BuildInput {

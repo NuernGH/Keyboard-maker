@@ -51,6 +51,14 @@ export interface DactylProject {
   keycap?: unknown;
   /** kolory podglądu (PreviewColors) */
   colors?: unknown;
+  /** fazka krawędzi wierzchu skorupy (mm) */
+  chamfer?: number;
+  /** łączniki: fartuchy na boczne kanały gniazd */
+  slotCover?: boolean;
+  /** skorupa: łączniki (domyślnie), koc albo organiczna */
+  shellKind?: string;
+  /** skorupa organiczna: wzór Woronoja (OrganicParams) */
+  organic?: unknown;
 }
 
 export interface ProjectFile {
