@@ -1130,6 +1130,7 @@
         bind:params={keycap}
         bind:show={showCaps}
         bind:meshes={capMeshes}
+        bed={[bed.bedX, bed.bedY]}
       />
       <LegendPanel
         {lang}

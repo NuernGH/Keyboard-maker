@@ -158,6 +158,17 @@ describe('legendy: bryły', () => {
     expect(b[1][2]).toBeLessThanOrEqual(a[1][2] + 1e-3);
   }, 120000);
 
+  test('rowek „Back” na misie 2U (litera na szwie misy): poprawna bryła, wkład też', () => {
+    const t2 = capType({ w: 2, h: 1 }, 'cherry');
+    const cap = buildKeycap(DEFAULT_KEYCAP, t2);
+    const lg = { contours: placed({ main: 'Back' }, DEFAULT_KEYCAP, 2), method: 'inlay' as const, depth: 0.6, raise: 0.6 };
+    const g = applyLegend(DEFAULT_KEYCAP, t2, cap, lg);
+    expect(isValidShape(g)).toBe(true);
+    expect(vol(cap) - vol(g)).toBeGreaterThan(1);
+    const inl = inlayPart(DEFAULT_KEYCAP, t2, cap, lg)!;
+    expect(isValidShape(inl)).toBe(true);
+  }, 120000);
+
   test('legenda wtopiona: sposób skuteczny także na misie, przy druku na boku rowek', () => {
     expect(legendMethod({ ...DEFAULT_KEYCAP, legend: { ...DEFAULT_LEGEND, method: 'inlay' } })).toBe('inlay');
     expect(legendMethod({ ...FLAT, legend: { ...DEFAULT_LEGEND, method: 'inlay' } })).toBe('inlay');

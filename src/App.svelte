@@ -1111,6 +1111,7 @@
       bind:params={keycap}
       bind:show={showCaps}
       bind:meshes={capMeshes}
+      bed={[print.bedX, print.bedY]}
     />
     <LegendPanel {lang} keys={leftKeys.concat(single ? [] : rightKeys)} refs={capRefs} bind:params={keycap} bind:labels={capLabels} bind:selected={pickedKey} defaults={defaultSets} fromKeymap={() => keymapLegends(keymapState().data, capRefs)} />
     {/if}

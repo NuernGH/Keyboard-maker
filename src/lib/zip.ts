@@ -61,3 +61,67 @@ export function zipStore(files: { name: string; data: Uint8Array<ArrayBuffer> }[
   end.setUint32(16, offset, true);
   return new Blob([...parts, ...central, end.buffer], { type: 'application/zip' });
 }
+
+/** dane skompresowane metodą deflate (raw), gdy przeglądarka ma CompressionStream; inaczej null */
+async function deflateRaw(data: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer> | null> {
+  if (typeof CompressionStream === 'undefined') return null;
+  try {
+    const out = new Blob([data]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+    return new Uint8Array(await new Response(out).arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ZIP z kompresją deflate (metoda 8), np. dla 3MF z dużymi siatkami w XML. Gdy kompresja niedostępna
+ * albo nic nie daje, plik idzie bez kompresji (metoda „store”).
+ */
+export async function zipDeflate(files: { name: string; data: Uint8Array<ArrayBuffer> }[], type = 'application/zip'): Promise<Blob> {
+  const enc = new TextEncoder();
+  const parts: BlobPart[] = [];
+  const central: Uint8Array<ArrayBuffer>[] = [];
+  let offset = 0;
+  for (const f of files) {
+    const name = enc.encode(f.name);
+    const crc = crc32(f.data);
+    const packed = await deflateRaw(f.data);
+    const useDeflate = !!packed && packed.length < f.data.length;
+    const body = useDeflate ? packed! : f.data;
+    const method = useDeflate ? 8 : 0;
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 0x04034b50, true);
+    local.setUint16(4, 20, true);
+    local.setUint16(6, 0x0800, true);
+    local.setUint16(8, method, true);
+    local.setUint32(14, crc, true);
+    local.setUint32(18, body.length, true);
+    local.setUint32(22, f.data.length, true);
+    local.setUint16(26, name.length, true);
+    parts.push(local.buffer, name, body);
+    const cd = new DataView(new ArrayBuffer(46));
+    cd.setUint32(0, 0x02014b50, true);
+    cd.setUint16(4, 20, true);
+    cd.setUint16(6, 20, true);
+    cd.setUint16(8, 0x0800, true);
+    cd.setUint16(10, method, true);
+    cd.setUint32(16, crc, true);
+    cd.setUint32(20, body.length, true);
+    cd.setUint32(24, f.data.length, true);
+    cd.setUint16(28, name.length, true);
+    cd.setUint32(42, offset, true);
+    const entry = new Uint8Array(46 + name.length);
+    entry.set(new Uint8Array(cd.buffer), 0);
+    entry.set(name, 46);
+    central.push(entry);
+    offset += 30 + name.length + body.length;
+  }
+  const cdSize = central.reduce((s, e) => s + e.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true);
+  end.setUint16(8, files.length, true);
+  end.setUint16(10, files.length, true);
+  end.setUint32(12, cdSize, true);
+  end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, end.buffer], { type });
+}

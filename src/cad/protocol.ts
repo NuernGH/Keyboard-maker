@@ -83,7 +83,7 @@ export type Request =
   | { id: number; type: 'export'; format: 'stl' | 'step'; input: BuildInput }
   | { id: number; type: 'dactyl-mesh'; input: DactylInput }
   | { id: number; type: 'dactyl-export'; format: 'stl' | 'step'; input: DactylInput }
-  | { id: number; type: 'keycap-mesh'; input: KeycapInput }
+  | { id: number; type: 'keycap-mesh'; input: KeycapInput; /** dokładna siatka do pliku (3MF), bez pamięci podglądu */ fine?: boolean }
   | { id: number; type: 'keycap-export'; format: 'stl' | 'step'; input: KeycapInput };
 
 export type Response =
