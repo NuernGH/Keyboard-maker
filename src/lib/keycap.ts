@@ -2,8 +2,10 @@
 // Bryła nakładki (keycap) pod Cherry MX, profil własny: niska nakładka z misą kulistą albo płaską górą.
 // Układ jak komórka: środek klawisza w (0, 0), wierzch płyty z = 0, nakładka w spoczynku.
 
-import { draw, drawRoundedRectangle, makeBox, makeCylinder, makeSphere, type Shape3D, type Sketch } from 'replicad';
+import { draw, drawRoundedRectangle, type Drawing, makeBox, makeCylinder, makeSphere, type Shape3D, type Sketch } from 'replicad';
 import { cutMany } from './geometry';
+import { fuseMany } from './dactyl-geometry';
+import { nestContours, type Contour, type LegendMethod } from './legend';
 import {
   CALIBRATION_CLEARANCES,
   CAP_LIMITS,
@@ -88,6 +90,60 @@ function dShape(x: number, y: number, d: number, flat: number, z0: number, z1: n
   s = cutMany(s, [makeBox([-d, -d, z0 - 1], [d, -flat, z1 + 1])]);
   if (rot) s = s.rotate(rot, [0, 0, 0], [0, 0, 1]) as Shape3D;
   return s.translate(x, y, 0) as Shape3D;
+}
+
+/** Legenda nakładki: kontury liter już ułożone na górze (mm, środek góry = 0, 0) i sposób wykonania. */
+export interface KeycapLegend {
+  contours: Contour[];
+  method: LegendMethod;
+  /** głębokość rowka (mm) */
+  depth: number;
+  /** wysokość wypukłej legendy (mm) */
+  raise: number;
+}
+
+/** Graniastosłup z konturów liter (otwory i wyspy wg zagnieżdżenia, operacje 2D), od z0 do z1. */
+function contourPrism(contours: Contour[], z0: number, z1: number): Shape3D | null {
+  let shape: Drawing | null = null;
+  for (const { contour, depth } of nestContours(contours)) {
+    let pen = draw(contour[0]);
+    for (const q of contour.slice(1)) pen = pen.lineTo(q);
+    const d = pen.close();
+    if (depth % 2 === 0) shape = shape ? shape.fuse(d) : d;
+    else if (shape) shape = shape.cut(d);
+  }
+  return shape ? (shape.sketchOnPlane('XY', z0).extrude(z1 - z0) as Shape3D) : null;
+}
+
+/**
+ * Wypukła legenda (sposób `color`, tylko płaska góra): litery od góry nakładki w górę o `raise`.
+ * Osobna bryła do eksportu dla AMS; przy jednej zmianie filamentu legenda jest połączona z nakładką.
+ */
+export function legendPart(p: KeycapParams, lg: KeycapLegend): Shape3D | null {
+  const L = capLevels(p);
+  return contourPrism(lg.contours, L.topEdge, L.topEdge + lg.raise);
+}
+
+/** Nakładka z legendą: rowek wycięty w górze (wzdłuż misy) albo wypukła legenda dołączona na płaskiej górze. */
+export function applyLegend(p: KeycapParams, type: CapType, cap: Shape3D, lg: KeycapLegend): Shape3D {
+  if (!lg.contours.length) return cap;
+  const L = capLevels(p);
+  if (lg.method === 'color' && p.top === 'flat') {
+    // zachodzi 0,05 mm w górę nakładki: bez wspólnych płaszczyzn przy łączeniu
+    const part = contourPrism(lg.contours, L.topEdge - 0.05, L.topEdge + lg.raise);
+    return part ? fuseMany([cap, part]) : cap;
+  }
+  const prism = contourPrism(lg.contours, L.topLow - lg.depth - 0.5, L.topEdge + 1);
+  if (!prism) return cap;
+  let tool: Shape3D = prism;
+  if (p.top === 'dish') {
+    const [bw, bh] = capBottom(p, type.w, type.h);
+    const ins = topInset(p);
+    const dish = dishTool(p, bw - 2 * ins, bh - 2 * ins, L.topLow);
+    // obszar nad powierzchnią misy przesuniętą w dół o głębokość rowka
+    if (dish) tool = prism.intersect(dish.translate(0, 0, -lg.depth) as Shape3D) as Shape3D;
+  } else tool = prism.intersect(makeBox([-99, -99, L.topEdge - lg.depth], [99, 99, L.topEdge + 1])) as Shape3D;
+  return cutMany(cap, [tool]);
 }
 
 export interface KeycapOptions {
@@ -206,7 +262,7 @@ export function insertPrintPose(p: KeycapParams, insert: Shape3D): Shape3D {
  * płaska góra do góry nogami. Na boku: dłuższą przednią ścianką na stole (pionowe nakładki: lewą).
  * Najniższy punkt na z = 0.
  */
-export function printPose(p: KeycapParams, cap: Shape3D, type?: CapType): Shape3D {
+export function printPose(p: KeycapParams, cap: Shape3D, type?: CapType, topUp = false): Shape3D {
   const L = capLevels(p);
   if (p.orient === 'side') {
     const deg = (Math.atan(taperK(p)) * 180) / Math.PI;
@@ -215,7 +271,8 @@ export function printPose(p: KeycapParams, cap: Shape3D, type?: CapType): Shape3
     const bb = (r as Shape3D).boundingBox.bounds;
     return (r as Shape3D).translate(-(bb[0][0] + bb[1][0]) / 2, -(bb[0][1] + bb[1][1]) / 2, -bb[0][2]) as Shape3D;
   }
-  if (p.top === 'flat') return cap.clone().rotate(180, [0, 0, 0], [1, 0, 0]).translate(0, 0, L.topEdge) as Shape3D;
+  // płaska góra do góry nogami; z wypukłą legendą w kolorze (`topUp`) górą do góry, jak misa
+  if (p.top === 'flat' && !topUp) return cap.clone().rotate(180, [0, 0, 0], [1, 0, 0]).translate(0, 0, L.topEdge) as Shape3D;
   return cap.clone().translate(0, 0, -L.z0) as Shape3D;
 }
 

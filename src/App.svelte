@@ -21,6 +21,8 @@
   import CustomController from './ui/CustomController.svelte';
   import WiringPanel from './ui/WiringPanel.svelte';
   import KeycapPanel from './ui/KeycapPanel.svelte';
+  import LegendPanel from './ui/LegendPanel.svelte';
+  import { legendRef, type PlacedLegend } from './lib/legend';
   import { DEFAULT_KEYCAP, type KeycapParams } from './lib/keycap-spec';
   import ProjectBar from './ui/ProjectBar.svelte';
   import Tabs from './ui/Tabs.svelte';
@@ -50,7 +52,9 @@
   let showSwitches = $state(true);
   let switchMesh = $state<PreviewMesh | null>(null);
   /** nakładki: parametry profilu, widoczność w podglądzie i siatki typów */
-  let keycap = $state<KeycapParams>({ ...DEFAULT_KEYCAP });
+  let keycap = $state<KeycapParams>(structuredClone(DEFAULT_KEYCAP));
+  /** ułożone legendy klawiszy (do podglądu 3D), klucz `${strona}:${id}` */
+  let capLabels = $state<Record<string, PlacedLegend[]>>({});
   let showCaps = $state(false);
   let capMeshes = $state<Record<string, PreviewMesh>>({});
   let caseP = $state<CaseParams>({ ...DEFAULT_CASE });
@@ -465,6 +469,7 @@
       layout: TEMPLATES.find((x) => x.id === templateId)?.name[lang] ?? templateId,
     });
   let tab = $state<PanelTab>('keyboard');
+  const capRefs = $derived(leftKeys.map((k) => legendRef('left', k.id)).concat(single ? [] : rightKeys.map((k) => legendRef('right', k.id))));
   // na zakładce Nakładki podgląd pokazuje nakładki
   $effect(() => {
     if (tab === 'keycaps') showCaps = true;
@@ -863,6 +868,7 @@
     <KeycapPanel
       {lang}
       keys={leftKeys.concat(single ? [] : rightKeys)}
+      refs={capRefs}
       stabs={plate.stabs ?? 'cherry'}
       client={() => client('right')}
       fileBase={templateId}
@@ -871,6 +877,7 @@
       bind:show={showCaps}
       bind:meshes={capMeshes}
     />
+    <LegendPanel {lang} keys={leftKeys.concat(single ? [] : rightKeys)} refs={capRefs} bind:params={keycap} bind:labels={capLabels} />
     {/if}
     {#if tab === 'wiring'}
     <WiringPanel {lang} input={wiringInput} fileBase={templateId} save={saveFile} />

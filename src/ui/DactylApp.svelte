@@ -12,6 +12,8 @@
   import { t, type Lang } from './i18n';
   import WiringPanel from './WiringPanel.svelte';
   import KeycapPanel from './KeycapPanel.svelte';
+  import LegendPanel from './LegendPanel.svelte';
+  import { legendRef, type PlacedLegend } from '../lib/legend';
   import { DEFAULT_KEYCAP, capType, type KeycapParams } from '../lib/keycap-spec';
   import ProjectBar from './ProjectBar.svelte';
   import Tabs from './Tabs.svelte';
@@ -192,7 +194,8 @@
       keycap: $state.snapshot(keycap),
     });
   /** nakładki: profil i siatki typów (gdy są, podgląd pokazuje prawdziwe nakładki zamiast uproszczonych) */
-  let keycap = $state<KeycapParams>(i0 ? mergeDefaults(DEFAULT_KEYCAP, i0.keycap) : { ...DEFAULT_KEYCAP });
+  let keycap = $state<KeycapParams>(i0 ? mergeDefaults(DEFAULT_KEYCAP, i0.keycap) : structuredClone(DEFAULT_KEYCAP));
+  let capLabels = $state<Record<string, PlacedLegend[]>>({});
   let capMeshes = $state<Record<string, PreviewMesh>>({});
   /** rozmiar nakładki klawisza Dactyla w U: szeroki mały palec 1,5U wzdłuż X, górne klawisze kciuka 1,5U wzdłuż Y */
   const capSize = (m: DactylModel, k: DactylModel['keys'][number]) => ({
@@ -766,6 +769,7 @@
       <KeycapPanel
         {lang}
         keys={[...m.keys, ...m.keys].map((k) => capSize(m, k))}
+        refs={[...m.keys.map((k) => legendRef('left', k.id)), ...m.keys.map((k) => legendRef('right', k.id))]}
         stabs="none"
         client={() => client}
         fileBase={`dactyl-${p.rows}x${p.cols}`}
@@ -773,6 +777,13 @@
         bind:params={keycap}
         bind:show={showCaps}
         bind:meshes={capMeshes}
+      />
+      <LegendPanel
+        {lang}
+        keys={[...m.keys, ...m.keys].map((k) => capSize(m, k))}
+        refs={[...m.keys.map((k) => legendRef('left', k.id)), ...m.keys.map((k) => legendRef('right', k.id))]}
+        bind:params={keycap}
+        bind:labels={capLabels}
       />
       {:else if tab === 'wiring'}
       <WiringPanel {lang} input={() => dactylWiringInput({ model: m, controller: ctrlOn ? ctrl.controller : null, hotswap: variant === 'hotswap', lang })} fileBase={`dactyl-${p.rows}x${p.cols}`} save={saveFile} />
