@@ -50,7 +50,25 @@ export interface CaseParams {
    * w dnie przesuwa się tak, żeby śruba weszła w płytę; gdy się nie da, CaseLayout.screwWarn.
    */
   screwLength?: number;
+  /**
+   * Cienka obudowa (opcja dodatkowa, domyślnie wyłączona): panel ustawia wtedy SLIM_CASE
+   * (mniej miejsca na przewody, cieńsze dno, śruby M2,5), a bez hot-swap dno zostaje
+   * MX_PINS.slimGap mm pod końcami pinów zamiast MX_PINS.minGap.
+   */
+  slim?: boolean;
 }
+
+/** Wartości cienkiej obudowy (analiza 2026-11-07: 60% hot-swap 14,6 → 12,1 mm). */
+export const SLIM_CASE: Pick<CaseParams, 'space' | 'floor' | 'screwSize'> = { space: 1.5, floor: 2, screwSize: 'M2.5' };
+/** Najcieńsze dno w panelu: zwykle 2,6 mm, w cienkiej obudowie 1,6 mm. */
+export const FLOOR_MIN = { normal: 2.6, slim: 1.6 };
+
+/**
+ * Przełącznik MX: końce pinów pod wierzchem płyty (Cherry: obudowa 5,0 + piny 3,3). Komórka bez
+ * hot-swap (5,08) kończy się wyżej, więc wierzch dna musi zostać pod końcami pinów: co najmniej
+ * minGap mm (lut, drut), w cienkiej obudowie slimGap mm (tyle, ile ustala sama wartość).
+ */
+export const MX_PINS = { depth: 8.3, minGap: 0.8, slimGap: 1.2 };
 
 export const DEFAULT_CASE: CaseParams = {
   enabled: true,
@@ -341,7 +359,8 @@ export function caseLayout(
   stabs: 'cherry' | 'mx' | 'none' = 'cherry',
 ): CaseLayout {
   const lowest = Math.max(cellHeight, island?.depth ?? 0);
-  const floorTop = -lowest - cp.space;
+  let floorTop = -lowest - cp.space;
+  if (cellHeight < MX_PINS.depth) floorTop = Math.min(floorTop, -MX_PINS.depth - (cp.slim ? MX_PINS.slimGap : MX_PINS.minGap));
   const bottom = floorTop - cp.floor;
   const sp = screwSpec(cp.screwSize);
   const pilotDepth = Math.max(Math.min(6, cellHeight - 1.5), 2);
@@ -361,10 +380,13 @@ export function caseLayout(
   };
   const below = cp.floor - sp.headDepth + standH;
   const fit = STANDARD_LENGTHS.filter((l) => l - below >= SCREW_BITE.min && l - below <= pilotDepth);
-  const auto = fit.length ? fit[fit.length - 1] : Math.ceil(below + Math.min(4, pilotDepth));
   const screwFits = STANDARD_LENGTHS.filter((l) => fits(bite(l, headFor(l))));
+  // automatycznie: najdłuższa pasująca przy zwykłym wybraniu; gdy żadna, najdłuższa pasująca
+  // z głębszym wybraniem (np. cienkie dno), dopiero potem przybliżenie
+  const autoDeep = !fit.length && screwFits.length > 0;
+  const auto = fit.length ? fit[fit.length - 1] : autoDeep ? screwFits[screwFits.length - 1] : Math.ceil(below + Math.min(4, pilotDepth));
   const screwLength = cp.screwLength && cp.screwLength > 0 ? cp.screwLength : auto;
-  const headDepth = cp.screwLength && cp.screwLength > 0 ? headFor(screwLength) : minHead;
+  const headDepth = (cp.screwLength && cp.screwLength > 0) || autoDeep ? headFor(screwLength) : minHead;
   const b = bite(screwLength, headDepth);
   const screwWarn: CaseLayout['screwWarn'] = !cp.screwLength || fits(b)
     ? null
