@@ -5,9 +5,9 @@
  * bo w splicie prawa połówka ma te same id co lewa (pozycje lustrzane).
  */
 import type { Key, SplitParams } from './layout';
+import type { LegendSet } from './legend';
 
-export type LegendLayer = 'main' | 'shift' | 'altgr' | 'fn';
-export type KeyLegends = Partial<Record<LegendLayer, string>>;
+type KeyLegends = LegendSet;
 type Side = 'left' | 'right';
 
 const ANSI60_MAIN: string[][] = [
@@ -87,28 +87,4 @@ export function dactylLegends(keys: { id: string; col?: number; row?: number; th
     out[k.id] = withShift(main, SPLIT_SHIFT[main]);
   }
   return out;
-}
-
-/** napis na wierzchu nakładki (mm, środek nakładki = 0, +y od użytkownika) */
-export interface LegendItem {
-  text: string;
-  x: number;
-  y: number;
-  /** wysokość znaków, mm */
-  size: number;
-  layer: LegendLayer | string;
-}
-
-/**
- * Proste rozmieszczenie do podglądu (do czasu właściwego układu legend z etapu 2 nakładek):
- * główna w lewym górnym rogu, znak z Shiftem nad nią. `topW`/`topH` = wymiary wierzchu (mm).
- */
-export function simpleLegendLayout(l: KeyLegends, topW: number, topH: number): LegendItem[] {
-  const items: LegendItem[] = [];
-  const left = -topW / 2 + 1.2;
-  const long = (l.main?.length ?? 0) > 1;
-  if (l.shift) items.push({ text: l.shift, x: left, y: topH / 2 - 2.4, size: 3.4, layer: 'shift' });
-  if (l.main)
-    items.push({ text: l.main, x: left, y: l.shift ? -topH / 2 + 3.2 : topH / 2 - (long ? 2.6 : 3.2), size: long ? 3.4 : 4.6, layer: 'main' });
-  return items;
 }

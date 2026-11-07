@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { COLOR_THEMES, DEFAULT_COLORS, applyTheme, autoGroup, isDark, rainbow, resolveKeys, type ColorKey } from '../src/lib/colors';
-import { defaultLegends, dactylLegends, isAnsi60, simpleLegendLayout } from '../src/lib/legend-defaults';
+import { defaultLegends, dactylLegends, isAnsi60 } from '../src/lib/legend-defaults';
 import { ANSI_60, TEMPLATES, mirrorKeys, splitLeft } from '../src/lib/layout';
 import { mergeDefaults, makeProject, parseProject } from '../src/lib/project';
 import { DACTYL_DEFAULT, buildDactyl } from '../src/lib/dactyl';
@@ -98,13 +98,5 @@ describe('domyślne legendy', () => {
     expect(L[k.id].main).toBe('T');
     expect(R[k.id].main).toBe('Y');
     expect(m.keys.filter((q) => q.thumb).every((q) => !!L[q.id].main)).toBe(true);
-  });
-
-  it('rozmieszczenie mieści się na wierzchu nakładki', () => {
-    const items = simpleLegendLayout({ main: '1', shift: '!' }, 11.9, 11.9);
-    for (const it of items) {
-      expect(Math.abs(it.x)).toBeLessThan(11.9 / 2);
-      expect(Math.abs(it.y) + it.size / 2).toBeLessThanOrEqual(11.9 / 2 + 0.01);
-    }
   });
 });

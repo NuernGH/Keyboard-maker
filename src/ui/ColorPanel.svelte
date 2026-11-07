@@ -12,7 +12,6 @@
     lang,
     kind = 'flat',
     colors = $bindable(),
-    pick = $bindable(),
     selected = $bindable(),
     keyInfo,
     capsShown,
@@ -22,8 +21,6 @@
     /** Dactyl: obudowa = skorupa, płyta = dno, bez klina */
     kind?: 'flat' | 'dactyl';
     colors: PreviewColors;
-    /** wybieranie klawiszy kliknięciem w podglądzie */
-    pick: boolean;
     /** wybrany klawisz (`strona:id`) albo null */
     selected: string | null;
     /** nazwa i rozmiar wybranego klawisza (do grupy automatycznej i opisu) */
@@ -55,14 +52,13 @@
       capsHidden: 'Nakładek nie widać w podglądzie.',
       showCaps: 'Pokaż nakładki',
       legends: 'Legendy',
-      showNames: 'Pokaż nazwy klawiszy (tylko podgląd)',
-      namesNote: 'Tymczasowe nazwy; zastąpią je legendy z etapu 2 nakładek.',
+      showNames: 'Pokaż domyślne opisy klawiszy bez własnych legend',
+      namesNote: 'Tylko podgląd. Do druku trafiają legendy z tabeli na karcie Nakładki (przycisk „Wstaw domyślne opisy”).',
       mode: 'Kolor legend',
       byGroup: 'wg grup',
       rainbow: 'tęcza',
       keys: 'Pojedyncze klawisze',
-      pick: 'Wybieraj klawisz kliknięciem w podglądzie',
-      pickHint: 'Kliknij nakładkę w podglądzie.',
+      pickHint: 'Kliknij nakładkę w podglądzie (albo wiersz w tabeli legend na karcie Nakładki).',
       key: 'Klawisz',
       group: 'Grupa',
       auto: 'automatycznie',
@@ -97,14 +93,13 @@
       capsHidden: 'Keycaps are hidden in the preview.',
       showCaps: 'Show keycaps',
       legends: 'Legends',
-      showNames: 'Show key names (preview only)',
-      namesNote: 'Temporary names; keycap stage 2 legends will replace them.',
+      showNames: 'Show default key names on keys without own legends',
+      namesNote: 'Preview only. Printed legends come from the table on the Keycaps tab (“Insert default names” button).',
       mode: 'Legend colour',
       byGroup: 'by group',
       rainbow: 'rainbow',
       keys: 'Single keys',
-      pick: 'Pick a key by clicking in the preview',
-      pickHint: 'Click a keycap in the preview.',
+      pickHint: 'Click a keycap in the preview (or a row in the legend table on the Keycaps tab).',
       key: 'Key',
       group: 'Group',
       auto: 'automatic',
@@ -127,7 +122,6 @@
   function turnOn(e: Event) {
     const on = (e.currentTarget as HTMLInputElement).checked;
     colors.on = on;
-    if (!on) pick = false;
   }
   function doTheme() {
     colors = applyTheme($state.snapshot(colors) as PreviewColors, themeSel);
@@ -226,8 +220,7 @@
     {/if}
 
     <h3>{tx('keys')}</h3>
-    <label class="check"><input type="checkbox" bind:checked={pick} /> {tx('pick')}</label>
-    {#if pick && !selected}<p class="muted">{tx('pickHint')}</p>{/if}
+    {#if !selected}<p class="muted">{tx('pickHint')}</p>{/if}
     {#if selected}
       <p class="sel">{tx('key')}: <b>{info?.main || selected.split(':')[1]}</b> <span class="muted">({sideName(selected)})</span></p>
       <label>{tx('group')}

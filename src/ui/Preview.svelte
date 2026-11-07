@@ -8,8 +8,8 @@
   import { loadControllerModel, placeOnBoard } from './controllerModel';
   import { capType } from '../lib/keycap-spec';
   import type { PreviewColors, KeyLook } from '../lib/colors';
-  import type { LegendItem } from '../lib/legend-defaults';
-  import { capTop, disposeGlow, glowGroup, legendPlane } from './previewDecor';
+  import type { PlacedLegend } from '../lib/legend';
+  import { disposeGlow, glowGroup, legendPlane, loadLegendFace, meshTop } from './previewDecor';
 
   export interface PreviewMesh {
     vertices: Float32Array;
@@ -44,6 +44,7 @@
     looks = null,
     labels = null,
     pickKey = null,
+    selected = null,
   }: {
     halves: PreviewHalf[];
     cellHeight: number;
@@ -57,10 +58,12 @@
     colors?: PreviewColors | null;
     /** kolor nakładki i legendy każdego klawisza (`strona:id`) */
     looks?: Record<string, KeyLook> | null;
-    /** legendy na wierzchu nakładek (`strona:id`), mm od środka wierzchu */
-    labels?: Record<string, LegendItem[]> | null;
-    /** kliknięcie nakładki w podglądzie (wybór klawisza do pokolorowania); null = wyłączone */
+    /** legendy na wierzchu nakładek (`strona:id`), jak z legendLayout (mm od środka wierzchu) */
+    labels?: Record<string, PlacedLegend[]> | null;
+    /** kliknięcie nakładki w podglądzie (wybór klawisza); null = wyłączone */
     pickKey?: ((ref: string) => void) | null;
+    /** wybrany klawisz (`strona:id`): podświetlony w podglądzie */
+    selected?: string | null;
   } = $props();
   const colorsOn = $derived(!!colors?.on);
 
@@ -95,6 +98,15 @@
   /** podświetlenie pod obudową (osobna grupa, przebudowywana razem z podglądem) */
   let glow = new THREE.Group();
   const legendTex = new Map<string, THREE.CanvasTexture>();
+  const selMat = new THREE.MeshBasicMaterial({ color: 0xffb020, transparent: true, opacity: 0.35, depthWrite: false });
+  const selEdgeMat = new THREE.LineBasicMaterial({ color: 0xff8a00 });
+  // po wczytaniu czcionki legend rysujemy je od nowa (wcześniej tekstury miały czcionkę zastępczą)
+  let faceReady = $state(false);
+  void loadLegendFace().then(() => {
+    legendTex.forEach((t) => t.dispose());
+    legendTex.clear();
+    faceReady = true;
+  });
 
   const ghostMats: Record<GhostPart['kind'], THREE.Material> = {
     nano: new THREE.MeshStandardMaterial({ color: 0x2a6f97, roughness: 0.6 }),
@@ -258,13 +270,26 @@
           });
           im.userData.refs = ks.map((k) => `${side}:${k.id}`);
           hg.add(im);
-          if (colorsOn && labels) {
-            const top = capTop(g);
+          const sk = selected ? ks.find((k) => `${side}:${k.id}` === selected) : undefined;
+          if (sk) {
+            // wybrany klawisz: półprzezroczysta poświata na nakładce i obrys
+            const hl = new THREE.Group();
+            hl.position.set(sk.x, sk.y, 0);
+            hl.rotation.z = (sk.rot * Math.PI) / 180;
+            const hm = new THREE.Mesh(g, selMat);
+            hm.scale.setScalar(1.03);
+            hl.add(hm);
+            hl.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 40), selEdgeMat));
+            hl.userData.highlight = true;
+            hg.add(hl);
+          }
+          if (labels) {
+            const top = meshTop(g);
             for (const k of ks) {
               const ref = `${side}:${k.id}`;
               const items = labels[ref];
               if (!items?.length) continue;
-              const lm = legendPlane(legendTex, items, looks?.[ref]?.legend ?? '#222222', top.w, top.h);
+              const lm = legendPlane(legendTex, items, (colorsOn && looks?.[ref]?.legend) || '#3a3f46', top.w, top.h);
               lm.position.set(0, 0, top.z + 0.04);
               const holder = new THREE.Group();
               holder.position.set(k.x, k.y, 0);
@@ -359,6 +384,8 @@
     void colors;
     void looks;
     void labels;
+    void selected;
+    void faceReady;
     applyColors();
     rebuild();
   });

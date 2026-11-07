@@ -12,12 +12,18 @@
   import { t, type Lang } from './i18n';
   import WiringPanel from './WiringPanel.svelte';
   import KeycapPanel from './KeycapPanel.svelte';
-  import { DEFAULT_KEYCAP, capType, topInset, type KeycapParams } from '../lib/keycap-spec';
+  import LegendPanel from './LegendPanel.svelte';
+  import { DEFAULT_LEGEND, legendLayout, legendRef, type LegendSet, type PlacedLegend } from '../lib/legend';
+  import { DEFAULT_KEYCAP, capTop, capType, type KeycapParams } from '../lib/keycap-spec';
+  import { legendFont } from './font';
+  import type { Font } from 'opentype.js';
   import ColorPanel from './ColorPanel.svelte';
   import { DEFAULT_COLORS, resolveKeys, type PreviewColors } from '../lib/colors';
-  import { dactylLegends, simpleLegendLayout, type LegendItem } from '../lib/legend-defaults';
-  import { capTop, disposeGlow, glowGroup, legendPlane } from './previewDecor';
+  import { dactylLegends } from '../lib/legend-defaults';
+  import { disposeGlow, glowGroup, legendPlane, loadLegendFace, meshTop } from './previewDecor';
   import ProjectBar from './ProjectBar.svelte';
+  import Tabs from './Tabs.svelte';
+  import { PANEL_TABS, type PanelTab } from './tabs';
   import { makeProject, mergeDefaults, type DactylProject, type ProjectFile } from '../lib/project';
   import { dactylWiringInput } from '../lib/wiring-doc';
   import Tooltip from './Tooltip.svelte';
@@ -175,6 +181,10 @@
   let floor = $state(pick(i0?.floor, isNum, 4));
   let screwSize = $state<ScrewSize>(pick(i0?.screwSize, (x) => x === 'M3' || x === 'M2.5', 'M3'));
   let explode = $state(pick(i0?.explode, isNum, 20));
+  let tab = $state<PanelTab>('keyboard');
+  $effect(() => {
+    if (tab === 'keycaps') showCaps = true;
+  });
   let showCaps = $state(pick(i0?.showCaps, isBool, true));
   const dactylProject = (): ProjectFile =>
     makeProject('dactyl', {
@@ -191,10 +201,11 @@
       colors: $state.snapshot(colors),
     });
   /** nakładki: profil i siatki typów (gdy są, podgląd pokazuje prawdziwe nakładki zamiast uproszczonych) */
-  let keycap = $state<KeycapParams>(i0 ? mergeDefaults(DEFAULT_KEYCAP, i0.keycap) : { ...DEFAULT_KEYCAP });
+  let keycap = $state<KeycapParams>(i0 ? mergeDefaults(DEFAULT_KEYCAP, i0.keycap) : structuredClone(DEFAULT_KEYCAP));
+  let capLabels = $state<Record<string, PlacedLegend[]>>({});
   /** kolory podglądu (domyślnie wyłączone = podgląd jak dotąd) */
   let colors = $state<PreviewColors>(i0 ? mergeDefaults(DEFAULT_COLORS, i0.colors) : structuredClone(DEFAULT_COLORS));
-  let pickKey = $state(false);
+  /** wybrany klawisz (`strona:id`): wiersz w tabeli legend, kolory klawisza, podświetlenie w podglądzie */
   let pickedKey = $state<string | null>(null);
   let capMeshes = $state<Record<string, PreviewMesh>>({});
   /** rozmiar nakładki klawisza Dactyla w U: szeroki mały palec 1,5U wzdłuż X, górne klawisze kciuka 1,5U wzdłuż Y */
@@ -405,8 +416,12 @@
   const legends = $derived(
     model ? { left: dactylLegends(model.keys, model.params.rows, 'left'), right: dactylLegends(model.keys, model.params.rows, 'right') } : null,
   );
+  const defaultSets = $derived(
+    legends ? (Object.fromEntries((['left', 'right'] as const).flatMap((sd) => Object.entries(legends[sd]).map(([id, l]) => [legendRef(sd, id), l]))) as Record<string, LegendSet>) : {},
+  );
+  const mainOf = (ref: string) => keycap.legends?.[ref]?.main ?? defaultSets[ref]?.main ?? '';
   const looks = $derived.by(() => {
-    if (!colors.on || !model || !legends) return null;
+    if (!colors.on || !model) return null;
     const m = model;
     // tęcza: x klawisza w widoku (lewa połówka to lustro przesunięte w lewo, jak w rebuild)
     const minX = Math.min(...m.keys.map((k) => k.frame.t[0]));
@@ -414,31 +429,40 @@
       m.keys.map((k) => {
         const sz = capSize(m, k);
         const x = k.frame.t[0];
-        return { ref: `${s}:${k.id}`, main: legends[s][k.id]?.main ?? '', w: sz.w, h: sz.h, x: s === 'left' ? 2 * minX - 30 - x : x, y: k.frame.t[1] };
+        const ref = `${s}:${k.id}`;
+        return { ref, main: mainOf(ref), w: sz.w, h: sz.h, x: s === 'left' ? 2 * minX - 30 - x : x, y: k.frame.t[1] };
       }),
     );
     return resolveKeys(colors, keys, true);
   });
-  const labels = $derived.by<Record<string, LegendItem[]> | null>(() => {
-    if (!colors.on || !colors.legends.show || !model || !legends) return null;
+  let font = $state.raw<Font | null>(null);
+  void legendFont().then((f) => (font = f), () => {});
+  /** legendy w podglądzie: z tabeli, a bez własnych (przy kolorach z nazwami klawiszy) domyślne opisy */
+  const labels = $derived.by<Record<string, PlacedLegend[]> | null>(() => {
+    if (!font || !model) return null;
     const m = model;
-    const inset = topInset(keycap);
-    const out: Record<string, LegendItem[]> = {};
+    const own = keycap.legends ?? {};
+    const withDefaults = colors.on && colors.legends.show;
+    const lp = keycap.legend ?? DEFAULT_LEGEND;
+    const kp = $state.snapshot(keycap) as KeycapParams;
+    const out: Record<string, PlacedLegend[]> = {};
     for (const s of ['left', 'right'] as const)
       for (const k of m.keys) {
-        const l = legends[s][k.id];
-        if (!l) continue;
+        const ref = legendRef(s, k.id);
+        const set = own[ref] ?? (withDefaults ? defaultSets[ref] : undefined);
+        if (!set || !Object.keys(set).length) continue;
         const sz = capSize(m, k);
-        out[`${s}:${k.id}`] = simpleLegendLayout(l, sz.w * 19.05 - keycap.gap - 2 * inset, sz.h * 19.05 - keycap.gap - 2 * inset);
+        const [tw, th] = capTop(kp, sz.w, sz.h);
+        out[ref] = legendLayout(font, $state.snapshot(set) as LegendSet, tw, th, lp);
       }
     return out;
   });
   function keyInfo(ref: string) {
-    const [s, id] = ref.split(':') as ['left' | 'right', string];
+    const [, id] = ref.split(':') as ['left' | 'right', string];
     const k = model?.keys.find((q) => q.id === id);
     if (!k || !model) return null;
     const sz = capSize(model, k);
-    return { main: legends?.[s]?.[k.id]?.main ?? '', w: sz.w, h: sz.h, named: true };
+    return { main: mainOf(ref), w: sz.w, h: sz.h, named: true };
   }
   const capMatCache = new Map<string, THREE.MeshStandardMaterial>();
   const tintMat = (c: string) => {
@@ -506,7 +530,8 @@
           rm.matrix.copy(mx);
           rm.userData.ref = `${side}:${key.id}`;
           g.add(rm);
-          addLegend(g, side, key.id, mx, capTop(rg));
+          addLegend(g, side, key.id, mx, meshTop(rg));
+          if (pickedKey === `${side}:${key.id}` && (tab === 'keycaps' || tab === 'colors')) addHighlight(g, rg, mx);
           continue;
         }
         const wide = m.params.widePinky && key.col === m.params.cols - 1 && key.row !== m.params.rows - 1;
@@ -529,6 +554,7 @@
         cm.userData.ref = `${side}:${key.id}`;
         g.add(cm);
         addLegend(g, side, key.id, mx, { w: w - (CAP.size - CAP.top), h: h - (CAP.size - CAP.top), z: CAP.z1 });
+        if (pickedKey === `${side}:${key.id}` && (tab === 'keycaps' || tab === 'colors')) addHighlight(g, cg, mx);
       }
     }
     return g;
@@ -539,7 +565,7 @@
     const ref = `${side}:${id}`;
     const items = labels?.[ref];
     if (!items?.length) return;
-    const lm = legendPlane(legendTex, items, looks?.[ref]?.legend ?? '#222222', top.w, top.h);
+    const lm = legendPlane(legendTex, items, (colors.on && looks?.[ref]?.legend) || '#3a3f46', top.w, top.h);
     lm.position.z = top.z + 0.04;
     if (side === 'left') lm.scale.x = -1;
     const holder = new THREE.Group();
@@ -548,6 +574,26 @@
     holder.add(lm);
     g.add(holder);
   }
+
+  const selMat = new THREE.MeshBasicMaterial({ color: 0xffb020, transparent: true, opacity: 0.35, depthWrite: false });
+  const selEdgeMat = new THREE.LineBasicMaterial({ color: 0xff8a00 });
+  /** wybrany klawisz: półprzezroczysta poświata na nakładce i obrys */
+  function addHighlight(g: THREE.Group, geo: THREE.BufferGeometry, mx: THREE.Matrix4) {
+    const hl = new THREE.Group();
+    hl.matrixAutoUpdate = false;
+    hl.matrix.copy(mx);
+    const hm = new THREE.Mesh(geo, selMat);
+    hm.scale.setScalar(1.03);
+    hl.add(hm);
+    hl.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 40), selEdgeMat));
+    g.add(hl);
+  }
+  let faceReady = $state(false);
+  void loadLegendFace().then(() => {
+    legendTex.forEach((t) => t.dispose());
+    legendTex.clear();
+    faceReady = true;
+  });
 
   function rebuild() {
     if (!scene) return;
@@ -612,6 +658,9 @@
     void caps;
     void looks;
     void labels;
+    void pickedKey;
+    void tab;
+    void faceReady;
     void colors.on;
     void colors.glow.on;
     void colors.glow.mode;
@@ -681,7 +730,7 @@
     const onUp = (e: PointerEvent) => {
       const d = down;
       down = null;
-      if (!colors.on || !pickKey || !d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) return;
+      if (!(tab === 'keycaps' || tab === 'colors') || !d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) return;
       const r = renderer.domElement.getBoundingClientRect();
       const ray = new THREE.Raycaster();
       ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
@@ -755,6 +804,9 @@
       <ProjectBar {lang} name={`dactyl-${p.rows}x${p.cols}`} get={dactylProject} onLoad={onProject} />
     </section>
 
+    <Tabs tabs={PANEL_TABS.map((id) => ({ id, label: t(lang, `tab_${id}` as const) }))} bind:value={tab} />
+
+    {#if tab === 'keyboard'}
     <section>
       <h2>{t(lang, 'template')}</h2>
       <select value="dactyl" onchange={(e) => onTemplate(e.currentTarget.value)} aria-label={t(lang, 'template')}>
@@ -887,12 +939,15 @@
       {/each}
       <p class="muted">{tx('slow')}</p>
     </section>
+    {/if}
 
     {#if model}
       {@const m = model}
+      {#if tab === 'keycaps'}
       <KeycapPanel
         {lang}
         keys={[...m.keys, ...m.keys].map((k) => capSize(m, k))}
+        refs={[...m.keys.map((k) => legendRef('left', k.id)), ...m.keys.map((k) => legendRef('right', k.id))]}
         stabs="none"
         client={() => client}
         fileBase={`dactyl-${p.rows}x${p.cols}`}
@@ -901,17 +956,28 @@
         bind:show={showCaps}
         bind:meshes={capMeshes}
       />
+      <LegendPanel
+        {lang}
+        keys={[...m.keys, ...m.keys].map((k) => capSize(m, k))}
+        refs={[...m.keys.map((k) => legendRef('left', k.id)), ...m.keys.map((k) => legendRef('right', k.id))]}
+        bind:params={keycap}
+        bind:labels={capLabels}
+        bind:selected={pickedKey}
+        defaults={defaultSets}
+      />
+      {:else if tab === 'colors'}
       <ColorPanel
         {lang}
         kind="dactyl"
         bind:colors
-        bind:pick={pickKey}
         bind:selected={pickedKey}
         {keyInfo}
         capsShown={showCaps}
         showCaps={() => (showCaps = true)}
       />
+      {:else if tab === 'wiring'}
       <WiringPanel {lang} input={() => dactylWiringInput({ model: m, controller: ctrlOn ? ctrl.controller : null, hotswap: variant === 'hotswap', lang })} fileBase={`dactyl-${p.rows}x${p.cols}`} save={saveFile} />
+      {/if}
     {/if}
 
     <footer class="muted">

@@ -4,13 +4,13 @@
  * (tekstura z canvas) i podświetlenie RGB pod obudową. Tylko wygląd; nic z tego nie trafia do plików.
  */
 import * as THREE from 'three';
-import type { LegendItem } from '../lib/legend-defaults';
+import type { PlacedLegend } from '../lib/legend';
 import type { PreviewColors } from '../lib/colors';
 
 const topCache = new WeakMap<THREE.BufferGeometry, { w: number; h: number; z: number }>();
 
 /** wymiary płaskiego wierzchu nakładki (mm) i jego wysokość, z siatki nakładki (środek w 0, 0) */
-export function capTop(g: THREE.BufferGeometry): { w: number; h: number; z: number } {
+export function meshTop(g: THREE.BufferGeometry): { w: number; h: number; z: number } {
   let t = topCache.get(g);
   if (t) return t;
   const pa = g.getAttribute('position');
@@ -29,11 +29,31 @@ export function capTop(g: THREE.BufferGeometry): { w: number; h: number; z: numb
   return t;
 }
 
+/** czcionka legend (ta sama co w plikach do druku) jako FontFace do rysowania na canvas */
+const FACE = 'LegendNotoSans';
+let facePending: Promise<boolean> | null = null;
+export function loadLegendFace(): Promise<boolean> {
+  facePending ??= (async () => {
+    try {
+      const f = new FontFace(FACE, `url(${import.meta.env.BASE_URL}fonts/NotoSans-Bold.ttf)`, { weight: '700' });
+      await f.load();
+      document.fonts.add(f);
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  return facePending;
+}
+/** wysokość wielkiej litery Noto Sans w em */
+const CAP_EM = 0.714;
+
 /**
- * Płaszczyzna z napisami legendy, środek = środek wierzchu nakładki. Tekstury trzymane w `cache`
- * (klucz: napisy, kolor, wymiary), żeby przebudowa podglądu nie rysowała ich od nowa.
+ * Płaszczyzna z legendami, środek = środek wierzchu nakładki (`w` × `h` mm). Legendy jak z legendLayout:
+ * x, y = środek napisu (mm, +y od użytkownika), size = wysokość wielkiej litery (mm).
+ * Tekstury trzymane w `cache`, żeby przebudowa podglądu nie rysowała ich od nowa.
  */
-export function legendPlane(cache: Map<string, THREE.CanvasTexture>, items: LegendItem[], color: string, w: number, h: number): THREE.Mesh {
+export function legendPlane(cache: Map<string, THREE.CanvasTexture>, items: PlacedLegend[], color: string, w: number, h: number): THREE.Mesh {
   const PX = 24; // pikseli na mm
   const key = JSON.stringify([items, color, w.toFixed(2), h.toFixed(2)]);
   let tex = cache.get(key);
@@ -43,11 +63,12 @@ export function legendPlane(cache: Map<string, THREE.CanvasTexture>, items: Lege
     cv.height = Math.max(8, Math.round(h * PX));
     const c2 = cv.getContext('2d')!;
     c2.fillStyle = color;
-    c2.textBaseline = 'middle';
+    c2.textAlign = 'center';
+    c2.textBaseline = 'alphabetic';
     for (const it of items) {
-      c2.font = `bold ${Math.round(it.size * PX)}px system-ui, "Segoe UI", Arial, sans-serif`;
-      const x = (it.x + w / 2) * PX;
-      c2.fillText(it.text, x, (h / 2 - it.y) * PX, Math.max(4, cv.width - x - 2));
+      c2.font = `700 ${(it.size / CAP_EM) * PX}px ${FACE}, system-ui, Arial, sans-serif`;
+      // linia bazowa pół wysokości wielkiej litery pod środkiem napisu
+      c2.fillText(it.text, (it.x + w / 2) * PX, (h / 2 - it.y + it.size / 2) * PX);
     }
     tex = new THREE.CanvasTexture(cv);
     tex.anisotropy = 8;
