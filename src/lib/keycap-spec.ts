@@ -73,8 +73,8 @@ export interface KeycapParams {
   /** gniazdo przy druku na boku: A = żebro do odłamania, B = osobna wkładka wklejana w sufit */
   sideStem: 'rib' | 'insert';
   /**
-   * wymiary gniazda: `calc` = krzyż MX powiększony o luz z listy, walec Ø5,5;
-   * `proven` = gotowe wymiary ze sprawdzonej, wpinającej się nakładki (PROVEN_SOCKET), luz pomijany
+   * wymiary gniazda: `proven` (domyślne) = gotowe wymiary ze sprawdzonej, wpinającej się nakładki
+   * (PROVEN_SOCKET), luz pomijany; `calc` = krzyż MX powiększony o luz z listy, walec Ø5,5
    */
   socket?: 'calc' | 'proven';
 }
@@ -84,6 +84,16 @@ export interface KeycapParams {
  * otwór krzyża 4,2 × 1,4 mm (oba ramiona tak samo), walec Ø5,72. To wymiary otworu, bez dodatkowego luzu.
  */
 export const PROVEN_SOCKET = { od: 5.72, len: 4.2, arm: 1.4 };
+
+/**
+ * Otwór krzyża w gnieździe: długość ramion i grubość ramienia biegnącego wzdłuż X (`ax`) i wzdłuż Y (`ay`).
+ * `turned` obraca krzyż o 90°, `extra` poszerza otwór (np. fazka wejścia).
+ */
+export function socketCross(p: Pick<KeycapParams, 'socket' | 'clearance'>, turned = false, extra = 0): { len: number; ax: number; ay: number } {
+  if (p.socket === 'proven') return { len: PROVEN_SOCKET.len + extra, ax: PROVEN_SOCKET.arm + extra, ay: PROVEN_SOCKET.arm + extra };
+  const c = p.clearance + extra;
+  return { len: MX.crossLen + c, ax: (turned ? MX.crossY : MX.crossX) + c, ay: (turned ? MX.crossX : MX.crossY) + c };
+}
 
 /** Średnica walca gniazda dla wybranych wymiarów gniazda. */
 export function stemOd(p: Pick<KeycapParams, 'socket'>): number {
@@ -102,7 +112,7 @@ export const DEFAULT_KEYCAP: KeycapParams = {
   gap: 1.05,
   orient: 'upright',
   sideStem: 'insert',
-  socket: 'calc',
+  socket: 'proven',
 };
 
 /** Druk na boku: zbieżność boków (stopnie) i ścianka równoległa do zewnętrznej, by sufit wnętrza miał nawis 45°. */

@@ -21,6 +21,8 @@ import {
   sideAngle,
   SIDE,
   PROVEN_SOCKET,
+  socketCross,
+  stemOd,
   type KeycapParams,
 } from '../src/lib/keycap-spec';
 import { buildCase, buildWedge, cutMany, isValidShape, loadCell } from '../src/lib/geometry';
@@ -39,6 +41,27 @@ const vol = (s: Shape3D) => {
 };
 const meet = (a: Shape3D, b: Shape3D) => vol(a.clone().intersect(b.clone()) as Shape3D);
 const FLAT: KeycapParams = { ...DEFAULT_KEYCAP, ...topPreset('flat') };
+const OD = stemOd(DEFAULT_KEYCAP);
+/**
+ * Model MX z repo ma krzyż 4,5 mm, a prawdziwy Cherry ok. 4,1 (sprawdzona nakładka z otworem 4,2 wpina się
+ * na przełącznik). Do testów kolizji krzyż modelu zastępujemy krzyżem 4,1 × 1,15/1,35.
+ */
+const REAL_CROSS = 4.1;
+function realCross(sw: Shape3D): Shape3D {
+  const top = MX.housingTop;
+  const body = cutMany(sw, [makeBox([-2.6, -2.6, top], [2.6, 2.6, top + 5])]);
+  return body
+    .fuse(makeBox([-REAL_CROSS / 2, -MX.crossX / 2, top - 0.01], [REAL_CROSS / 2, MX.crossX / 2, MX.stemTop]))
+    .fuse(makeBox([-MX.crossY / 2, -REAL_CROSS / 2, top - 0.01], [MX.crossY / 2, REAL_CROSS / 2, MX.stemTop])) as Shape3D;
+}
+/** Pudełka „ramię krzyża wolne” (wzdłuż X i Y) dla gniazda w (x, y), zmniejszone o 0,02. */
+function crossFree(p: KeycapParams, x: number, y: number, z0: number, z1: number, turned = false): Shape3D[] {
+  const { len, ax, ay } = socketCross(p, turned);
+  return [
+    makeBox([x - len / 2 + 0.02, y - ax / 2 + 0.02, z0], [x + len / 2 - 0.02, y + ax / 2 - 0.02, z1]),
+    makeBox([x - ay / 2 + 0.02, y - len / 2 + 0.02, z0], [x + ay / 2 - 0.02, y + len / 2 - 0.02, z1]),
+  ];
+}
 const sideOf = (p: KeycapParams, sideStem: KeycapParams['sideStem'] = 'insert'): KeycapParams => ({ ...p, ...orientPreset(p, 'side'), sideStem });
 /** Pole (mm²) powierzchni zwróconych w dół bardziej niż `lim` od pionu, powyżej `above` mm nad stołem. */
 function overhangArea(s: Shape3D, above: number, lim = 45): number {
@@ -92,11 +115,9 @@ describe('nakładka: wymiary', () => {
     expect(meet(cap, makeBox([-0.5, -0.5, L.topLow - 0.3], [0.5, 0.5, L.topLow - 0.05]))).toBeGreaterThan(0.24);
     expect(meet(cap, makeBox([-0.5, -0.5, L.topLow + 0.05], [0.5, 0.5, L.topEdge]))).toBeLessThan(0.01);
     // gniazdo: krzyż z luzem wolny na całej głębokości
-    const c = DEFAULT_KEYCAP.clearance;
-    const arm = makeBox([-(MX.crossLen + c) / 2 + 0.02, -(MX.crossX + c) / 2 + 0.02, L.stemBottom], [(MX.crossLen + c) / 2 - 0.02, (MX.crossX + c) / 2 - 0.02, L.socketTop - 0.02]);
-    expect(meet(cap, arm)).toBeLessThan(0.001);
+    for (const arm of crossFree(DEFAULT_KEYCAP, 0, 0, L.stemBottom, L.socketTop - 0.02)) expect(meet(cap, arm)).toBeLessThan(0.001);
     // ścianka walca gniazda istnieje (nie przebita przez krzyż)
-    const ring = makeCylinder(STEM.od / 2 - 0.05, 2, [0, 0, 8], [0, 0, 1]).cut(makeCylinder(2.4, 2, [0, 0, 8], [0, 0, 1])) as Shape3D;
+    const ring = makeCylinder(OD / 2 - 0.05, 2, [0, 0, 8], [0, 0, 1]).cut(makeCylinder(2.4, 2, [0, 0, 8], [0, 0, 1])) as Shape3D;
     expect(meet(cap, ring) / vol(ring)).toBeGreaterThan(0.5);
   });
 
@@ -154,12 +175,12 @@ describe('nakładka na przełączniku MX', () => {
   let housing: Shape3D;
   let housingWithOpening: Shape3D;
   beforeAll(async () => {
-    sw = await loadSwitch({ step: switchStep(), up: '+Y' });
+    sw = realCross(await loadSwitch({ step: switchStep(), up: '+Y' }));
     // nieruchoma obudowa: wszystko poniżej podstawy krzyża (krzyż i suwak jadą razem z nakładką)
     housing = sw.clone().intersect(makeBox([-20, -20, -20], [20, 20, MX.housingTop])) as Shape3D;
     // model ma pełny wierzch obudowy; w prawdziwym MX suwak z krzyżem wychodzi okrągłym otworem,
     // w który przy wciśnięciu wjeżdża walec gniazda nakładki (dlatego O-ringi na walcu skracają skok)
-    housingWithOpening = cutMany(housing.clone(), [makeCylinder(STEM.od / 2 + 0.2, 10, [0, 0, 0], [0, 0, 1])]);
+    housingWithOpening = cutMany(housing.clone(), [makeCylinder(OD / 2 + 0.2, 10, [0, 0, 0], [0, 0, 1])]);
   }, 60000);
 
   for (const [name, p] of [['misa', DEFAULT_KEYCAP], ['płaska', FLAT]] as const)
@@ -169,7 +190,7 @@ describe('nakładka na przełączniku MX', () => {
       const down = cap.clone().translate(0, 0, -MX.travel) as Shape3D;
       expect(meet(down, housingWithOpening)).toBeLessThan(0.001);
       // poza walcem gniazda (ścianki, wnętrze, sufit) nakładka nie dotyka obudowy ani płyty
-      const shell = cutMany(down.clone(), [makeCylinder(STEM.od / 2 + 0.01, 20, [0, 0, -5], [0, 0, 1])]);
+      const shell = cutMany(down.clone(), [makeCylinder(OD / 2 + 0.01, 20, [0, 0, -5], [0, 0, 1])]);
       expect(meet(shell, housing)).toBeLessThan(0.001);
       expect(meet(down, makeBox([-20, -20, -5], [20, 20, 0]))).toBe(0);
     });
@@ -307,14 +328,14 @@ describe('druk na boku (bez podpór)', () => {
   });
 
   test('kompletna nakładka (z wkładką) bez kolizji z MX w spoczynku i po wciśnięciu', async () => {
-    const sw = await loadSwitch({ step: switchStep(), up: '+Y' });
+    const sw = realCross(await loadSwitch({ step: switchStep(), up: '+Y' }));
     const housing = sw.clone().intersect(makeBox([-20, -20, -20], [20, 20, MX.housingTop])) as Shape3D;
     for (const base of [DEFAULT_KEYCAP, FLAT]) {
       const cap = buildKeycap(sideOf(base), capType({ w: 1, h: 1 }, 'cherry'));
       expect(isValidShape(cap)).toBe(true);
       expect(meet(cap, sw)).toBeLessThan(0.001);
       const down = cap.clone().translate(0, 0, -MX.travel) as Shape3D;
-      const shell = cutMany(down.clone(), [makeCylinder(STEM.od / 2 + 0.01, 20, [0, 0, -5], [0, 0, 1])]);
+      const shell = cutMany(down.clone(), [makeCylinder(OD / 2 + 0.01, 20, [0, 0, -5], [0, 0, 1])]);
       expect(meet(shell, housing)).toBeLessThan(0.001);
     }
   }, 120000);
@@ -344,13 +365,10 @@ describe('druk na boku (bez podpór)', () => {
       expect(ribVol).toBeGreaterThan(t.stems.length * SIDE.rib * 4 * 3);
       // krzyż w gnieździe nadal wolny (żebro nie wchodzi do środka)
       const L = capLevels(pA);
-      const c = pA.clearance;
       const along = t.w >= t.h;
       for (const s of t.stems) {
         const [x, y] = along ? [s.d, 0] : [0, s.d];
-        const arm = makeBox([x - (MX.crossLen + c) / 2 + 0.02, y - 0.3, L.stemBottom], [x + (MX.crossLen + c) / 2 - 0.02, y + 0.3, L.socketTop - 0.02]);
-        const arm2 = makeBox([x - 0.3, y - (MX.crossLen + c) / 2 + 0.02, L.stemBottom], [x + 0.3, y + (MX.crossLen + c) / 2 - 0.02, L.socketTop - 0.02]);
-        expect(meet(withRib, arm) + meet(withRib, arm2)).toBeLessThan(0.001);
+        for (const arm of crossFree(pA, x, y, L.stemBottom, L.socketTop - 0.02, s.stab && !along)) expect(meet(withRib, arm)).toBeLessThan(0.001);
       }
       // A w pozycji druku: najniższy punkt walca gniazda podparty (tuż pod nim jest materiał żebra)
       const posed = printPose(pA, withRib, t);
@@ -371,9 +389,7 @@ describe('druk na boku (bez podpór)', () => {
     // pełna nakładka i złożenie różnią się tylko bolcem i luzem w otworze
     expect(Math.abs(assembled - vol(full))).toBeLessThan(5);
     // krzyż wolny na całej głębokości
-    const c = p.clearance;
-    const arm = makeBox([-(MX.crossLen + c) / 2 + 0.02, -(MX.crossX + c) / 2 + 0.02, L.stemBottom], [(MX.crossLen + c) / 2 - 0.02, (MX.crossX + c) / 2 - 0.02, L.socketTop - 0.02]);
-    expect(meet(ins, arm)).toBeLessThan(0.001);
+    for (const arm of crossFree(p, 0, 0, L.stemBottom, L.socketTop - 0.02)) expect(meet(ins, arm)).toBeLessThan(0.001);
     const posed = insertPrintPose(p, ins);
     expect(posed.boundingBox.bounds[0][2]).toBeCloseTo(0, 3);
     // jedyne powierzchnie w dół to sufit krzyża (mostek ok. 1,5 mm) i stopień sfazowania wejścia
@@ -381,7 +397,8 @@ describe('druk na boku (bez podpór)', () => {
   });
 
   test('wkładka B w pionowej nakładce: otwór D obrócony do stołu, wkładka „obrócona” daje krzyż zwykłego MX', () => {
-    const p = sideOf(DEFAULT_KEYCAP);
+    // gniazdo „calc”: ramiona krzyża różnej grubości, więc widać, czy krzyż jest obrócony
+    const p = sideOf({ ...DEFAULT_KEYCAP, socket: 'calc' });
     const L = capLevels(p);
     const t = capType({ w: 1, h: 2 }, 'mx');
     const shell = buildKeycap(p, t, { sockets: 'holes' });

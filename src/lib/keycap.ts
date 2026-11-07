@@ -7,11 +7,10 @@ import { cutMany } from './geometry';
 import {
   CALIBRATION_CLEARANCES,
   CAP_LIMITS,
-  MX,
   SIDE,
-  PROVEN_SOCKET,
   capBottom,
   capLevels,
+  socketCross,
   stemOd,
   topInset,
   type CapType,
@@ -39,16 +38,7 @@ export function keycapHull(p: KeycapParams, w: number, h: number): Shape3D {
  * klawiszu). Gniazdo `calc`: krzyż MX + luz; `proven`: gotowy otwór 4,2 × 1,4. `extra` poszerza otwór (fazka wejścia).
  */
 function crossCut(p: KeycapParams, x: number, y: number, z0: number, z1: number, turned: boolean, extra = 0): Shape3D[] {
-  let len: number, ax: number, ay: number;
-  if (p.socket === 'proven') {
-    len = PROVEN_SOCKET.len + extra;
-    ax = ay = PROVEN_SOCKET.arm + extra;
-  } else {
-    const c = p.clearance + extra;
-    len = MX.crossLen + c;
-    ax = (turned ? MX.crossY : MX.crossX) + c; // grubość ramienia biegnącego wzdłuż X
-    ay = (turned ? MX.crossX : MX.crossY) + c; // grubość ramienia biegnącego wzdłuż Y
-  }
+  const { len, ax, ay } = socketCross(p, turned, extra);
   return [
     makeBox([x - len / 2, y - ax / 2, z0], [x + len / 2, y + ax / 2, z1]),
     makeBox([x - ay / 2, y - len / 2, z0], [x + ay / 2, y + len / 2, z1]),
