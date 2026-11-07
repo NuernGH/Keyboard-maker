@@ -29,7 +29,7 @@ test.skipIf(!OUT)('eksport próbek', async () => {
   }
 }, 600000);
 
-// 60% ANSI z podziałem pod stół 250 × 250: OUT60=/ścieżka npx vitest run tests/export-samples.test.ts
+// 60% ANSI z podziałem pod stół 245 × 245: OUT60=/ścieżka npx vitest run tests/export-samples.test.ts
 const OUT60 = process.env.OUT60;
 test.skipIf(!OUT60)('eksport próbek 60%', async () => {
   const { TEMPLATES } = await import('../src/lib/layout');
