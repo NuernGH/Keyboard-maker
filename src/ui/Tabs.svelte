@@ -15,6 +15,7 @@
     top: -12px;
     z-index: 5;
     display: flex;
+    flex-wrap: wrap;
     gap: 2px;
     margin: 4px 0 12px;
     padding: 3px;
@@ -26,7 +27,7 @@
   }
   button {
     flex: 1 1 auto;
-    min-width: 0;
+    min-width: max-content;
     padding: 6px 4px;
     font-size: 12.5px;
     white-space: nowrap;

@@ -31,7 +31,10 @@
   import { defaultLegends, isAnsi60 } from './lib/legend-defaults';
   import ProjectBar from './ui/ProjectBar.svelte';
   import Tabs from './ui/Tabs.svelte';
-  import { PANEL_TABS, type PanelTab } from './ui/tabs';
+  import { FLAT_TABS, type PanelTab } from './ui/tabs';
+  import KeymapPanel from './ui/KeymapPanel.svelte';
+  import KeymapView, { type ViewHalf } from './ui/KeymapView.svelte';
+  import { defaultKeymap, keymapLayout, type KeymapData } from './lib/keymap';
   import {
     base64ToBytes,
     bytesToBase64,
@@ -42,7 +45,7 @@
     type DactylProject,
     type ProjectFile,
   } from './lib/project';
-  import { splitWiringInput } from './lib/wiring-doc';
+  import { splitWiringInput, wiringAssignments } from './lib/wiring-doc';
   import { DEFAULT_CASE, FLOOR_MIN, SCREW_MARGIN, SLIM_CASE, STANDARD_LENGTHS, caseLayout, type CaseParams } from './lib/case';
   import { DEFAULT_PRINT, planSplit, pieceOf, type PrintParams, type PrintSplit } from './lib/split';
   import { BATTERY_PRESETS, DEFAULT_EXTRAS, type CaseExtras, type ExtraWarn } from './lib/case-extras';
@@ -91,6 +94,9 @@
   let rowText = $state('');
   function applyTemplate(id: string) {
     dactylInit = null;
+    keymap = null;
+    kmLayer = 0;
+    kmSelected = null;
     templateId = id;
     const tpl = TEMPLATES.find((x) => x.id === id);
     if (!tpl) return;
@@ -466,6 +472,7 @@
       keycap: $state.snapshot(keycap),
       showCaps,
       colors: $state.snapshot(colors),
+      keymap: keymap ? $state.snapshot(keymap) : undefined,
       cell: cellId !== 'default' && cellStep ? { name: cellName, data: bytesToBase64(cellStep) } : undefined,
     });
   }
@@ -501,6 +508,9 @@
     if (typeof f.showCaps === 'boolean') showCaps = f.showCaps;
     colors = mergeDefaults(DEFAULT_COLORS, f.colors);
     pickedKey = null;
+    keymap = validKeymap(f.keymap);
+    kmLayer = 0;
+    kmSelected = null;
     if (f.cell?.data) {
       const bytes = base64ToBytes(f.cell.data);
       cellStep = bytes.buffer as ArrayBuffer;
@@ -566,6 +576,73 @@
       layout: TEMPLATES.find((x) => x.id === templateId)?.name[lang] ?? templateId,
     });
   let tab = $state<PanelTab>('keyboard');
+
+  // ---------- keymapa (ZMK) ----------
+  /** własna keymapa; null = domyślna z układu (nic nie zmienia w projekcie, dopóki jej nie edytujesz) */
+  let keymap = $state<KeymapData | null>(null);
+  let kmLayer = $state(0);
+  let kmSelected = $state<string | null>(null);
+  /** znaki z układu klawiatury w systemie (Chrome/Edge), do opisów na rysunku */
+  let layoutMap = $state.raw<Map<string, string> | null>(null);
+  function validKeymap(v: unknown): KeymapData | null {
+    if (!v || typeof v !== 'object' || !Array.isArray((v as KeymapData).layers)) return null;
+    const layers = (v as KeymapData).layers.filter((l) => l && typeof l === 'object' && typeof l.keys === 'object' && l.keys);
+    if (!layers.length) return null;
+    return {
+      layers: layers.map((l) => ({
+        name: typeof l.name === 'string' ? l.name : '',
+        ...(typeof l.node === 'string' ? { node: l.node } : {}),
+        keys: Object.fromEntries(Object.entries(l.keys).filter(([, s]) => typeof s === 'string')),
+        sensors: Object.fromEntries(Object.entries(l.sensors ?? {}).filter(([, s]) => typeof s === 'string')),
+      })),
+    };
+  }
+  const km = $derived.by(() => {
+    if (tab !== 'keymap') return null;
+    const inp = wiringInput();
+    const layout = keymapLayout(inp, wiringAssignments(inp));
+    const ansi60 = isAnsi60(params.rowLayout);
+    const legends = Object.fromEntries(Object.entries(defaultSets).map(([r, l]) => [r, l.main ?? '']));
+    const data = keymap ?? defaultKeymap({ layout, ansi60, macropad: templateId.startsWith('macropad'), legends });
+    const s2 = ansi60 && island.enabled && island.controller === 's2mini';
+    const name = TEMPLATES.find((x) => x.id === templateId)?.name.pl ?? templateId;
+    return {
+      layout,
+      data,
+      target: (s2 ? 's2mini60' : 'generic') as 's2mini60' | 'generic',
+      fileName: s2 ? 's2mini_60.keymap' : `${templateId}.keymap`,
+      title: s2 ? '60% ANSI na S2 mini: keymapa z Keyboard maker.' : `${name}: keymapa z Keyboard maker.`,
+    };
+  });
+  /** opisy klawiszy do nagłówka edytora: domyślna legenda */
+  const kmNames = $derived(Object.fromEntries(Object.entries(defaultSets).map(([r, l]) => [r, l.main || (isAnsi60(params.rowLayout) && r.endsWith(':k-4-3') ? (lang === 'pl' ? 'Spacja' : 'Space') : '')])));
+  const kmHalves = $derived.by<ViewHalf[]>(() => {
+    if (!km) return [];
+    const owner = new Map<string, number>();
+    halves.forEach((h, i) => {
+      const s = h.side ?? 'left';
+      if (!owner.has(s) || (h.island && !halves[owner.get(s)!].island)) owner.set(s, i);
+    });
+    return halves.map((h, i) => {
+      const side = (h.side ?? 'left') as 'left' | 'right';
+      const mine = owner.get(side) === i;
+      return {
+        side,
+        keys: h.keys,
+        // części do druku (60%) bez odstępu: keymapa dotyczy całej płyty
+        offsetX: split ? 0 : h.offsetX,
+        island: h.island?.rect ?? null,
+        buttons: mine ? km.layout.slots.filter((s) => s.kind === 'button' && s.ref.startsWith(`${side}:`)).map((s) => s.ref) : [],
+        encoder: mine ? (km.layout.sensors.find((e) => e.startsWith(`${side}:`)) ?? null) : null,
+      };
+    });
+  });
+  // opisy z układu w systemie (tylko Chrome/Edge; bez nich nazwy z tabeli)
+  $effect(() => {
+    if (tab !== 'keymap' || layoutMap) return;
+    const kb = (navigator as Navigator & { keyboard?: { getLayoutMap?: () => Promise<Map<string, string>> } }).keyboard;
+    kb?.getLayoutMap?.().then((m) => (layoutMap = new Map(m)), () => {});
+  });
   const capRefs = $derived(leftKeys.map((k) => legendRef('left', k.id)).concat(single ? [] : rightKeys.map((k) => legendRef('right', k.id))));
   // na zakładce Nakładki podgląd pokazuje nakładki
   $effect(() => {
@@ -601,7 +678,7 @@
       />
     </section>
 
-    <Tabs tabs={PANEL_TABS.map((id) => ({ id, label: t(lang, `tab_${id}` as const) }))} bind:value={tab} />
+    <Tabs tabs={FLAT_TABS.map((id) => ({ id, label: t(lang, `tab_${id}` as const) }))} bind:value={tab} />
 
     {#if tab === 'keyboard'}
     <section>
@@ -1040,6 +1117,24 @@
     {#if tab === 'wiring'}
     <WiringPanel {lang} input={wiringInput} fileBase={templateId} save={saveFile} />
     {/if}
+    {#if tab === 'keymap' && km}
+    <KeymapPanel
+      {lang}
+      keymap={km.data}
+      edited={!!keymap}
+      layout={km.layout}
+      bind:layer={kmLayer}
+      bind:selected={kmSelected}
+      names={kmNames}
+      target={km.target}
+      fileName={km.fileName}
+      title={km.title}
+      {layoutMap}
+      onChange={(d) => (keymap = d)}
+      onReset={() => (keymap = null)}
+      save={saveFile}
+    />
+    {/if}
 
     <footer class="muted">
       <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noreferrer">{t(lang, 'license')}</a>
@@ -1055,7 +1150,12 @@
       pickKey={tab === 'keycaps' || tab === 'colors' ? (ref) => (pickedKey = ref) : null}
       selected={tab === 'keycaps' || tab === 'colors' ? pickedKey : null}
     />
-    <div class="hud">
+    {#if tab === 'keymap' && km}
+    <div class="kmview">
+      <KeymapView halves={kmHalves} layers={km.data.layers} layer={kmLayer} bind:selected={kmSelected} {layoutMap} {lang} />
+    </div>
+    {/if}
+    <div class="hud" class:hidden={tab === 'keymap'}>
       <span class="badge" class:exact={allExact} data-tip={t(lang, 'tipBadge')}>
         {#if anyBusy}{t(lang, 'computing')}{:else if allExact}{t(lang, 'exact')}{#if lastMs}&nbsp;· {lastMs} ms{/if}{:else}{t(lang, 'quick')}{/if}
       </span>
@@ -1210,6 +1310,17 @@
     gap: 6px;
     align-items: center;
     flex-wrap: wrap;
+  }
+  .hud.hidden {
+    display: none;
+  }
+  .kmview {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    padding: 24px;
+    box-sizing: border-box;
+    background: var(--bg);
   }
   .badge {
     background: var(--panel);

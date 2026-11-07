@@ -32,6 +32,8 @@ export interface FlatProject {
   showCaps?: boolean;
   /** kolory podglądu (PreviewColors) */
   colors?: unknown;
+  /** keymapa ZMK (KeymapData), tylko gdy zmieniana; brak = domyślna z układu */
+  keymap?: unknown;
   /** własna komórka STEP (tylko w pliku; w linku pomijana) */
   cell?: { name: string; data: string };
 }
