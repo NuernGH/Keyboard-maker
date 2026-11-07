@@ -21,7 +21,7 @@
   import CustomController from './ui/CustomController.svelte';
   import WiringPanel from './ui/WiringPanel.svelte';
   import { splitWiringInput } from './lib/wiring-doc';
-  import { DEFAULT_CASE, SCREW_MARGIN, STANDARD_LENGTHS, caseLayout, type CaseParams } from './lib/case';
+  import { DEFAULT_CASE, FLOOR_MIN, SCREW_MARGIN, SLIM_CASE, STANDARD_LENGTHS, caseLayout, type CaseParams } from './lib/case';
   import { DEFAULT_PRINT, planSplit, pieceOf, type PrintParams, type PrintSplit } from './lib/split';
 
   type Side = 'left' | 'right';
@@ -36,6 +36,18 @@
   let switchMesh = $state<PreviewMesh | null>(null);
   let caseP = $state<CaseParams>({ ...DEFAULT_CASE });
   /** obudowa ma sens tylko dla pełnych komórek (cienka płyta nie utrzyma śrub) */
+  /** wartości sprzed włączenia cienkiej obudowy, przywracane po jej wyłączeniu */
+  let beforeSlim: Pick<CaseParams, 'space' | 'floor' | 'screwSize'> | null = null;
+  function toggleSlim(on: boolean) {
+    if (on) {
+      beforeSlim = { space: caseP.space, floor: caseP.floor, screwSize: caseP.screwSize };
+      Object.assign(caseP, SLIM_CASE, { slim: true });
+    } else {
+      const back = beforeSlim ?? { space: DEFAULT_CASE.space, floor: DEFAULT_CASE.floor, screwSize: DEFAULT_CASE.screwSize };
+      Object.assign(caseP, back, { slim: false, floor: Math.max(back.floor, FLOOR_MIN.normal) });
+      beforeSlim = null;
+    }
+  }
   const caseOn = $derived(caseP.enabled && variant !== 'thin-plate');
   let print = $state<PrintParams>({ ...DEFAULT_PRINT });
   /** układ rzędami jako tekst (60% itp.) */
@@ -623,9 +635,10 @@
       <label class="check" data-tip={t(lang, 'tipCase')}><input type="checkbox" bind:checked={caseP.enabled} /> {t(lang, 'caseBottomOn')}</label>
       {#if caseP.enabled && variant === 'thin-plate'}<p class="warn">{t(lang, 'caseThin')}</p>{/if}
       {#if caseOn}
+        <label class="check" data-tip={t(lang, 'tipSlimCase')}><input type="checkbox" checked={!!caseP.slim} onchange={(e) => toggleSlim(e.currentTarget.checked)} /> {t(lang, 'slimCase')}</label>
         <div class="grid2">
           <label data-tip={t(lang, 'tipCaseWall')}>{t(lang, 'caseWall')} <input type="number" min="1.2" step="0.2" bind:value={caseP.wall} /></label>
-          <label data-tip={t(lang, 'tipCaseFloor')}>{t(lang, 'caseFloor')} <input type="number" min="2.6" step="0.2" bind:value={caseP.floor} /></label>
+          <label data-tip={t(lang, 'tipCaseFloor')}>{t(lang, 'caseFloor')} <input type="number" min={caseP.slim ? FLOOR_MIN.slim : FLOOR_MIN.normal} step="0.2" bind:value={caseP.floor} /></label>
           <label data-tip={t(lang, 'tipCaseSpace')}>{t(lang, 'caseSpace')} <input type="number" min="0" step="0.5" bind:value={caseP.space} /></label>
           <label data-tip={t(lang, 'tipCaseScrews')}>{t(lang, 'caseScrews')} <input type="number" min="3" max="12" step="1" bind:value={caseP.screws} /></label>
           <label data-tip={t(lang, 'tipScrewSize')}>{t(lang, 'screwSize')}
