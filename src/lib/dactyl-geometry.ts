@@ -2,13 +2,12 @@
 // Bryły klawiatury Dactyl w OpenCascade: otoczki wypukłe z dactyl.ts łączone w jedną skorupę,
 // w nią wycięte komórki, od spodu płaskie dno przykręcane śrubami i uchwyt kontrolera.
 
-import { cast, getOC, iterTopo, type Face, makeBox, makeCylinder, makePolygon, makeSolid, measureVolume, type Shape3D } from 'replicad';
+import { cast, getOC, iterTopo, makeBox, makeCylinder, makePolygon, makeSolid, measureVolume, type Shape3D } from 'replicad';
 import qh from 'quickhull3d/dist/quickhull3d.js';
 import { cutMany, isValidShape, type Cell } from './geometry';
-import { draw, drawPointsInterpolation } from 'replicad';
+import { draw } from 'replicad';
 import { apply, floorLoop, type DactylModel, type Mat, type V3 } from './dactyl';
 import { chamferWedges, DACTYL_CHAMFER, hullTester } from './dactyl-chamfer';
-import type { Blanket } from './dactyl-blanket';
 import type { DactylController } from './dactyl-parts';
 import { dactylHeadDepth } from './case';
 
@@ -120,7 +119,7 @@ export function shellBody(model: DactylModel, b: DactylBuild, extra: Shape3D[] =
   return body;
 }
 
-type BoxSpec = { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; m?: Mat };
+export type BoxSpec = { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; m?: Mat };
 export function boxOf(b: BoxSpec): Shape3D {
   const s = makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]);
   return b.m ? placeShape(s, b.m) : s;
@@ -131,8 +130,6 @@ export function boxOf(b: BoxSpec): Shape3D {
  * Boczne kanały komórek zakryte fartuchami, ostre krawędzie wierzchu sfazowane (b.chamfer).
  */
 export function buildDactylShell(model: DactylModel, cell: Cell, b: DactylBuild = DEFAULT_DACTYL_BUILD): Shape3D {
-  const bl = (model as DactylModel & { blanket?: Blanket }).blanket;
-  if (bl) return buildBlanketShell(model, bl, cell, b);
   const covers = slotCovers(model, cell);
   const raw = shellBody(model, b, covers.map(hullSolid));
   const body = unifyFaces(raw);
@@ -151,90 +148,8 @@ export function buildDactylShell(model: DactylModel, cell: Cell, b: DactylBuild 
   return singleSolid(unifyFaces(cut));
 }
 
-/**
- * Gładka powierzchnia z siatki wysokości: kubiczny B-spline, którego punktami kontrolnymi są punkty
- * siatki (wygładza jak lekkie rozmycie, nigdy nie wychodzi poza zakres danych).
- */
-export function heightFace(bl: Blanket, z: Float64Array): Shape3D {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const oc = getOC() as any;
-  const poles = new oc.NCollection_Array2_gp_Pnt(1, bl.nx, 1, bl.ny);
-  for (let i = 0; i < bl.nx; i++)
-    for (let j = 0; j < bl.ny; j++) {
-      const p = new oc.gp_Pnt(bl.x0 + i * bl.h, bl.y0 + j * bl.h, z[i * bl.ny + j]);
-      poles.SetValue(i + 1, j + 1, p);
-      p.delete();
-    }
-  const knots = (n: number) => {
-    const k = new oc.NCollection_Array1_double(1, n - 2);
-    const m = new oc.NCollection_Array1_int(1, n - 2);
-    for (let i = 1; i <= n - 2; i++) {
-      k.SetValue(i, i - 1);
-      m.SetValue(i, i === 1 || i === n - 2 ? 4 : 1);
-    }
-    return [k, m];
-  };
-  const [uk, um] = knots(bl.nx), [vk, vm] = knots(bl.ny);
-  const surf = new oc.Geom_BSplineSurface(poles, uk, vk, um, vm, 3, 3, false, false);
-  const mf = new oc.BRepBuilderAPI_MakeFace(surf, 1e-6);
-  if (!mf.IsDone()) throw new Error('Nie udało się zbudować powierzchni koca');
-  const face = cast(mf.Face()) as Shape3D;
-  for (const o of [poles, uk, um, vk, vm]) o.delete();
-  return face;
-}
-
-/** Bryła pod powierzchnią: powierzchnia wyciągnięta w dół o `depth`. */
-export function under(face: Shape3D, depth: number): Shape3D {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const oc = getOC() as any;
-  const v = new oc.gp_Vec(0, 0, -depth);
-  const pr = new oc.BRepPrimAPI_MakePrism(face.wrapped, v, false, true);
-  try {
-    return cast(pr.Shape()) as Shape3D;
-  } finally {
-    pr.delete();
-    v.delete();
-  }
-}
-
-/** Pryzmat o gładkim obrysie: jedna krzywa B-spline przez punkty (szybsze przecięcia niż setki ścian). */
-function splinePrism(poly: [number, number][], z0: number, z1: number): Shape3D {
-  return drawPointsInterpolation(poly, { tolerance: 0.05 }, { closeShape: true }).sketchOnPlane('XY', z0).extrude(z1 - z0) as Shape3D;
-}
-
-/** Miejsce nad płytą klawisza (przełącznik i nakładka): tam skorupa nie może sięgać. */
-export const KEY_CLEAR = { inset: 0.3, above: 0.2, height: 25 };
-
-/**
- * Skorupa „koc”: (obrys zewnętrzny ∩ pod wierzchem) − (obrys wewnętrzny ∩ pod spodem koca),
- * czyli gładki wierzch grubości komórki i pionowe ściany grubości wallThickness do podłogi.
- */
-export function blanketBody(model: DactylModel, bl: Blanket, b: DactylBuild): Shape3D {
-  const outline = model.outline!;
-  let zmax = -Infinity;
-  for (const v of bl.top) zmax = Math.max(zmax, v);
-  const topF = heightFace(bl, bl.top), botF = heightFace(bl, bl.bot);
-  const upT = under(topF, zmax + 400);
-  const outer = polyPrism(outline.outer, 0, zmax + 5);
-  const inner = polyPrism(outline.inner, -1, zmax + 6);
-  const upB = under(botF, zmax + 400);
-  topF.delete();
-  botF.delete();
-  let T0 = performance.now();
-  const lg = (s: string) => { console.log(s, ((performance.now() - T0) / 1000).toFixed(1)); T0 = performance.now(); };
-  const solid = outer.intersect(upT) as Shape3D; lg('solid');
-  const hollow = inner.intersect(upB) as Shape3D; lg('hollow');
-  const walls = solid.cut(hollow) as Shape3D; lg('cut');
-  for (const s of [upT, upB, outer, inner, solid, hollow]) s.delete();
-  const skin = walls;
-  const add: Shape3D[] = [];
-  for (const [x, y] of model.screws) add.push(makeCylinder(model.screw.boss / 2, b.bossHeight, [x, y, 0], [0, 0, 1]) as Shape3D);
-  if (b.controller) add.push(...b.controller.shellAdd.map(boxOf));
-  const body = add.length ? fuseMany([skin, ...add], 1e-3) : skin;
-  if (add.length) skin.delete();
-  for (const s of add) s.delete();
-  return singleSolid(body);
-}
+/** Miejsce nad płytą klawisza (przełącznik i nakładka): tam skorupa „koc” nie może sięgać. */
+export const KEY_CLEAR = { inset: 0.3, above: 0.2, height: 15 };
 
 /** Otwór komórki przy jej wierzchu (np. 14 × 14 mm na przełącznik), w układzie komórki. */
 export function cellTopOpening(cell: Cell): BoxSpec {
@@ -244,29 +159,6 @@ export function cellTopOpening(cell: Cell): BoxSpec {
   const [[x0, y0], [x1, y1]] = hit.boundingBox.bounds;
   hit.delete();
   return { x0, y0, z0: -0.5, x1, y1, z1: 3 };
-}
-
-function buildBlanketShell(model: DactylModel, bl: Blanket, cell: Cell, b: DactylBuild): Shape3D {
-  let T0 = performance.now();
-  const lg = (s: string) => { console.log(s, ((performance.now() - T0) / 1000).toFixed(1)); T0 = performance.now(); };
-  const body = blanketBody(model, bl, b); lg('body');
-  // płyta klawisza to sam koc (dokładny w śladzie klawisza); otwór na przełącznik przebija wierzch
-  // koca na wylot, a nad płytą wycinamy miejsce na przełącznik i nakładkę
-  const hole = cellTopOpening(cell);
-  const tools: Shape3D[] = [];
-  for (const k of model.keys) {
-    tools.push(placeShape(cell.negative.clone(), k.frame));
-    tools.push(boxOf({ ...hole, m: k.frame }));
-    tools.push(boxOf({ x0: -k.hw + KEY_CLEAR.inset, x1: k.hw - KEY_CLEAR.inset, y0: -k.hh + KEY_CLEAR.inset, y1: k.hh - KEY_CLEAR.inset, z0: KEY_CLEAR.above, z1: KEY_CLEAR.height, m: k.frame }));
-  }
-  for (const [x, y] of model.screws)
-    tools.push(makeCylinder(model.screw.pilot / 2, b.bossHeight - 1 + 0.5, [x, y, -0.5], [0, 0, 1]) as Shape3D);
-  if (b.controller) tools.push(...b.controller.shellCut.map(boxOf));
-  const cut = cutMany(body, tools); lg('cells');
-  body.delete();
-  for (const t of tools) t.delete();
-  const out = singleSolid(unifyFaces(cut)); lg('unify');
-  return out;
 }
 
 /** grubość łatki zakrywającej boczny kanał komórki (mm) */

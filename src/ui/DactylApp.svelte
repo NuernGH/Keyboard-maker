@@ -67,6 +67,11 @@
       fRing: 'Serdeczny',
       fPinky: 'Mały',
       tipStagger: 'Każdy palec ma inną długość, więc kolumny są przesunięte do przodu (Y, + dalej od ciebie) i w pionie (Z, + wyżej). Wszystko na 0 = kolumny równo, bez schodków.',
+      shellKind: 'Skorupa',
+      shellBlanket: 'gładka (koc)',
+      shellHulls: 'łączniki jak w Dactylu',
+      tipShell: 'Koc: jedna gładka powierzchnia przez płyty wszystkich klawiszy, pionowe ściany z fazką. Liczony jako siatka, więc eksport tylko do STL. Łączniki: skorupa z otoczek jak w Dactyl Configurator (STL i STEP).',
+      blanketStl: 'Skorupa „koc” jest siatką: tylko STL (dno także STEP).',
       smooth: 'Ściany',
       smoothOff: 'kanciaste (jak oryginał)',
       smoothCorners: 'zaokrąglone narożniki',
@@ -113,6 +118,11 @@
       fRing: 'Ring',
       fPinky: 'Pinky',
       tipStagger: 'Fingers differ in length, so columns are shifted forward (Y, + away from you) and vertically (Z, + higher). All 0 = even columns, no steps.',
+      shellKind: 'Shell',
+      shellBlanket: 'smooth (blanket)',
+      shellHulls: 'Dactyl connectors',
+      tipShell: 'Blanket: one smooth surface through all key plates, vertical chamfered walls. Built as a mesh, so STL export only. Connectors: hull shell as in Dactyl Configurator (STL and STEP).',
+      blanketStl: 'The blanket shell is a mesh: STL only (the bottom also STEP).',
       smooth: 'Walls',
       smoothOff: 'faceted (as original)',
       smoothCorners: 'rounded corners',
@@ -153,6 +163,8 @@
   let ctrl = $state<ControllerParams>({ ...DEFAULT_DACTYL_CONTROLLER });
   let floor = $state(4);
   let chamfer = $state(1);
+  // gładka skorupa „koc” (wybór Marcina), łączniki Dactyla zostają jako opcja
+  let shellKind = $state<'blanket' | 'hulls'>('blanket');
   let screwSize = $state<ScrewSize>('M3');
   let explode = $state(20);
   let showCaps = $state(true);
@@ -203,6 +215,7 @@
       floor,
       screwSize,
       chamfer,
+      shell: shellKind,
     };
   }
   const keyOf = (i: DactylInput) => JSON.stringify({ ...i, cellStep: undefined, side: undefined });
@@ -617,13 +630,21 @@
           <input type="number" min="-25" max="25" step="0.5" bind:value={p.stagger[f][1]} aria-label="{tx(lbl)} Z" />
         {/each}
       </div>
-      <label>{tx('smooth')}
-        <select bind:value={p.wallSmooth}>
-          <option value="off">{tx('smoothOff')}</option>
-          <option value="corners">{tx('smoothCorners')}</option>
-          <option value="smooth">{tx('smoothFull')}</option>
+      <label data-tip={tx('tipShell')}>{tx('shellKind')}
+        <select bind:value={shellKind}>
+          <option value="blanket">{tx('shellBlanket')}</option>
+          <option value="hulls">{tx('shellHulls')}</option>
         </select>
       </label>
+      {#if shellKind === 'hulls'}
+        <label>{tx('smooth')}
+          <select bind:value={p.wallSmooth}>
+            <option value="off">{tx('smoothOff')}</option>
+            <option value="corners">{tx('smoothCorners')}</option>
+            <option value="smooth">{tx('smoothFull')}</option>
+          </select>
+        </label>
+      {/if}
       {#if caps.length}<p class="warn">{tx('capHit').replace('{l}', list(caps))}</p>{/if}
       {#if cells.length}<p class="warn">{tx('cellHit').replace('{l}', list(cells))}</p>{/if}
       {#if !model}<p class="warn">{t(lang, 'error')}</p>{/if}
@@ -688,7 +709,7 @@
           <div class="row">
             <span class="side">{tx(part)}: {t(lang, s).toLowerCase()}</span>
             <button onclick={() => exportPart(part, s, 'stl')} disabled={!cellStep} data-tip={t(lang, 'tipStl')}>STL</button>
-            <button onclick={() => exportPart(part, s, 'step')} disabled={!cellStep} data-tip={t(lang, 'tipStep')}>STEP</button>
+            <button onclick={() => exportPart(part, s, 'step')} disabled={!cellStep || (part === 'shell' && shellKind === 'blanket')} data-tip={part === 'shell' && shellKind === 'blanket' ? tx('blanketStl') : t(lang, 'tipStep')}>STEP</button>
           </div>
         {/each}
       {/each}

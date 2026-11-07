@@ -13,13 +13,9 @@ export interface BlanketParams {
   margin: number;
   /** promień domknięcia obrysu (mm): wypełnia wcięcia między kciukiem a resztą */
   close: number;
-  /** krok siatki powierzchni (mm) */
-  grid: number;
-  /** rozmycie wysokości przed budową powierzchni (mm) */
-  smooth: number;
 }
 
-export const DEFAULT_BLANKET: BlanketParams = { blend: 8, margin: 4, close: 10, grid: 2, smooth: 0 };
+export const DEFAULT_BLANKET: BlanketParams = { blend: 8, margin: 4, close: 10 };
 
 type P2 = [number, number];
 type Plane = { n: [number, number, number]; t: [number, number, number] };
@@ -61,55 +57,55 @@ const plane = (k: DKey, dz: number): Plane => {
 };
 const zOn = (pl: Plane, x: number, y: number) => pl.t[2] - (pl.n[0] * (x - pl.t[0]) + pl.n[1] * (y - pl.t[1])) / pl.n[2];
 
+/** największe nachylenie koca przy niższym klawiszu (tg kąta): stromiej koc nie wspina się na wyższy */
+export const CLIFF_SLOPE = 1.5;
+/** najmniejsza grubość koca w pionie poza płytami (mm) */
+export const BLANKET_MIN = 2.5;
+
 /**
- * Wysokość koca w (x, y): średnia płaszczyzn klawiszy z wagą 1/d² · exp(−(d/blend)²), gdzie d to
+ * Wysokość koca w (x, y): średnia płaszczyzn klawiszy z wagą 1/(d² · (1 + (d/blend)²)), gdzie d to
  * odległość od śladu klawisza. W śladzie d = 0, więc powierzchnia jest dokładnie płytą klawisza,
- * a przy jego brzegu łagodnie przechodzi w sąsiednie (styczna ciągła). Gdzie ślady dwóch klawiszy
- * zachodzą na siebie (np. kciuk nad środkowym palcem), wygrywa wyższy.
+ * a przy jego brzegu łagodnie przechodzi w sąsiednie (styczna ciągła). Waga maleje potęgowo, więc
+ * daleko od klawiszy powierzchnia nie robi uskoków.
+ * Przy sąsiadach o bardzo różnej wysokości (np. kolumna wyżej od sąsiedniej, kciuk nad palcem)
+ * koc nie może być wyżej niż płyta niższego klawisza + CLIFF_SLOPE · odległość: od niższego
+ * wznosi się zboczem, a resztę uskoku robi bok bloku wyższego klawisza (dokładny, ze fazką).
+ * Ograniczenie działa też w śladzie wyższego klawisza (pod jego blokiem), więc wysokość jest ciągła.
+ * Gdzie ślady zachodzą na siebie, wygrywa niższy.
  * Zwraca [wierzch, spód]; spód to płaszczyzny przesunięte o −depth wzdłuż normalnej klawisza.
  */
 export function blanketHeight(model: DactylModel, bp: BlanketParams, depth: number): (x: number, y: number) => [number, number] {
   const keys = model.keys.map((k) => ({ foot: keyFootprint(k), top: plane(k, 0), bot: plane(k, -depth) }));
   return (x, y) => {
     let num = 0, numB = 0, den = 0;
+    let capT = Infinity, capB = Infinity;
     let hit: (typeof keys)[number] | null = null;
     for (const k of keys) {
+      const zt = zOn(k.top, x, y), zb = zOn(k.bot, x, y);
       if (insidePoly([x, y], k.foot)) {
-        if (!hit || zOn(k.top, x, y) > zOn(hit.top, x, y)) hit = k;
+        if (!hit || zt < zOn(hit.top, x, y)) hit = k;
+        capT = Math.min(capT, zt);
+        capB = Math.min(capB, zb);
         continue;
       }
-      const d = polyDist([x, y], k.foot).d;
-      const w = Math.exp(-((d / bp.blend) ** 2)) / (d * d);
-      num += w * zOn(k.top, x, y);
-      numB += w * zOn(k.bot, x, y);
+      const pd = polyDist([x, y], k.foot);
+      const d = Math.abs(pd.d);
+      capT = Math.min(capT, zt + CLIFF_SLOPE * d);
+      capB = Math.min(capB, zb + CLIFF_SLOPE * d);
+      // poza śladem płaszczyzna klawisza może opadać, ale nie wznosić się ponad jego brzeg
+      // (inaczej przy pochylonym klawiszu koc robi wał wyższy od płyty)
+      const vt = Math.min(zt, zOn(k.top, pd.c[0], pd.c[1])), vb = Math.min(zb, zOn(k.bot, pd.c[0], pd.c[1]));
+      const w = 1 / (d * d * (1 + (d / bp.blend) ** 2));
+      num += w * vt;
+      numB += w * vb;
       den += w;
     }
-    if (hit) return [zOn(hit.top, x, y), zOn(hit.bot, x, y)];
-    return [num / den, numB / den];
+    // w śladzie klawisza też obowiązuje zbocze od niższych sąsiadów: przy brzegu wyższego koc
+    // schodzi pod jego blok, więc na brzegu śladu nie ma skoku wysokości
+    const t = hit ? capT : Math.min(num / den, capT);
+    const b = hit ? capB : Math.min(numB / den, capB);
+    return [t, Math.min(b, t - BLANKET_MIN)];
   };
-}
-
-/** Rozmycie Gaussa siatki nx × ny (σ w krokach siatki), brzegi powielone. */
-function blur(z: Float64Array, nx: number, ny: number, sigma: number): Float64Array {
-  if (sigma <= 0) return z;
-  const r = Math.ceil(3 * sigma);
-  const w: number[] = [];
-  for (let i = -r; i <= r; i++) w.push(Math.exp(-(i * i) / (2 * sigma * sigma)));
-  const sw = w.reduce((a, b) => a + b, 0);
-  const tmp = new Float64Array(z.length), out = new Float64Array(z.length);
-  for (let i = 0; i < nx; i++)
-    for (let j = 0; j < ny; j++) {
-      let acc = 0;
-      for (let q = -r; q <= r; q++) acc += w[q + r] * z[i * ny + Math.min(ny - 1, Math.max(0, j + q))];
-      tmp[i * ny + j] = acc / sw;
-    }
-  for (let i = 0; i < nx; i++)
-    for (let j = 0; j < ny; j++) {
-      let acc = 0;
-      for (let q = -r; q <= r; q++) acc += w[q + r] * tmp[Math.min(nx - 1, Math.max(0, i + q)) * ny + j];
-      out[i * ny + j] = acc / sw;
-    }
-  return out;
 }
 
 /** Dokładna odległość euklidesowa (Felzenszwalb) od komórek `on` na siatce nx × ny (w krokach). */
@@ -208,23 +204,11 @@ function smoothLoop(p: P2[], step: number, iters = 3): P2[] {
   return a < 0 ? out.reverse() : out;
 }
 
-export interface Blanket {
-  params: BlanketParams;
-  /** siatka wysokości wierzchu i spodu koca: x0 + i·h, y0 + j·h, z[i·ny + j] */
-  x0: number;
-  y0: number;
-  h: number;
-  nx: number;
-  ny: number;
-  top: Float64Array;
-  bot: Float64Array;
-}
-
 /**
  * Model z kocem: obrys ścian liczony z śladów klawiszy (domknięty, odsunięty o margin, wygładzony),
- * śruby przesunięte do nowej ściany. Siatka wysokości do budowy powierzchni w OpenCascade.
+ * śruby przesunięte do nowej ściany. Bryłę buduje dactyl-mesh.ts.
  */
-export function withBlanket(model: DactylModel, bp: BlanketParams = DEFAULT_BLANKET): DactylModel & { blanket: Blanket } {
+export function withBlanket(model: DactylModel, bp: BlanketParams = DEFAULT_BLANKET): DactylModel & { blanket: BlanketParams } {
   const wt = model.params.wallThickness;
   const feet = model.keys.map((k) => blockFootprint(k, model.web));
   const all = feet.flat();
@@ -271,35 +255,11 @@ export function withBlanket(model: DactylModel, bp: BlanketParams = DEFAULT_BLAN
   const outer = smoothLoop(contour(sd, nx, ny, x0, y0, r, bp.margin), 3);
   const inner = smoothLoop(contour(sd, nx, ny, x0, y0, r, bp.margin - wt), 3);
 
-  // siatka wysokości koca nad całym obrysem (z zapasem, żeby powierzchnia wychodziła poza ściany)
-  const h = bp.grid;
-  const ox = Math.min(...outer.map((p) => p[0])) - 6, oy = Math.min(...outer.map((p) => p[1])) - 6;
-  const gx = Math.ceil((Math.max(...outer.map((p) => p[0])) + 6 - ox) / h) + 1;
-  const gy = Math.ceil((Math.max(...outer.map((p) => p[1])) + 6 - oy) / h) + 1;
-  // wysokości liczone gęsto (1 mm) i rozmyte (σ = smooth): skok tam, gdzie ślady klawiszy zachodzą
-  // na siebie, robi się stromym zboczem, a powierzchnia B-spline nie faluje; potem próbki co h
-  const f = blanketHeight(model, bp, model.web);
-  const fs = 1, k = Math.round(h / fs);
-  const fx = (gx - 1) * k + 1, fy = (gy - 1) * k + 1;
-  const tf = new Float64Array(fx * fy), bf = new Float64Array(fx * fy);
-  for (let i = 0; i < fx; i++)
-    for (let j = 0; j < fy; j++) {
-      const [zt, zb] = f(ox + i * fs, oy + j * fs);
-      tf[i * fy + j] = zt;
-      bf[i * fy + j] = zb;
-    }
-  const ts = blur(tf, fx, fy, bp.smooth / fs), bs = blur(bf, fx, fy, bp.smooth / fs);
-  const top = new Float64Array(gx * gy), bot = new Float64Array(gx * gy);
-  for (let i = 0; i < gx; i++)
-    for (let j = 0; j < gy; j++) {
-      top[i * gy + j] = ts[i * k * fy + j * k];
-      bot[i * gy + j] = bs[i * k * fy + j * k];
-    }
   const screws = model.screws.map((s) => settleInside(s, inner, model.screw.boss / 2 - SCREW_BITE));
   return {
     ...model,
     outline: { outer, inner },
     screws,
-    blanket: { params: bp, x0: ox, y0: oy, h, nx: gx, ny: gy, top, bot },
+    blanket: bp,
   };
 }

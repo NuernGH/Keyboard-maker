@@ -9,6 +9,9 @@ import { buildDactyl } from '../lib/dactyl';
 import { buildDactylShell, buildDactylBottom } from '../lib/dactyl-geometry';
 import { controllerHolder } from '../lib/dactyl-parts';
 import { loadSwitch } from '../lib/switch-model';
+import { withBlanket } from '../lib/dactyl-blanket';
+import { blanketShellMesh, flatShaded, manifoldLib, meshBounds, mirrorX, stlBinary, toTriMesh, type TriMesh } from '../lib/dactyl-mesh';
+import manifoldWasm from 'manifold-3d/manifold.wasm?url';
 
 let ready: Promise<void> | null = null;
 
@@ -62,22 +65,45 @@ function getCell(input: BuildInput): Promise<Cell> {
   return c;
 }
 
-/** Dactyl: bryła prawej połówki z cache, lewa to jej lustro (płaszczyzna YZ). */
-async function dactylFor(input: DactylInput): Promise<Shape3D> {
+/** skorupy „koc” (siatki z Manifold), jak shapeCache */
+const meshCache = new Map<string, TriMesh>();
+
+/**
+ * Dactyl: bryła prawej połówki z cache, lewa to jej lustro (płaszczyzna YZ). Skorupa „koc” to
+ * siatka trójkątów (TriMesh), reszta to bryły OpenCascade.
+ */
+async function dactylFor(input: DactylInput): Promise<Shape3D | TriMesh> {
   const key = 'dactyl:' + JSON.stringify({ ...input, cellStep: undefined });
-  const hit = shapeCache.get(key);
+  const hit = shapeCache.get(key) ?? meshCache.get(key);
   if (hit) return hit;
   if (input.side === 'left') {
     const right = await dactylFor({ ...input, side: 'right' });
+    if ('vertices' in right) {
+      const m = mirrorX(right);
+      meshCache.set(key, m);
+      while (meshCache.size > 4) meshCache.delete(meshCache.keys().next().value!);
+      return m;
+    }
     const shape = right.clone().mirror('YZ', [0, 0, 0]) as Shape3D;
     remember(key, shape);
     return shape;
   }
   await init();
   const cell = await getCell({ cellId: input.cellId, cellStep: input.cellStep, variant: input.variant, up: input.up } as BuildInput);
-  const model = buildDactyl(input.params, { cellHeight: cell.height, screwSize: input.screwSize });
+  const base = buildDactyl(input.params, { cellHeight: cell.height, screwSize: input.screwSize });
+  const blanket = input.shell === 'blanket';
+  const model = blanket ? withBlanket(base) : base;
   const controller = input.controller ? controllerHolder(model, input.controller) : null;
   const b = { floor: input.floor, bossHeight: 7, controller, chamfer: input.chamfer ?? 1 };
+  if (blanket && input.part === 'shell') {
+    const M = await manifoldLib(manifoldWasm);
+    const m = blanketShellMesh(M, model, (model as ReturnType<typeof withBlanket>).blanket, cell, b).simplify(0.01);
+    const mesh = toTriMesh(m);
+    m.delete();
+    meshCache.set(key, mesh);
+    while (meshCache.size > 4) meshCache.delete(meshCache.keys().next().value!);
+    return mesh;
+  }
   const shape = input.part === 'shell' ? buildDactylShell(model, cell, b) : buildDactylBottom(model, b);
   remember(key, shape);
   return shape;
@@ -133,6 +159,21 @@ self.onmessage = async (e: MessageEvent<Request>) => {
         : req.type === 'dactyl-mesh' || req.type === 'dactyl-export'
           ? await dactylFor(req.input)
           : await plateFor(req.input);
+    if ('vertices' in shape) {
+      // skorupa „koc”: gotowa siatka
+      if (req.type === 'dactyl-export') {
+        if (req.format !== 'stl') throw new Error('Skorupa „koc” jest siatką: eksport tylko do STL.');
+        const data = stlBinary(shape);
+        post({ id: req.id, type: 'file', data, ms: performance.now() - t0 }, [data]);
+      } else {
+        const f = flatShaded(shape);
+        post(
+          { id: req.id, type: 'mesh', ...f, bounds: meshBounds(shape), ms: performance.now() - t0 },
+          [f.vertices.buffer, f.normals.buffer, f.triangles.buffer],
+        );
+      }
+      return;
+    }
     if (req.type === 'mesh' || req.type === 'switch' || req.type === 'step-mesh' || req.type === 'dactyl-mesh') {
       const m = shape.mesh({ tolerance: 0.05, angularTolerance: 0.3 });
       const vertices = new Float32Array(m.vertices);

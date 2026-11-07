@@ -24,6 +24,8 @@ export interface DactylInput {
   screwSize?: ScrewSize;
   /** fazka ostrych krawędzi wierzchu skorupy (mm); brak = 1, 0 = bez */
   chamfer?: number;
+  /** skorupa: otoczki jak w Dactylu (OpenCascade) albo gładki „koc” (siatka, tylko STL); brak = otoczki */
+  shell?: 'hulls' | 'blanket';
 }
 
 export interface BuildInput {
