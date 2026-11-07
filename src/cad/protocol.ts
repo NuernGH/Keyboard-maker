@@ -64,8 +64,10 @@ export interface BuildInput {
   cellStep: ArrayBuffer;
   up: UpAxis | 'auto';
   island: IslandGeom | null;
-  /** co zbudować: płytę (domyślnie), spód obudowy albo klin pod moduł OLED */
-  part?: 'plate' | 'case' | 'wedge';
+  /** co zbudować: płytę (domyślnie), spód obudowy, klin pod moduł OLED albo luźne części nóżek */
+  part?: 'plate' | 'case' | 'wedge' | 'feet';
+  /** nóżki: na miejscu pod obudową (podgląd) albo ułożone do druku (eksport) */
+  pose?: 'place' | 'print';
   /** obudowa: parametry i wyliczone pozycje śrub; przy płycie dodaje otwory pilotowe */
   case?: { params: CaseParams; layout: CaseLayout } | null;
   /** podział do druku; z `piece` zwraca jedną część (0 = lewa, 1 = prawa) zamiast całości */

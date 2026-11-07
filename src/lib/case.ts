@@ -9,6 +9,7 @@ import { stabOffset } from './cell-spec';
 import { USB_PLUG, type Box, type IslandGeom } from './island';
 import { CASE_DOVETAIL, DOVETAIL, distToSeam, seamScrewTargets, type PrintSplit } from './split';
 import { emptyExtras, layoutExtras, type CaseExtras, type ExtrasLayout } from './case-extras';
+import { feetLayout, pocketArea, type FeetLayout, type FeetParams } from './feet';
 
 export interface CaseParams {
   enabled: boolean;
@@ -62,6 +63,11 @@ export interface CaseParams {
    * Wycięcia w ściance, kieszenie w płycie i w dnie; śruby, podpory i gzyms je omijają.
    */
   extras?: CaseExtras;
+  /**
+   * Składane nóżki (opcja, domyślnie brak): listwa na tylne śruby z podkładkami z przodu
+   * albo kieszenie w dnie spodu. Bez opcji obudowa się nie zmienia.
+   */
+  feet?: FeetParams;
 }
 
 /** Wartości cienkiej obudowy (analiza 2026-11-07: 60% hot-swap 14,6 → 12,1 mm). */
@@ -192,6 +198,8 @@ export interface CaseLayout {
   caseTabs?: number[];
   /** dodatki: włącznik, gniazdo między połówkami, bateria (puste, gdy wyłączone) */
   extras: ExtrasLayout;
+  /** składane nóżki (brak, gdy opcja wyłączona) */
+  feet?: FeetLayout;
 }
 
 /** Luz między podkładką a płytką kontrolera (mm), pas wolny od pinów przy dłuższych bokach, zwężenie podestu pod gniazdem USB. */
@@ -439,8 +447,35 @@ export function caseLayout(
       })
     : emptyExtras();
   const screws = screwPositions(keys, island, cp.screws, split, sp, SCREW_MARGIN + cp.gap + cp.wall, extras.keepouts);
-  const supports = cp.supports === false ? [] : supportPositions(keys, island, screws, split, stabs, extras.keepouts);
+  const supports0 = cp.supports === false ? [] : supportPositions(keys, island, screws, split, stabs, extras.keepouts);
   const pads = controllerPads(island, floorTop);
+  const reach = Math.max(o.margin ?? SCREW_MARGIN, SCREW_MARGIN) + cp.gap;
+  const feet = cp.feet && cp.feet.mode !== 'none'
+    ? feetLayout(cp.feet, {
+        keys,
+        island,
+        screws,
+        headR: sp.head / 2,
+        bossR: sp.boss / 2,
+        reach: reach + cp.wall,
+        innerReach: reach,
+        bottom,
+        floorTop,
+        cellHeight,
+        // pogrubione dno: 1 mm pod komórkami i pod końcami pinów przełączników
+        topLimit: Math.min(-cellHeight, -MX_PINS.depth) - 1,
+        split,
+        keepouts: [...pads, ...usbCuts, ...extras.keepouts, ...extras.floorPockets],
+        screw: { length: screwLength, headDepth, head: sp.headDepth, pilotDepth, lengths: STANDARD_LENGTHS, biteMin: SCREW_BITE.min },
+      })
+    : undefined;
+  // podpory nie stoją na kieszeniach nóżek (cienki strop, języczki zatrzasku)
+  const supports = feet?.mode === 'pocket'
+    ? supports0.filter(([x, y]) => feet.legs.every((xc) => {
+        const a = pocketArea(xc, feet.pivotY, SUPPORT.d / 2 + 1);
+        return x < a.x0 || x > a.x1 || y < a.y0 || y > a.y1;
+      }))
+    : supports0;
   return {
     screw: sp,
     screws,
@@ -455,6 +490,7 @@ export function caseLayout(
     usbCuts,
     pads,
     extras,
+    ...(feet ? { feet } : {}),
     ...(split?.caseDovetails
       ? { caseTabs: caseTabPositions(keys, split.caseX, screws, sp, supports, [...pads, ...usbCuts, ...extras.keepouts, ...extras.floorPockets]) }
       : {}),

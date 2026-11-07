@@ -49,6 +49,7 @@
   } from './lib/project';
   import { splitWiringInput, wiringAssignments } from './lib/wiring-doc';
   import { DEFAULT_CASE, FLOOR_MIN, SCREW_MARGIN, SLIM_CASE, STANDARD_LENGTHS, caseLayout, type CaseParams } from './lib/case';
+  import type { FeetLayout, FeetMode } from './lib/feet';
   import { DEFAULT_PRINT, planSplit, pieceOf, type PrintParams, type PrintSplit } from './lib/split';
   import { BATTERY_PRESETS, DEFAULT_EXTRAS, type CaseExtras, type ExtraWarn } from './lib/case-extras';
   import type { GhostPart } from './lib/island';
@@ -184,10 +185,25 @@
   const pieces = $derived<(0 | 1 | undefined)[]>(split ? [0, 1] : [undefined]);
   const sides = $derived<Side[]>(single ? ['left'] : show === 'both' ? ['left', 'right'] : [show]);
 
-  type Part = 'plate' | 'case' | 'wedge';
-  function inputFor(s: Side, part: Part = 'plate', piece?: 0 | 1): BuildInput | null {
+  type Part = 'plate' | 'case' | 'wedge' | 'feet';
+  function inputFor(s: Side, part: Part = 'plate', piece?: 0 | 1, pose: 'place' | 'print' = 'place'): BuildInput | null {
     if (!cellStep) return null;
-    if (part === 'case' && !caseOn) return null;
+    if ((part === 'case' || part === 'feet') && !caseOn) return null;
+    if (part === 'feet') {
+      // luźne części nóżek: zależą tylko od układu nóżek, dna i śrub
+      const layout = layoutFor(s);
+      if (!layout.feet?.legs.length) return null;
+      const cp = $state.snapshot(caseP) as CaseParams;
+      // podgląd po podziale: każda część spodu dostaje swoje nóżki (część prawa jest w podglądzie przesunięta)
+      const pc = pose === 'place' && s === 'left' && split ? piece : undefined;
+      if (pc !== undefined && split) {
+        const sp = $state.snapshot(split) as PrintSplit;
+        const has = layout.feet.legs.some((x) => (x < sp.caseX ? 0 : 1) === pc) || (pc === 0 && !!layout.feet.bar);
+        if (!has) return null;
+        return { keys: [], variant, plate: $state.snapshot(plate) as PlateOptions, cellId, cellStep, up, island: null, part, pose, case: { params: cp, layout }, split: { plan: sp, clearance: print.clearance }, piece: pc };
+      }
+      return { keys: [], variant, plate: $state.snapshot(plate) as PlateOptions, cellId, cellStep, up, island: null, part, pose, case: { params: cp, layout } };
+    }
     if (part === 'wedge') {
       // klin to osobna część, niezależna od podziału i obudowy
       const isl = islandGeom(s);
@@ -215,6 +231,11 @@
   }
   const job = (s: Side, part: Part, piece?: 0 | 1): Job =>
     `${part === 'plate' ? s : `${s}-${part}`}${piece === undefined ? '' : `-p${piece}`}`;
+  const feetMeshFor = (s: Side, pc?: 0 | 1) => {
+    const inp = inputFor(s, 'feet', pc);
+    const m = meshes[job(s, 'feet', pc)];
+    return inp && m && m.key === inputKey(inp) ? m.mesh : null;
+  };
   const wedgeMeshFor = (s: Side) => {
     const inp = inputFor(s, 'wedge');
     const m = meshes[job(s, 'wedge')];
@@ -235,6 +256,16 @@
     for (const s of (single ? ['left'] : ['left', 'right']) as Side[]) {
       const e = s === 'left' && screwInfo ? screwInfo.extras : layoutFor(s).extras;
       out[s] = { ghosts: e.ghosts, warns: e.warns };
+    }
+    return out;
+  });
+  /** składane nóżki dla każdej połówki (brak, gdy opcja wyłączona) */
+  let feetBySide = $derived.by(() => {
+    const out: Partial<Record<Side, FeetLayout>> = {};
+    if (!caseOn || !caseP.feet || caseP.feet.mode === 'none') return out;
+    for (const s of (single ? ['left'] : ['left', 'right']) as Side[]) {
+      const f = s === 'left' && screwInfo ? screwInfo.feet : layoutFor(s).feet;
+      if (f) out[s] = f;
     }
     return out;
   });
@@ -280,6 +311,8 @@
           mesh: mesh('plate'),
           island: islPiece === pc ? isl : null,
           wedgeMesh: islPiece === pc ? wedgeMeshFor('left') : null,
+          // nóżki przy swojej części; listwa łączy obie, rysujemy ją przy pierwszej
+          feetMesh: feetMeshFor('left', pc),
           showElectronics,
           caseMesh: mesh('case'),
           caseOn,
@@ -296,7 +329,7 @@
       const cm = meshes[job(s, 'case')];
       const caseMesh = cin && cm && cm.key === inputKey(cin) ? cm.mesh : null;
       const offsetX = s === 'right' && sides.length === 2 ? reachL + reachR + gap + 2 * pad : 0;
-      return { side: s, keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), wedgeMesh: wedgeMeshFor(s), showElectronics, caseMesh, caseOn, explode: caseP.explode, caseParts: extrasBySide[s]?.ghosts ?? [] };
+      return { side: s, keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), wedgeMesh: wedgeMeshFor(s), feetMesh: feetMeshFor(s), showElectronics, caseMesh, caseOn, explode: caseP.explode, caseParts: extrasBySide[s]?.ghosts ?? [] };
     });
   });
 
@@ -361,6 +394,7 @@
     const jobs = sides.flatMap((s) => [
       ...pieces.flatMap((pc) => [[s, 'plate', inputFor(s, 'plate', pc), pc] as const, [s, 'case', inputFor(s, 'case', pc), pc] as const]),
       [s, 'wedge', inputFor(s, 'wedge'), undefined] as const,
+      ...pieces.map((pc) => [s, 'feet', inputFor(s, 'feet', pc), pc] as const),
     ]);
     clearTimeout(timer);
     timer = setTimeout(async () => {
@@ -395,7 +429,7 @@
 
   async function exportFile(s: Side, format: 'stl' | 'step', part: Part = 'plate', piece?: 0 | 1) {
     if (exportBlocked) return;
-    const inp = inputFor(s, part, piece);
+    const inp = inputFor(s, part, piece, part === 'feet' ? 'print' : 'place');
     if (!inp) return;
     status = t(lang, 'computing');
     error = '';
@@ -407,7 +441,12 @@
           ? `macropad-${params.rows}x${params.cols}`
           : `${s}`;
       const pc = piece === undefined ? '' : `-${piece + 1}of2`;
-      const name = part === 'wedge' ? `${base}-oled-wedge-${island.tilt}deg.${format}` : `${base}-${part}${pc}-${variant}.${format}`;
+      const name =
+        part === 'wedge'
+          ? `${base}-oled-wedge-${island.tilt}deg.${format}`
+          : part === 'feet'
+            ? `${base}-feet-${caseP.feet?.mode ?? 'bar'}.${format}`
+            : `${base}-${part}${pc}-${variant}.${format}`;
       await saveFile(name, data);
     } catch (e) {
       error = (e as Error).message;
@@ -567,7 +606,7 @@
       .catch((e) => (error = String(e)));
   });
 
-  const anyBusy = $derived(sides.some((s) => pieces.some((pc) => busy[job(s, 'plate', pc)] || busy[job(s, 'case', pc)]) || busy[job(s, 'wedge')]));
+  const anyBusy = $derived(sides.some((s) => pieces.some((pc) => busy[job(s, 'plate', pc)] || busy[job(s, 'case', pc)]) || busy[job(s, 'wedge')] || pieces.some((pc) => busy[job(s, 'feet', pc)])));
   const mm = (v: number) => Math.round(v);
   /** wejście instrukcji okablowania z bieżących ustawień */
   const wiringInput = () =>
@@ -1026,6 +1065,25 @@
             <label>{t(lang, 'batteryT')} <input type="number" min="1" max="12" step="0.1" bind:value={ex.battery.t} /></label>
           </div>
         {/if}
+        <label data-tip={t(lang, 'tipFeet')}>{t(lang, 'feet')}
+          <select value={caseP.feet?.mode ?? 'none'} onchange={(e) => (caseP.feet = { ...(caseP.feet ?? {}), mode: e.currentTarget.value as FeetMode })}>
+            <option value="none">{t(lang, 'feetNone')}</option>
+            <option value="bar">{t(lang, 'feetBar')}</option>
+            <option value="pocket">{t(lang, 'feetPocket')}</option>
+          </select>
+        </label>
+        {#if caseP.feet?.mode === 'bar'}
+          <label class="check" data-tip={t(lang, 'tipFeetPegs')}><input type="checkbox" checked={caseP.feet.pegs !== false} onchange={(e) => (caseP.feet = { ...caseP.feet!, pegs: e.currentTarget.checked })} /> {t(lang, 'feetPegs')}</label>
+        {/if}
+        {#each Object.entries(feetBySide) as [s, f] (s)}
+          {@const pre = single ? '' : `${t(lang, s === 'left' ? 'left' : 'right')}: `}
+          {#if f && f.legs.length}
+            <p class="muted">{pre}{t(lang, f.mode === 'bar' ? 'feetInfoBar' : 'feetInfoPocket').replace('{t}', mmTxt(Math.round(f.tilt * 10) / 10)).replace('{l}', String(f.screwLength ?? '')).replace('{n}', String(f.bar?.screws.length ?? 0)).replace('{s}', screwInfo ? (lang === 'pl' ? screwInfo.screw.size.replace('.', ',') : screwInfo.screw.size) : 'M3')}</p>
+          {/if}
+          {#each f?.warns ?? [] as w (w)}
+            <p class="warn">{pre}{t(lang, ({ noSpot: 'feetNoSpot', thinFloor: 'feetThinFloor', barLong: 'feetBarLong', padSmall: 'feetPadSmall' } as const)[w])}</p>
+          {/each}
+        {/each}
         {#each Object.entries(extrasBySide) as [s, e] (s)}
           {#each e?.warns ?? [] as w, i (i)}
             <p class={w.kind === 'noSpot' || w.kind === 'tooTall' ? 'warn' : 'muted'}>{single ? '' : `${t(lang, s === 'left' ? 'left' : 'right')}: `}{extraWarnText(w)}</p>
@@ -1086,6 +1144,13 @@
             <button onclick={() => exportFile(s, 'step', 'case', pc)} disabled={!cellStep || exportBlocked} data-tip={t(lang, 'tipStep')}>STEP</button>
           </div>
           {/each}
+        {/if}
+        {#if feetBySide[s]?.legs.length}
+          <div class="row">
+            <span class="side">{single ? t(lang, 'feetPart') : `${t(lang, 'feetPart')}: ${t(lang, s).toLowerCase()}`}</span>
+            <button onclick={() => exportFile(s, 'stl', 'feet')} disabled={!cellStep || exportBlocked} data-tip={t(lang, 'tipFeetExport')}>STL</button>
+            <button onclick={() => exportFile(s, 'step', 'feet')} disabled={!cellStep || exportBlocked} data-tip={t(lang, 'tipFeetExport')}>STEP</button>
+          </div>
         {/if}
         {#if islandGeom(s)?.wedge}
           <div class="row">

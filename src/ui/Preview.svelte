@@ -29,6 +29,8 @@
     wedgeMesh?: PreviewMesh | null;
     /** spód obudowy (dokładna bryła), rysowany niżej o `explode` mm */
     caseMesh?: PreviewMesh | null;
+    /** składane nóżki (listwa, podkładki, nóżki rozłożone), rysowane razem ze spodem (niżej o `explode`) */
+    feetMesh?: PreviewMesh | null;
     caseOn?: boolean;
     explode?: number;
     /** dodatki w obudowie (włącznik, gniazdo, bateria), rysowane razem ze spodem (niżej o `explode`) */
@@ -238,6 +240,18 @@
         const ce = new THREE.LineSegments(new THREE.EdgesGeometry(cg, 30), caseEdgeMat);
         ce.position.z = cm.position.z;
         hg.add(ce);
+      }
+      if (half.caseOn && half.feetMesh) {
+        const fg = new THREE.BufferGeometry();
+        fg.setAttribute('position', new THREE.BufferAttribute(half.feetMesh.vertices, 3));
+        fg.setAttribute('normal', new THREE.BufferAttribute(half.feetMesh.normals, 3));
+        fg.setIndex(new THREE.BufferAttribute(half.feetMesh.triangles, 1));
+        const fm = new THREE.Mesh(fg, wedgeMat);
+        fm.position.z = -(half.explode ?? 0);
+        hg.add(fm);
+        const fe = new THREE.LineSegments(new THREE.EdgesGeometry(fg, 30), caseEdgeMat);
+        fe.position.z = fm.position.z;
+        hg.add(fe);
       }
       if (switchMesh) {
         const spots = half.keys.flatMap((k) => switchSpots(k, stabs).map(([x, y]) => [x, y, k.rot] as const));

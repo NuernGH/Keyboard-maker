@@ -27,6 +27,7 @@ import { wedgeZ, type Box, type IslandGeom } from './island';
 import { LEDGE, SUPPORT, bossFilletSize, chamferSize, ledgeKeepouts, ledgeWidth, screwSpec, type ScrewSpec, type CaseLayout, type CaseParams } from './case';
 import { CASE_DOVETAIL, leftRegion, type PrintSplit } from './split';
 import type { ExtrasLayout } from './case-extras';
+import { caseFeetParts } from './feet-geometry';
 
 import {
   DEFAULT_PLATE_OPTIONS,
@@ -368,7 +369,10 @@ export function buildCase(
       body = body.fuse(makeCylinder(SUPPORT.d / 2, supH + 0.01, [x, y, floorTop - 0.01], [0, 0, 1]) as Shape3D) as Shape3D;
   const ledge = buildLedge(outline, island, cellHeight, cp, opts.margin, floorTop, layout.extras?.keepouts ?? []);
   if (ledge) body = body.fuse(ledge) as Shape3D;
-  const tools: Shape3D[] = [];
+  // składane nóżki w dnie (opcja): pogrubienie dna, kieszenie z zatrzaskiem, kieszenie na stopki
+  const feet = caseFeetParts(layout.feet);
+  for (const a of feet.add) body = body.fuse(a) as Shape3D;
+  const tools: Shape3D[] = [...feet.cut];
   // łeb M3 (3,2 mm) bywa głębszy niż dno, wtedy wybranie wchodzi w słupek; bez słupka zostaw 0,6 mm dna
   const headDepth = layout.headDepth ?? Math.min(sp.headDepth, cp.floor - 0.6 + Math.max(standH, 0));
   for (const [x, y] of layout.screws) {
@@ -378,7 +382,8 @@ export function buildCase(
   for (const b of layout.usbCuts) tools.push(makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]));
   // dodatki: szczelina włącznika, otwór gniazda, kieszenie w dnie (bateria, zanurzone części)
   tools.push(...extraCaseCuts(layout.extras));
-  return tools.length ? cutMany(body, tools) : body;
+  const out = tools.length ? cutMany(body, tools) : body;
+  return feet.after.reduce((u, b) => u.fuse(b) as Shape3D, out);
 }
 
 /** Wycięcia dodatków w spodzie obudowy: ścianka (prostopadłościany, walce) i kieszenie w dnie. */
