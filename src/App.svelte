@@ -608,8 +608,8 @@
     const layout = keymapLayout(inp, wiringAssignments(inp));
     const ansi60 = isAnsi60(params.rowLayout);
     const legends = Object.fromEntries(Object.entries(defaultSets).map(([r, l]) => [r, l.main ?? '']));
-    const data = keymap ?? defaultKeymap({ layout, ansi60, macropad: templateId.startsWith('macropad'), legends });
     const s2 = ansi60 && island.enabled && island.controller === 's2mini';
+    const data = keymap ?? defaultKeymap({ layout, ansi60, s2mini60: s2, macropad: templateId.startsWith('macropad'), legends });
     const name = TEMPLATES.find((x) => x.id === templateId)?.name.pl ?? templateId;
     return {
       layout,

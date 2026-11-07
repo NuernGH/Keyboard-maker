@@ -21,6 +21,7 @@
     type KeymapData,
     type KeymapLayout,
   } from '../lib/keymap';
+  import { S2MINI60_SPECIALS } from '../lib/keymap-s2mini';
   import { HOLD_MODS, MOD_CODES, MOD_FN_NAME, captureKey, keyInfo, keyLabel, loneModifier, searchKeys, splitMods } from '../lib/keymap-keys';
 
   let {
@@ -257,7 +258,8 @@
   const found = $derived(searchKeys(query, lang).slice(0, 80));
 
   // ---------- eksport ----------
-  const exp = $derived(keymapFile(keymap, layout, { title }));
+  const exp = $derived(keymapFile(keymap, layout, { title, s2mini60: target === 's2mini60' }));
+  const specials = $derived(target === 's2mini60' ? [...S2MINI60_SPECIALS, ...SPECIAL_BINDINGS] : SPECIAL_BINDINGS);
   let showText = $state(false);
   let msg = $state('');
   async function download() {
@@ -321,6 +323,9 @@
       {/each}
       <div class="row">
         <button onclick={() => setValue(TRANS)}>{T('Jak warstwa niżej (&trans)', 'Transparent (&trans)')}</button>
+        {#if target === 's2mini60'}
+          <button class:on={value === '&knob'} onclick={() => setValue('&knob')} title={T('Tryby VOLUME → SCROLL → TRACK → BRIGHT, zmiana przyciskiem PUSH', 'Modes VOLUME → SCROLL → TRACK → BRIGHT, switched with PUSH')}>{T('Tryby gałki (&knob)', 'Knob modes (&knob)')}</button>
+        {/if}
       </div>
     {:else}
       <label>
@@ -378,7 +383,7 @@
           <input class="code" value={b.text} onchange={(e) => setValue((e.target as HTMLInputElement).value)} />
         </label>
         <div class="presets">
-          {#each SPECIAL_BINDINGS as s (s.text)}
+          {#each specials as s (s.text)}
             <button onclick={() => setValue(s.text)} class:on={b.text === s.text}><code>{s.text}</code> {s[lang]}</button>
           {/each}
         </div>
