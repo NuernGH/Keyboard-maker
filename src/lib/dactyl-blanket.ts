@@ -263,3 +263,28 @@ export function withBlanket(model: DactylModel, bp: BlanketParams = DEFAULT_BLAN
     blanket: bp,
   };
 }
+
+// ---------- skorupa organiczna (bryła w dactyl-organic.ts) ----------
+
+export type OrganicPattern = 'none' | 'relief' | 'holes';
+
+export interface OrganicParams {
+  /** promień domknięcia (mm): ile materiału dostają wklęsłe naroża i zatoki */
+  fill: number;
+  /** promień zaokrąglenia wypukłych krawędzi (mm) */
+  round: number;
+  /** wzór Woronoja na ściankach */
+  pattern: OrganicPattern;
+  /** średnia wielkość oczka (mm) */
+  patternCell: number;
+  /** szerokość żeberka między oczkami (mm) */
+  patternRib: number;
+  /** głębokość rowków płaskorzeźby (mm) */
+  patternDepth: number;
+}
+
+/** Wartości zatwierdzone przez Marcina (v3, 2026-11-07); wzór domyślnie wyłączony. */
+export const DEFAULT_ORGANIC: OrganicParams = { fill: 18, round: 3, pattern: 'none', patternCell: 10, patternRib: 2, patternDepth: 1 };
+
+/** obrys skorupy organicznej (zatwierdzony v3): domknięcie 20 mm, ściana 1,5 mm od klawiszy */
+export const ORGANIC_OUTLINE: BlanketParams = { blend: 8, margin: 1.5, close: 20 };

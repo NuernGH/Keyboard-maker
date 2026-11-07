@@ -9,6 +9,8 @@ import type { ControllerParams } from '../lib/dactyl-parts';
 import type { ScrewSize } from '../lib/case';
 
 /** Dactyl: skorupa albo dno jednej połówki. Model liczymy dla prawej, lewa to lustro. */
+import type { OrganicParams } from '../lib/dactyl-blanket';
+
 export interface DactylInput {
   params: DactylParams;
   variant: 'hotswap' | 'no-hotswap';
@@ -24,8 +26,10 @@ export interface DactylInput {
   screwSize?: ScrewSize;
   /** fazka ostrych krawędzi wierzchu skorupy (mm); brak = 1, 0 = bez */
   chamfer?: number;
-  /** skorupa: otoczki jak w Dactylu (OpenCascade) albo gładki „koc” (siatka, tylko STL); brak = otoczki */
-  shell?: 'hulls' | 'blanket';
+  /** skorupa: otoczki jak w Dactylu (OpenCascade), gładki „koc” albo organiczna (siatki, tylko STL); brak = otoczki */
+  shell?: 'hulls' | 'blanket' | 'organic';
+  /** skorupa organiczna: wzór Woronoja na ściankach i jego wymiary */
+  organic?: OrganicParams;
 }
 
 export interface BuildInput {

@@ -25,6 +25,7 @@
     type DactylModel,
     type DactylParams,
   } from '../lib/dactyl';
+  import { DEFAULT_ORGANIC, ORGANIC_OUTLINE, withBlanket, type OrganicParams } from '../lib/dactyl-blanket';
   import { controllerHolder, DEFAULT_DACTYL_CONTROLLER, type ControllerParams } from '../lib/dactyl-parts';
   import { loadControllerModel, placeOnBoard } from './controllerModel';
   import { CONTROLLERS, type ControllerId } from '../lib/island';
@@ -68,10 +69,20 @@
       fPinky: 'Mały',
       tipStagger: 'Każdy palec ma inną długość, więc kolumny są przesunięte do przodu (Y, + dalej od ciebie) i w pionie (Z, + wyżej). Wszystko na 0 = kolumny równo, bez schodków.',
       shellKind: 'Skorupa',
+      shellOrganic: 'organiczna',
       shellBlanket: 'gładka (koc)',
       shellHulls: 'łączniki jak w Dactylu',
-      tipShell: 'Koc: jedna gładka powierzchnia przez płyty wszystkich klawiszy, pionowe ściany z fazką. Liczony jako siatka, więc eksport tylko do STL. Łączniki: skorupa z otoczek jak w Dactyl Configurator (STL i STEP).',
-      blanketStl: 'Skorupa „koc” jest siatką: tylko STL (dno także STEP).',
+      pattern: 'Wzór na ściankach',
+      tipPattern: 'Woronoj na pionowych ściankach: płaskorzeźba (rowki, ścianka pełna) albo ażur (otwory na wylot). Góra każdego oczka zwęża się pod 45°, więc drukuje się bez podpór. Wzór omija klawisze, tuleje śrub i kontroler.',
+      patNone: 'brak',
+      patRelief: 'płaskorzeźba (rowki)',
+      patHoles: 'ażur (otwory)',
+      patCell: 'Oczko (mm)',
+      patRib: 'Żeberko (mm)',
+      tipRib: 'Szerokość materiału między oczkami. Przy dyszy 0,4 co najmniej 1,2 mm (3 ścieżki).',
+      patDepth: 'Głębokość rowków (mm)',
+      tipShell: 'Organiczna: klawisze połączone jedną gładką bryłą, wklęsłe kąty wypełnione, wypukłe zaokrąglone, ściany z jednego obrysu; opcjonalnie wzór Woronoja. Koc: jedna gładka powierzchnia przez płyty wszystkich klawiszy, pionowe ściany z fazką. Liczony jako siatka, więc eksport tylko do STL. Łączniki: skorupa z otoczek jak w Dactyl Configurator (STL i STEP).',
+      blanketStl: 'Skorupa organiczna i „koc” są siatką: tylko STL (dno także STEP).',
       smooth: 'Ściany',
       smoothOff: 'kanciaste (jak oryginał)',
       smoothCorners: 'zaokrąglone narożniki',
@@ -119,10 +130,20 @@
       fPinky: 'Pinky',
       tipStagger: 'Fingers differ in length, so columns are shifted forward (Y, + away from you) and vertically (Z, + higher). All 0 = even columns, no steps.',
       shellKind: 'Shell',
+      shellOrganic: 'organic',
       shellBlanket: 'smooth (blanket)',
       shellHulls: 'Dactyl connectors',
-      tipShell: 'Blanket: one smooth surface through all key plates, vertical chamfered walls. Built as a mesh, so STL export only. Connectors: hull shell as in Dactyl Configurator (STL and STEP).',
-      blanketStl: 'The blanket shell is a mesh: STL only (the bottom also STEP).',
+      pattern: 'Wall pattern',
+      tipPattern: 'Voronoi on the vertical walls: relief (grooves, solid wall) or openwork (through holes). The top of every opening narrows at 45°, so it prints without supports. The pattern avoids keys, screw posts and the controller.',
+      patNone: 'none',
+      patRelief: 'relief (grooves)',
+      patHoles: 'openwork (holes)',
+      patCell: 'Cell (mm)',
+      patRib: 'Rib (mm)',
+      tipRib: 'Material width between cells. With a 0.4 nozzle at least 1.2 mm (3 lines).',
+      patDepth: 'Groove depth (mm)',
+      tipShell: 'Organic: keys joined into one smooth body, inner corners filled, outer edges rounded, walls from one outline; optional Voronoi pattern. Blanket: one smooth surface through all key plates, vertical chamfered walls. Built as a mesh, so STL export only. Connectors: hull shell as in Dactyl Configurator (STL and STEP).',
+      blanketStl: 'The organic and blanket shells are meshes: STL only (the bottom also STEP).',
       smooth: 'Walls',
       smoothOff: 'faceted (as original)',
       smoothCorners: 'rounded corners',
@@ -163,8 +184,11 @@
   let ctrl = $state<ControllerParams>({ ...DEFAULT_DACTYL_CONTROLLER });
   let floor = $state(4);
   let chamfer = $state(1);
-  // gładka skorupa „koc” (wybór Marcina), łączniki Dactyla zostają jako opcja
-  let shellKind = $state<'blanket' | 'hulls'>('blanket');
+  // skorupa organiczna (wybór Marcina, 2026-11-07); koc i łączniki Dactyla zostają jako opcje
+  let shellKind = $state<'organic' | 'blanket' | 'hulls'>('organic');
+  let organic = $state<OrganicParams>({ ...DEFAULT_ORGANIC });
+  /** skorupa z siatki (Manifold): eksport tylko STL */
+  const meshShell = $derived(shellKind !== 'hulls');
   let screwSize = $state<ScrewSize>('M3');
   let explode = $state(20);
   let showCaps = $state(true);
@@ -185,7 +209,11 @@
       return null;
     }
   });
-  const holder = $derived(model && ctrlOn ? controllerHolder(model, $state.snapshot(ctrl) as ControllerParams) : null);
+  // kontroler stoi przy ścianie skorupy, a koc i organiczna mają własny obrys (jak w workerze)
+  const shellModel = $derived(
+    model && shellKind === 'organic' ? withBlanket(model, ORGANIC_OUTLINE) : model && shellKind === 'blanket' ? withBlanket(model) : model,
+  );
+  const holder = $derived(shellModel && ctrlOn ? controllerHolder(shellModel, $state.snapshot(ctrl) as ControllerParams) : null);
   // modele kontrolerów wczytane do podglądu (ścieżka -> geometria)
   let ctrlGeo = $state(new Map<string, THREE.BufferGeometry>());
   $effect(() => {
@@ -216,6 +244,7 @@
       screwSize,
       chamfer,
       shell: shellKind,
+      ...(shellKind === 'organic' ? { organic: $state.snapshot(organic) as OrganicParams } : {}),
     };
   }
   const keyOf = (i: DactylInput) => JSON.stringify({ ...i, cellStep: undefined, side: undefined });
@@ -632,10 +661,29 @@
       </div>
       <label data-tip={tx('tipShell')}>{tx('shellKind')}
         <select bind:value={shellKind}>
+          <option value="organic">{tx('shellOrganic')}</option>
           <option value="blanket">{tx('shellBlanket')}</option>
           <option value="hulls">{tx('shellHulls')}</option>
         </select>
       </label>
+      {#if shellKind === 'organic'}
+        <label data-tip={tx('tipPattern')}>{tx('pattern')}
+          <select bind:value={organic.pattern}>
+            <option value="none">{tx('patNone')}</option>
+            <option value="relief">{tx('patRelief')}</option>
+            <option value="holes">{tx('patHoles')}</option>
+          </select>
+        </label>
+        {#if organic.pattern !== 'none'}
+          <div class="grid2">
+            <label>{tx('patCell')}<input type="number" min="6" max="30" step="1" bind:value={organic.patternCell} /></label>
+            <label data-tip={tx('tipRib')}>{tx('patRib')}<input type="number" min="1.2" max="6" step="0.2" bind:value={organic.patternRib} /></label>
+            {#if organic.pattern === 'relief'}
+              <label>{tx('patDepth')}<input type="number" min="0.4" max="2" step="0.2" bind:value={organic.patternDepth} /></label>
+            {/if}
+          </div>
+        {/if}
+      {/if}
       {#if shellKind === 'hulls'}
         <label>{tx('smooth')}
           <select bind:value={p.wallSmooth}>
@@ -709,7 +757,7 @@
           <div class="row">
             <span class="side">{tx(part)}: {t(lang, s).toLowerCase()}</span>
             <button onclick={() => exportPart(part, s, 'stl')} disabled={!cellStep} data-tip={t(lang, 'tipStl')}>STL</button>
-            <button onclick={() => exportPart(part, s, 'step')} disabled={!cellStep || (part === 'shell' && shellKind === 'blanket')} data-tip={part === 'shell' && shellKind === 'blanket' ? tx('blanketStl') : t(lang, 'tipStep')}>STEP</button>
+            <button onclick={() => exportPart(part, s, 'step')} disabled={!cellStep || (part === 'shell' && meshShell)} data-tip={part === 'shell' && meshShell ? tx('blanketStl') : t(lang, 'tipStep')}>STEP</button>
           </div>
         {/each}
       {/each}

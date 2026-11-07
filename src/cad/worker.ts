@@ -10,6 +10,7 @@ import { buildDactylShell, buildDactylBottom } from '../lib/dactyl-geometry';
 import { controllerHolder } from '../lib/dactyl-parts';
 import { loadSwitch } from '../lib/switch-model';
 import { withBlanket } from '../lib/dactyl-blanket';
+import { DEFAULT_ORGANIC, ORGANIC_OUTLINE, organicShellMesh } from '../lib/dactyl-organic';
 import { blanketShellMesh, flatShaded, manifoldLib, meshBounds, mirrorX, stlBinary, toTriMesh, type TriMesh } from '../lib/dactyl-mesh';
 import manifoldWasm from 'manifold-3d/manifold.wasm?url';
 
@@ -91,13 +92,17 @@ async function dactylFor(input: DactylInput): Promise<Shape3D | TriMesh> {
   await init();
   const cell = await getCell({ cellId: input.cellId, cellStep: input.cellStep, variant: input.variant, up: input.up } as BuildInput);
   const base = buildDactyl(input.params, { cellHeight: cell.height, screwSize: input.screwSize });
-  const blanket = input.shell === 'blanket';
-  const model = blanket ? withBlanket(base) : base;
+  const blanket = input.shell === 'blanket', organic = input.shell === 'organic';
+  // obrys organicznej: domknięty szerzej i bliżej klawiszy (dno ma ten sam obrys)
+  const model = organic ? withBlanket(base, ORGANIC_OUTLINE) : blanket ? withBlanket(base) : base;
   const controller = input.controller ? controllerHolder(model, input.controller) : null;
   const b = { floor: input.floor, bossHeight: 7, controller, chamfer: input.chamfer ?? 1 };
-  if (blanket && input.part === 'shell') {
+  if ((blanket || organic) && input.part === 'shell') {
     const M = await manifoldLib(manifoldWasm);
-    const m = blanketShellMesh(M, model, (model as ReturnType<typeof withBlanket>).blanket, cell, b).simplify(0.01);
+    const m = (organic
+      ? organicShellMesh(M, model, input.organic ?? DEFAULT_ORGANIC, cell, b)
+      : blanketShellMesh(M, model, (model as ReturnType<typeof withBlanket>).blanket, cell, b)
+    ).simplify(0.01);
     const mesh = toTriMesh(m);
     m.delete();
     meshCache.set(key, mesh);
