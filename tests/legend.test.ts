@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs';
 import { parse, type Font } from 'opentype.js';
 import { measureVolume, makeBox, type Shape3D } from 'replicad';
 import { initOC } from './oc';
-import { applyLegend, buildKeycap, legendPart, printPose } from '../src/lib/keycap';
-import { DEFAULT_KEYCAP, capBottom, capFront, capFrontFace, capLevels, capTop, capType, frontGrooveDepth, layoutKeyLegends, topInset, topPreset } from '../src/lib/keycap-spec';
+import { applyLegend, buildKeycap, inlayPart, legendPart, printPose } from '../src/lib/keycap';
+import { DEFAULT_KEYCAP, legendMethod, capBottom, capFront, capFrontFace, capLevels, capTop, capType, frontGrooveDepth, layoutKeyLegends, topInset, topPreset } from '../src/lib/keycap-spec';
 import { DEFAULT_LEGEND, LEGEND_MIN_STROKE, THIN_WARN, area, legendLayout, nestContours, placedContours, strokeWidth, textContours, thinCheck, type Contour } from '../src/lib/legend';
 import { isValidShape } from '../src/lib/geometry';
 
@@ -134,6 +134,36 @@ describe('legendy: bryły', () => {
     // zmiana filamentu na wysokości góry nakładki w pozycji druku
     expect(posed.boundingBox.bounds[1][2]).toBeCloseTo(L.topEdge - L.z0 + 0.6, 3);
   }, 60000);
+
+  test.each([
+    ['misa', DEFAULT_KEYCAP],
+    ['płaska', FLAT],
+  ] as const)('legenda wtopiona (AMS) na górze: %s – gniazdo + wkład = gładka nakładka, bez nakładania', (_n, p) => {
+    const cap = buildKeycap(p, t);
+    const lg = { contours: placed({ main: 'A', shift: '!' }, p), method: 'inlay' as const, depth: 0.6, raise: 0.6 };
+    const holed = applyLegend(p, t, cap, lg);
+    const inl = inlayPart(p, t, cap, lg)!;
+    expect(isValidShape(holed)).toBe(true);
+    expect(isValidShape(inl)).toBe(true);
+    expect(vol(inl)).toBeGreaterThan(1);
+    expect(vol(holed) + vol(inl)).toBeCloseTo(vol(cap), 1);
+    expect(vol(holed.clone().intersect(inl.clone()) as Shape3D)).toBeLessThan(0.01);
+    // góra liter równo z górą nakładki
+    const L = capLevels(p);
+    expect(inl.boundingBox.bounds[1][2]).toBeLessThanOrEqual(L.topEdge + 1e-3);
+    // obie części w tej samej pozycji druku
+    const a = printPose(p, holed, t).boundingBox.bounds;
+    const b = printPose(p, inl, t).boundingBox.bounds;
+    expect(b[0][2]).toBeGreaterThanOrEqual(a[0][2] - 1e-3);
+    expect(b[1][2]).toBeLessThanOrEqual(a[1][2] + 1e-3);
+  }, 120000);
+
+  test('legenda wtopiona: sposób skuteczny także na misie, przy druku na boku rowek', () => {
+    expect(legendMethod({ ...DEFAULT_KEYCAP, legend: { ...DEFAULT_LEGEND, method: 'inlay' } })).toBe('inlay');
+    expect(legendMethod({ ...FLAT, legend: { ...DEFAULT_LEGEND, method: 'inlay' } })).toBe('inlay');
+    expect(legendMethod({ ...DEFAULT_KEYCAP, orient: 'side', legend: { ...DEFAULT_LEGEND, method: 'inlay' } })).toBe('groove');
+    expect(legendMethod(DEFAULT_KEYCAP)).toBe('groove');
+  });
 
   test('rowek przy druku na boku i na płaskiej górze: poprawne bryły', () => {
     const lg = { contours: placed({ main: 'Ż', fn: 'F5' }), method: 'groove' as const, depth: 0.6, raise: 0.6 };

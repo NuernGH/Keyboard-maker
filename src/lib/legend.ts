@@ -18,7 +18,7 @@ export const legendRef = (side: 'left' | 'right', id: string) => `${side}:${id}`
  * `color` = wypukła legenda w drugim kolorze, jedna zmiana filamentu (M600) na wysokości góry nakładki;
  * tylko płaska góra drukowana górą do góry (na misie warstwy mieszałyby oba kolory).
  */
-export type LegendMethod = 'groove' | 'color';
+export type LegendMethod = 'groove' | 'color' | 'inlay';
 
 export interface LegendParams {
   /** wysokość wielkiej litery legendy głównej (mm) */
@@ -41,8 +41,11 @@ export interface LegendParams {
  */
 export const DEFAULT_LEGEND: LegendParams = { mainSize: 5, shiftMainSize: 4.4, subSize: 3.6, depth: 0.6, raise: 0.6, margin: 0.9 };
 
-/** Minimalne szerokości kreski dla dyszy 0,4 (mm): rowek, którego slicer nie zaleje, i jedna linia legendy wypukłej. */
-export const LEGEND_MIN_STROKE: Record<LegendMethod, number> = { groove: 0.5, color: 0.45 };
+/**
+ * Minimalne szerokości kreski dla dyszy 0,4 (mm): rowek, którego slicer nie zaleje, i jedna linia legendy
+ * wypukłej albo wtopionej (litera drukowana drugim filamentem).
+ */
+export const LEGEND_MIN_STROKE: Record<LegendMethod, number> = { groove: 0.5, color: 0.45, inlay: 0.45 };
 
 /** Wysokość wielkiej litery w jednostkach em (Noto Sans: 714/1000). */
 export function capHeightEm(font: Font): number {

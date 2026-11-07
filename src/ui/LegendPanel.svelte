@@ -16,6 +16,7 @@
     thinCheck,
     THIN_WARN,
     type LegendLayer,
+    type LegendMethod,
     type LegendSet,
     type PlacedLegend,
   } from '../lib/legend';
@@ -48,8 +49,11 @@
       method: 'Sposób',
       color: 'wypukła w drugim kolorze (zmiana filamentu)',
       groove: 'rowek na farbę',
+      inlay: 'wtopiona w kolorze (AMS, 2 części)',
+      inlayNote: 'Litery wtopione równo z górą nakładki, drukowane drugim filamentem z AMS. Eksport daje dla każdego klawisza dwa pliki: nakładkę i litery („-legend”) w tym samym położeniu; wczytaj je w slicerze jako jeden obiekt z dwiema częściami. Opisy Fn na przedniej ściance zostają rowkiem na farbę.',
+      inlayDepth: 'Grubość wtopionej legendy (mm)',
       grooveSide: 'Przy druku na boku legenda jest rowkiem na farbę.',
-      grooveDish: 'Na misie legenda jest rowkiem na farbę: wypukła w kolorze wymagałaby wielu zmian filamentu (możliwa z AMS w kolejnym etapie).',
+      grooveDish: 'Na misie wypukła legenda w kolorze wymagałaby wielu zmian filamentu: bez AMS legenda jest rowkiem na farbę.',
       colorNote: 'Nakładka drukuje się górą do góry (gniazdo wymaga podpór w slicerze albo druku na boku). Dodaj w slicerze zmianę filamentu (M600) na wysokości {h} mm: od niej drukuje się legenda.',
       grooveNote: 'Po druku wetrzyj farbę (akryl, lakier do paznokci) w rowki i zetrzyj nadmiar z góry.',
       mainSize: 'Wysokość legendy głównej (mm)',
@@ -76,8 +80,11 @@
       method: 'Method',
       color: 'raised in a second colour (filament change)',
       groove: 'paint groove',
+      inlay: 'inlaid in colour (AMS, 2 parts)',
+      inlayNote: 'Letters sit flush with the cap top and print in a second filament from an AMS. Export gives two files per key: the cap and the letters ("-legend") in the same position; load them in the slicer as one object with two parts. Fn legends on the front wall stay paint grooves.',
+      inlayDepth: 'Inlaid legend thickness (mm)',
       grooveSide: 'When printed on its side the legend is a paint groove.',
-      grooveDish: 'On a dish the legend is a paint groove: a raised colour legend would need many filament changes (possible with an AMS in a later stage).',
+      grooveDish: 'On a dish a raised colour legend would need many filament changes: without an AMS the legend is a paint groove.',
       colorNote: 'The cap prints top up (the stem needs slicer supports, or print on its side). Add a filament change (M600) in the slicer at {h} mm: the legend prints from there.',
       grooveNote: 'After printing, rub paint (acrylic, nail polish) into the grooves and wipe the top clean.',
       mainSize: 'Main legend height (mm)',
@@ -202,13 +209,13 @@
   <h2>{tx('title')}</h2>
   {#if params.orient === 'side'}
     <p class="muted">{tx('grooveSide')}</p>
-  {:else if params.top !== 'flat'}
-    <p class="muted">{tx('grooveDish')}</p>
   {:else if params.legend}
+    {#if params.top !== 'flat'}<p class="muted">{tx('grooveDish')}</p>{/if}
     <label>{tx('method')}
-      <select bind:value={params.legend.method}>
-        <option value="color">{tx('color')}</option>
+      <select value={method} onchange={(e) => (params.legend!.method = (e.currentTarget as HTMLSelectElement).value as LegendMethod)}>
+        {#if params.top === 'flat'}<option value="color">{tx('color')}</option>{/if}
         <option value="groove">{tx('groove')}</option>
+        <option value="inlay">{tx('inlay')}</option>
       </select>
     </label>
   {/if}
@@ -220,8 +227,8 @@
       <label>{tx('subSize')}
         <input type="number" min="1.5" max="6" step="0.1" bind:value={params.legend.subSize} />
       </label>
-      {#if method === 'groove'}
-        <label>{tx('depth')}
+      {#if method !== 'color'}
+        <label>{tx(method === 'inlay' ? 'inlayDepth' : 'depth')}
           <input type="number" min="0.2" max="1.2" step="0.1" bind:value={params.legend.depth} />
         </label>
       {:else}
@@ -231,7 +238,7 @@
       {/if}
     </div>
   {/if}
-  <p class="muted">{method === 'color' ? tx('colorNote').replace('{h}', num(lv.topEdge - lv.z0, 2)) : tx('grooveNote')}</p>
+  <p class="muted">{method === 'color' ? tx('colorNote').replace('{h}', num(lv.topEdge - lv.z0, 2)) : method === 'inlay' ? tx('inlayNote') : tx('grooveNote')}</p>
   {#if !font && !fontError}<p class="muted">{tx('loading')}</p>{/if}
   {#if fontError}<p class="warn">{fontError}</p>{/if}
 
