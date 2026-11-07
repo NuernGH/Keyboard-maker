@@ -340,7 +340,8 @@
   // ---------- CAD ----------
   const client = new CadClient();
   type Mesh = { vertices: Float32Array; normals: Float32Array; triangles: Uint32Array };
-  let exact = $state<{ shell?: { key: string; mesh: Mesh }; bottom?: { key: string; mesh: Mesh } }>({});
+  // shell.approx: szybki podgląd z siatek (Manifold), dokładna bryła jeszcze się liczy
+  let exact = $state<{ shell?: { key: string; mesh: Mesh; approx?: boolean }; bottom?: { key: string; mesh: Mesh } }>({});
   let busy = $state(false);
   let lastMs = $state<number | null>(null);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -371,11 +372,18 @@
       const b = await client.dactylMesh(bi);
       if (want !== k) return;
       exact.bottom = { key: k, mesh: b };
+      // zwykła skorupa: najpierw w ułamku sekundy podgląd z siatek, potem dokładna bryła (eksport)
+      // (chyba że dokładna jest już w pamięci przeglądarki z wcześniejszej wizyty)
+      if ((si.shell ?? 'hulls') === 'hulls' && !(await client.dactylMeshCached(si))) {
+        const f = await client.dactylMesh({ ...si, preview: true });
+        if (want !== k) return;
+        exact.shell = { key: k, mesh: f, approx: true };
+      }
       const s = await client.dactylMesh(si);
-      shellBuilds++;
+      if (!s.cached) shellBuilds++;
       if (want !== k) return;
       exact.shell = { key: k, mesh: s };
-      lastMs = Math.round(s.ms);
+      lastMs = s.cached ? null : Math.round(s.ms);
     } catch (e) {
       if (want === k && (e as Error).message !== 'restart') error = (e as Error).message;
     } finally {
@@ -1151,7 +1159,7 @@
     <div class="preview" bind:this={host}></div>
     <div class="hud">
       <span class="badge" class:exact={!busy && !!exact.shell}>
-        {#if busy}{t(lang, 'computing')}{:else if exact.shell}{t(lang, 'exact')}{#if lastMs}&nbsp;· {Math.round(lastMs / 1000)} s{/if}{:else}{t(lang, 'quick')}{/if}
+        {#if busy && exact.shell?.approx}{t(lang, 'computingExact')}{:else if busy}{t(lang, 'computing')}{:else if exact.shell}{t(lang, 'exact')}{#if lastMs}&nbsp;· {Math.round(lastMs / 1000)} s{/if}{:else}{t(lang, 'quick')}{/if}
       </span>
       {#if status}<span class="badge">{status}</span>{/if}
       {#if error}<span class="badge err">{t(lang, 'error')}: {error}</span>{/if}

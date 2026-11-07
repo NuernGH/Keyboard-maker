@@ -47,6 +47,8 @@ export interface DactylInput {
   shell?: 'hulls' | 'blanket' | 'organic';
   /** skorupa organiczna: wzór Woronoja na ściankach i jego wymiary */
   organic?: OrganicParams;
+  /** szybki podgląd zwykłej skorupy: siatka z Manifold zamiast OpenCascade, bez fazki; nigdy do eksportu */
+  preview?: boolean;
   /** dodatki: włącznik baterii, gniazdo między połówkami, bateria (brak = bez) */
   extras?: CaseExtras;
 }
@@ -92,6 +94,8 @@ export type Response =
       triangles: Uint32Array;
       bounds: [[number, number, number], [number, number, number]];
       ms: number;
+      /** siatka z pamięci przeglądarki (policzona przy wcześniejszej wizycie) */
+      cached?: boolean;
     }
   | { id: number; type: 'file'; data: ArrayBuffer; ms: number }
   | { id: number; type: 'error'; message: string };

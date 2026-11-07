@@ -8,6 +8,10 @@ Używany wyłącznie w podglądzie 3D (nie trafia do eksportu STL/STEP).
 Wymiary od wierzchu płyty: kołnierz 15,64 × 16,33, część w otworze 13,98 × 13,98 (1,5 mm),
 dół obudowy −4,85, koniec pinów −7,64, czubek trzpienia +10,05.
 
+`cherry-mx.mesh` — ta sama bryła już ustawiona w komórce i zamieniona na trójkąty (format KMSH,
+src/lib/mesh-file.ts), żeby podgląd nie liczył STEP-a przy każdym wejściu. Licencja jak wyżej (MIT).
+Odświeżenie po zmianie modelu: `WRITE_SWITCH_MESH=1 npx vitest run tests/switch.test.ts`.
+
 ---
 
 MIT License
