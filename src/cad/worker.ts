@@ -130,7 +130,14 @@ async function plateFor(input: BuildInput): Promise<Shape3D> {
     const whole = await plateFor({ ...input, piece: undefined });
     const { plan, clearance } = input.split;
     const shape =
-      input.part === 'case' ? casePiece(whole, plan.caseX, input.piece) : platePiece(whole, plan, clearance, input.piece);
+      input.part === 'case'
+        ? casePiece(
+            whole,
+            plan.caseX,
+            input.piece,
+            input.case?.layout.caseTabs?.length ? { ys: input.case.layout.caseTabs, floorTop: input.case.layout.floorTop, clearance } : null,
+          )
+        : platePiece(whole, plan, clearance, input.piece);
     remember(key, shape);
     return shape;
   }

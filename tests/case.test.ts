@@ -303,3 +303,25 @@ describe('wzmocnienie u podstawy słupków śrub', () => {
       }
     }, 300000);
 });
+
+describe('śruby w narożnikach', () => {
+  const ansi = TEMPLATES.find((t) => t.id === 'ansi-60')!.params;
+  const all = [
+    ...cases,
+    { name: '60% wyspa u góry', p: ansi, side: 'left' as const, ip: { ...DEFAULT_ISLAND, position: 'top' as const, controller: 's2mini' as const } },
+  ];
+  for (const c of all)
+    for (const size of ['M3', 'M2.5'] as ScrewSize[])
+      test(`${c.name}, ${size}: od każdego otworu do krawędzi płyty co najmniej 3 mm (też w zaokrąglonym narożniku)`, () => {
+        const keys = c.side === 'left' ? splitLeft(c.p) : mirrorKeys(splitLeft(c.p));
+        const island = islandFor(c.p, c.ip, c.side, 'hotswap', 8.58, SCREW_MARGIN);
+        const lay = caseLayout(keys, island, 8.58, { ...DEFAULT_CASE, screwSize: size, screws: 12 });
+        const plate = footprint(keys, opts, island).sketchOnPlane('XY', 0).extrude(1) as Shape3D;
+        for (const [x, y] of lay.screws) {
+          const ring = makeCylinder(2.95, 1, [x, y, 0], [0, 0, 1]) as Shape3D;
+          const v = measureVolume(ring.clone());
+          expect(measureVolume(plate.clone().intersect(ring) as never)).toBeCloseTo(v, 2);
+        }
+        expect(lay.screws.length).toBeGreaterThan(0);
+      });
+});

@@ -963,6 +963,9 @@
           </select>
         </label>
         <label data-tip={t(lang, 'tipSeamGap')}>{t(lang, 'seamGap')} <input type="number" min="0" max="0.6" step="0.05" bind:value={print.clearance} /></label>
+        {#if caseOn}
+          <label class="check" data-tip={t(lang, 'tipCaseDovetails')}><input type="checkbox" bind:checked={print.caseDovetails} /> {t(lang, 'caseDovetails')}</label>
+        {/if}
       </div>
       {#if split}
         <p class={split.fits ? 'muted' : 'warn'}>
