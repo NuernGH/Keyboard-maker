@@ -21,7 +21,10 @@
   import CustomController from './ui/CustomController.svelte';
   import WiringPanel from './ui/WiringPanel.svelte';
   import KeycapPanel from './ui/KeycapPanel.svelte';
-  import { DEFAULT_KEYCAP, type KeycapParams } from './lib/keycap-spec';
+  import { DEFAULT_KEYCAP, topInset, type KeycapParams } from './lib/keycap-spec';
+  import ColorPanel from './ui/ColorPanel.svelte';
+  import { DEFAULT_COLORS, resolveKeys, type ColorKey, type PreviewColors } from './lib/colors';
+  import { defaultLegends, isAnsi60, simpleLegendLayout, type LegendItem } from './lib/legend-defaults';
   import ProjectBar from './ui/ProjectBar.svelte';
   import {
     base64ToBytes,
@@ -51,6 +54,10 @@
   let keycap = $state<KeycapParams>({ ...DEFAULT_KEYCAP });
   let showCaps = $state(false);
   let capMeshes = $state<Record<string, PreviewMesh>>({});
+  /** kolory podglądu (domyślnie wyłączone = podgląd jak dotąd) */
+  let colors = $state<PreviewColors>(structuredClone(DEFAULT_COLORS));
+  let pickKey = $state(false);
+  let pickedKey = $state<string | null>(null);
   let caseP = $state<CaseParams>({ ...DEFAULT_CASE });
   /** obudowa ma sens tylko dla pełnych komórek (cienka płyta nie utrzyma śrub) */
   /** wartości sprzed włączenia cienkiej obudowy, przywracane po jej wyłączeniu */
@@ -220,6 +227,7 @@
           return inp && m && m.key === inputKey(inp) ? m.mesh : null;
         };
         return {
+          side: 'left' as const,
           keys: leftKeys.filter((k) => pieceOf(sp, k.x, k.y) === pc),
           offsetX: pc * splitGap,
           mesh: mesh('plate'),
@@ -240,9 +248,43 @@
       const cm = meshes[job(s, 'case')];
       const caseMesh = cin && cm && cm.key === inputKey(cin) ? cm.mesh : null;
       const offsetX = s === 'right' && sides.length === 2 ? reachL + reachR + gap + 2 * pad : 0;
-      return { keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), wedgeMesh: wedgeMeshFor(s), showElectronics, caseMesh, caseOn, explode: caseP.explode };
+      return { side: s, keys: keysFor(s), offsetX, mesh: fresh, island: islandGeom(s), wedgeMesh: wedgeMeshFor(s), showElectronics, caseMesh, caseOn, explode: caseP.explode };
     });
   });
+
+  // ---------- kolory podglądu ----------
+  const sideKeys = $derived(single ? (['left'] as const) : (['left', 'right'] as const));
+  const legendsBySide = $derived(
+    Object.fromEntries(sideKeys.map((s) => [s, defaultLegends(templateId, $state.snapshot(params) as SplitParams, keysFor(s), s)])) as Record<Side, ReturnType<typeof defaultLegends>>,
+  );
+  // prawdziwe nazwy (60% ANSI, split); macropad i własne rzędy mają numery, więc grupy tylko wg rozmiaru
+  const namedLayout = $derived(!templateId.startsWith('macropad') && (!params.rowLayout?.length || isAnsi60(params.rowLayout)));
+  const colorKeys = $derived.by<ColorKey[]>(() =>
+    halves.flatMap((h) =>
+      h.keys.map((k) => ({ ref: `${h.side ?? 'left'}:${k.id}`, main: legendsBySide[h.side ?? 'left']?.[k.id]?.main ?? '', w: k.w, h: k.h, x: h.offsetX + k.x, y: k.y })),
+    ),
+  );
+  const looks = $derived(colors.on ? resolveKeys(colors, colorKeys, namedLayout) : null);
+  const labels = $derived.by<Record<string, LegendItem[]> | null>(() => {
+    if (!colors.on || !colors.legends.show) return null;
+    const inset = topInset(keycap);
+    const out: Record<string, LegendItem[]> = {};
+    for (const s of sideKeys)
+      for (const k of keysFor(s)) {
+        const l = legendsBySide[s]?.[k.id];
+        if (!l) continue;
+        const tw = k.w * PITCH - keycap.gap - 2 * inset;
+        const th = k.h * PITCH - keycap.gap - 2 * inset;
+        out[`${s}:${k.id}`] = simpleLegendLayout(l, tw, th);
+      }
+    return out;
+  });
+  function keyInfo(ref: string) {
+    const [s, id] = ref.split(':') as [Side, string];
+    const k = keysFor(s).find((q) => q.id === id);
+    if (!k) return null;
+    return { main: legendsBySide[s]?.[id]?.main ?? '', w: k.w, h: k.h, named: namedLayout };
+  }
 
   const clients: Partial<Record<Side, CadClient>> = {};
   const client = (s: Side) => (clients[s] ??= new CadClient());
@@ -365,6 +407,7 @@
       showSwitches,
       keycap: $state.snapshot(keycap),
       showCaps,
+      colors: $state.snapshot(colors),
       cell: cellId !== 'default' && cellStep ? { name: cellName, data: bytesToBase64(cellStep) } : undefined,
     });
   }
@@ -398,6 +441,8 @@
     showSwitches = typeof f.showSwitches === 'boolean' ? f.showSwitches : true;
     keycap = mergeDefaults(DEFAULT_KEYCAP, f.keycap);
     if (typeof f.showCaps === 'boolean') showCaps = f.showCaps;
+    colors = mergeDefaults(DEFAULT_COLORS, f.colors);
+    pickedKey = null;
     if (f.cell?.data) {
       const bytes = base64ToBytes(f.cell.data);
       cellStep = bytes.buffer as ArrayBuffer;
@@ -858,6 +903,15 @@
       bind:show={showCaps}
       bind:meshes={capMeshes}
     />
+    <ColorPanel
+      {lang}
+      bind:colors
+      bind:pick={pickKey}
+      bind:selected={pickedKey}
+      {keyInfo}
+      capsShown={showCaps}
+      showCaps={() => (showCaps = true)}
+    />
     <WiringPanel {lang} input={wiringInput} fileBase={templateId} save={saveFile} />
 
     <footer class="muted">
@@ -867,7 +921,12 @@
   </aside>
 
   <main>
-    <Preview bind:this={preview} {halves} {cellHeight} stabs={plate.stabs ?? 'cherry'} switchMesh={showSwitches ? switchMesh : null} capMeshes={showCaps ? capMeshes : null} />
+    <Preview bind:this={preview} {halves} {cellHeight} stabs={plate.stabs ?? 'cherry'} switchMesh={showSwitches ? switchMesh : null} capMeshes={showCaps ? capMeshes : null}
+      {colors}
+      {looks}
+      {labels}
+      pickKey={colors.on && pickKey ? (ref) => (pickedKey = ref) : null}
+    />
     <div class="hud">
       <span class="badge" class:exact={allExact} data-tip={t(lang, 'tipBadge')}>
         {#if anyBusy}{t(lang, 'computing')}{:else if allExact}{t(lang, 'exact')}{#if lastMs}&nbsp;· {lastMs} ms{/if}{:else}{t(lang, 'quick')}{/if}

@@ -30,6 +30,8 @@ export interface FlatProject {
   /** nakładki klawiszy (KeycapParams) i czy pokazywać je w podglądzie */
   keycap?: unknown;
   showCaps?: boolean;
+  /** kolory podglądu (PreviewColors) */
+  colors?: unknown;
   /** własna komórka STEP (tylko w pliku; w linku pomijana) */
   cell?: { name: string; data: string };
 }
@@ -47,6 +49,8 @@ export interface DactylProject {
   showCaps: boolean;
   /** nakładki klawiszy (KeycapParams) */
   keycap?: unknown;
+  /** kolory podglądu (PreviewColors) */
+  colors?: unknown;
 }
 
 export interface ProjectFile {
