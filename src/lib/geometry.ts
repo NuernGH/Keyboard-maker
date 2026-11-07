@@ -26,6 +26,7 @@ import { PITCH, switchSpots, type Key } from './layout';
 import { wedgeZ, type Box, type IslandGeom } from './island';
 import { LEDGE, SUPPORT, bossFilletSize, chamferSize, ledgeKeepouts, ledgeWidth, screwSpec, type ScrewSpec, type CaseLayout, type CaseParams } from './case';
 import { CASE_DOVETAIL, leftRegion, type PrintSplit } from './split';
+import type { ExtrasLayout } from './case-extras';
 
 import {
   DEFAULT_PLATE_OPTIONS,
@@ -365,7 +366,7 @@ export function buildCase(
   if (supH > 0.3)
     for (const [x, y] of layout.supports ?? [])
       body = body.fuse(makeCylinder(SUPPORT.d / 2, supH + 0.01, [x, y, floorTop - 0.01], [0, 0, 1]) as Shape3D) as Shape3D;
-  const ledge = buildLedge(outline, island, cellHeight, cp, opts.margin, floorTop);
+  const ledge = buildLedge(outline, island, cellHeight, cp, opts.margin, floorTop, layout.extras?.keepouts ?? []);
   if (ledge) body = body.fuse(ledge) as Shape3D;
   const tools: Shape3D[] = [];
   // łeb M3 (3,2 mm) bywa głębszy niż dno, wtedy wybranie wchodzi w słupek; bez słupka zostaw 0,6 mm dna
@@ -375,7 +376,24 @@ export function buildCase(
     tools.push(makeCylinder(sp.head / 2, headDepth + 0.5, [x, y, bottom - 0.5], [0, 0, 1]) as Shape3D);
   }
   for (const b of layout.usbCuts) tools.push(makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]));
+  // dodatki: szczelina włącznika, otwór gniazda, kieszenie w dnie (bateria, zanurzone części)
+  tools.push(...extraCaseCuts(layout.extras));
   return tools.length ? cutMany(body, tools) : body;
+}
+
+/** Wycięcia dodatków w spodzie obudowy: ścianka (prostopadłościany, walce) i kieszenie w dnie. */
+export function extraCaseCuts(ex: ExtrasLayout | undefined): Shape3D[] {
+  if (!ex) return [];
+  const out: Shape3D[] = [];
+  for (const c of ex.wallCuts)
+    out.push(c.type === 'box' ? boxSolid(c.box) : (makeCylinder(c.r, c.len, c.from, c.dir) as Shape3D));
+  for (const b of ex.floorPockets) out.push(boxSolid(b));
+  return out;
+}
+
+/** Kieszenie dodatków od spodu płyty (korpus włącznika, gniazda), do odjęcia przy budowie płyty. */
+export function extraPlatePockets(ex: ExtrasLayout | undefined): Shape3D[] {
+  return (ex?.platePockets ?? []).map(boxSolid);
 }
 
 /**
@@ -402,6 +420,7 @@ export function buildLedge(
   cp: CaseParams,
   plateMargin: number,
   floorTop: number,
+  extra: Box[] = [],
 ): Shape3D | null {
   const w = ledgeWidth(cp, plateMargin);
   const top = -cellHeight - LEDGE.gap;
@@ -409,7 +428,7 @@ export function buildLedge(
   const z0 = floorTop - 0.01;
   let ring = outline.offset(cp.gap + 0.5).sketchOnPlane('XY', z0).extrude(top - z0) as Shape3D;
   ring = ring.cut(outline.offset(-w).sketchOnPlane('XY', z0 - 1).extrude(top - z0 + 2) as Shape3D) as Shape3D;
-  const keep = ledgeKeepouts(island, cellHeight, cp).map((b) => makeBox([b.x0, b.y0, z0 - 1], [b.x1, b.y1, top + 1]) as Shape3D);
+  const keep = ledgeKeepouts(island, cellHeight, cp, extra).map((b) => makeBox([b.x0, b.y0, z0 - 1], [b.x1, b.y1, top + 1]) as Shape3D);
   return keep.length ? cutMany(ring, keep) : ring;
 }
 

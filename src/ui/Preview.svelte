@@ -31,6 +31,8 @@
     caseMesh?: PreviewMesh | null;
     caseOn?: boolean;
     explode?: number;
+    /** dodatki w obudowie (włącznik, gniazdo, bateria), rysowane razem ze spodem (niżej o `explode`) */
+    caseParts?: GhostPart[];
   }
 
   let {
@@ -115,6 +117,9 @@
     display: new THREE.MeshStandardMaterial({ color: 0x10161a, roughness: 0.2, metalness: 0.2 }),
     encoder: new THREE.MeshStandardMaterial({ color: 0x9aa3a8, roughness: 0.5, metalness: 0.4 }),
     knob: new THREE.MeshStandardMaterial({ color: 0xb5543c, roughness: 0.5 }),
+    switch: new THREE.MeshStandardMaterial({ color: 0x23262a, roughness: 0.5 }),
+    jack: new THREE.MeshStandardMaterial({ color: 0x1b1d20, roughness: 0.6 }),
+    battery: new THREE.MeshStandardMaterial({ color: 0x8fa3b8, roughness: 0.35, metalness: 0.5 }),
   };
 
   function boxMesh(
@@ -216,6 +221,12 @@
         const r = half.island.rect;
         hg.add(boxMesh({ x0: r.x0, y0: r.y0, z0: -half.island.depth, x1: r.x1, y1: r.y1, z1: -0.01 }, quickMat));
       }
+      if (half.caseOn && half.showElectronics !== false)
+        for (const gp of half.caseParts ?? []) {
+          const o = boxMesh(gp.box, ghostMats[gp.kind]);
+          o.position.z -= half.explode ?? 0;
+          hg.add(o);
+        }
       if (half.caseOn && half.caseMesh) {
         const cg = new THREE.BufferGeometry();
         cg.setAttribute('position', new THREE.BufferAttribute(half.caseMesh.vertices, 3));

@@ -263,7 +263,7 @@ export interface Box {
 }
 
 export interface GhostPart {
-  kind: 'nano' | 'usb' | 'pcb' | 'display' | 'encoder' | 'knob';
+  kind: 'nano' | 'usb' | 'pcb' | 'display' | 'encoder' | 'knob' | 'switch' | 'jack' | 'battery';
   box: Box;
   /** model kontrolera do podglądu (zamiast pudełek płytki i gniazda) */
   model?: string;
