@@ -455,13 +455,15 @@ export function layoutExtras(
     usbCuts: Box[];
     half: 'left' | 'right';
     single: boolean;
+    /** obszary XY zajęte przez inne części (np. kieszenie nóżek), omijane przez dodatki */
+    reserve?: Box[];
   },
 ): ExtrasLayout {
   const out = emptyExtras();
   if (!extras || !hasExtras(extras)) return out;
   const busy: Box[] = [];
   if (o.island) busy.push({ ...o.island.rect, z0: 0, z1: 0 });
-  busy.push(...o.usbCuts);
+  busy.push(...o.usbCuts, ...(o.reserve ?? []));
   const ctx: Ctx = { keys: o.keys, island: o.island, reach: o.reach, wall: o.wall, cellHeight: o.cellHeight, floorTop: o.floorTop, floor: o.floor, split: o.split, busy };
   const add = (part: ExtraWarn['part'], r: { placed: Placed | null; tooTall: boolean }) => {
     if (!r.placed) {
