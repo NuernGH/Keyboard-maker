@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
   import type { Lang } from './i18n';
+  import type { StabMode } from '../lib/cell-spec';
   import { CadClient } from '../cad/client';
   import type { PreviewMesh } from './Preview.svelte';
   import { zipStore } from '../lib/zip';
@@ -48,7 +49,7 @@
     keys: { w: number; h: number }[];
     /** identyfikatory klawiszy do legend, w kolejności `keys` */
     refs?: string[];
-    stabs: 'cherry' | 'mx' | 'none';
+    stabs: StabMode;
     client: () => CadClient;
     fileBase: string;
     save: (name: string, data: ArrayBuffer) => Promise<void>;

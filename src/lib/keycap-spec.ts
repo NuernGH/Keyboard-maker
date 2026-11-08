@@ -4,7 +4,7 @@
 // z public/switches/cherry-mx.step (wierzch płyty z = 0).
 
 import { PITCH, switchOffsets, type Key } from './layout';
-import { stabOffset } from './cell-spec';
+import { stabOffset, type StabMode } from './cell-spec';
 import { DEFAULT_LEGEND, legendLayout, type LegendMap, type LegendMethod, type LegendParams, type LegendSet, type PlacedLegend } from './legend';
 import type { Font } from 'opentype.js';
 
@@ -324,7 +324,7 @@ export interface CapType {
  * Gniazda nakładki wg płyty: przy stabilizatorze Cherry środek i trzpienie stabilizatora,
  * przy „dwa MX” tam, gdzie stoją przełączniki, bez stabilizatora tylko środek.
  */
-export function capStems(k: Pick<Key, 'w' | 'h'>, stabs: 'cherry' | 'mx' | 'none'): CapStem[] {
+export function capStems(k: Pick<Key, 'w' | 'h'>, stabs: StabMode): CapStem[] {
   if (stabs === 'cherry') {
     const s = stabOffset(Math.max(k.w, k.h));
     return s === null ? [{ d: 0, stab: false }] : [{ d: -s, stab: true }, { d: 0, stab: false }, { d: s, stab: true }];
@@ -334,7 +334,7 @@ export function capStems(k: Pick<Key, 'w' | 'h'>, stabs: 'cherry' | 'mx' | 'none
 
 const fmt = (v: number) => String(Math.round(v * 1000) / 1000);
 
-export function capType(k: Pick<Key, 'w' | 'h'>, stabs: 'cherry' | 'mx' | 'none'): CapType {
+export function capType(k: Pick<Key, 'w' | 'h'>, stabs: StabMode): CapType {
   const stems = capStems(k, stabs);
   const kind = stems.length === 1 ? '' : stabs === 'cherry' ? '-stab' : `-${stems.length}mx`;
   const size = k.h > k.w ? `${fmt(k.h)}u-v` : k.h !== 1 ? `${fmt(k.w)}x${fmt(k.h)}u` : `${fmt(k.w)}u`;
@@ -342,7 +342,7 @@ export function capType(k: Pick<Key, 'w' | 'h'>, stabs: 'cherry' | 'mx' | 'none'
 }
 
 /** Typy nakładek układu z liczbą sztuk, od najczęstszego. */
-export function capSet(keys: Pick<Key, 'w' | 'h'>[], stabs: 'cherry' | 'mx' | 'none'): { type: CapType; count: number }[] {
+export function capSet(keys: Pick<Key, 'w' | 'h'>[], stabs: StabMode): { type: CapType; count: number }[] {
   const m = new Map<string, { type: CapType; count: number }>();
   for (const k of keys) {
     const t = capType(k, stabs);

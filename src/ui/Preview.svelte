@@ -7,6 +7,7 @@
   import type { IslandGeom, GhostPart } from '../lib/island';
   import { loadControllerModel, placeOnBoard } from './controllerModel';
   import { capType } from '../lib/keycap-spec';
+  import type { StabMode } from '../lib/cell-spec';
   import type { PreviewColors, KeyLook } from '../lib/colors';
   import type { PlacedLegend } from '../lib/legend';
   import { disposeGlow, glowGroup, legendFront, legendPlane, loadLegendFace, meshTop } from './previewDecor';
@@ -53,7 +54,7 @@
     halves: PreviewHalf[];
     cellHeight: number;
     holeSize?: number;
-    stabs?: 'cherry' | 'mx' | 'none';
+    stabs?: StabMode;
     /** przełącznik ustawiony jak komórka (wierzch płyty z = 0); null = bez przełączników */
     switchMesh?: PreviewMesh | null;
     /** nakładki w spoczynku (układ klawisza) wg typu (capType().id); null = bez nakładek */

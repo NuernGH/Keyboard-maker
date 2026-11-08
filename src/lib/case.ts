@@ -4,8 +4,8 @@
 // w środku; jest przykręcona od spodu śrubami M2,5.
 // Tu same liczby (pozycje śrub, wymiary); bryłę buduje geometry.ts.
 
-import { PITCH, keyCorners, switchSpots, type Key } from './layout';
-import { stabOffset } from './cell-spec';
+import { PITCH, keyCorners, outlineSpots, type Key } from './layout';
+import { stabOffset, type StabMode } from './cell-spec';
 import { USB_PLUG, type Box, type IslandGeom } from './island';
 import { CASE_DOVETAIL, DOVETAIL, distToSeam, seamScrewTargets, type PrintSplit } from './split';
 import { emptyExtras, layoutExtras, type CaseExtras, type ExtrasLayout } from './case-extras';
@@ -243,10 +243,10 @@ export function controllerPads(island: IslandGeom | null, floorTop: number): Box
 }
 
 /** Klawisze z dodatkowymi komórkami MX w miejscu stabilizatora (wystają poza klawisz, np. Backspace 2U). */
-function withSpots(keys: Key[], stabs: 'cherry' | 'mx' | 'none'): Key[] {
+function withSpots(keys: Key[], stabs: StabMode): Key[] {
   const out = [...keys];
   for (const k of keys)
-    for (const [x, y] of switchSpots(k, stabs))
+    for (const [x, y] of outlineSpots(k, stabs))
       if (Math.hypot(x - k.x, y - k.y) > 1e-6) out.push({ ...k, id: `${k.id}~`, x, y, w: 1, h: 1 });
   return out;
 }
@@ -395,7 +395,7 @@ export function caseLayout(
   cellHeight: number,
   cp: CaseParams,
   split: PrintSplit | null = null,
-  stabs: 'cherry' | 'mx' | 'none' = 'cherry',
+  stabs: StabMode = 'cherry',
   o: { half?: 'left' | 'right'; single?: boolean; margin?: number } = {},
 ): CaseLayout {
   const lowest = Math.max(cellHeight, island?.depth ?? 0);
@@ -559,7 +559,7 @@ export function supportPositions(
   island: IslandGeom | null,
   screws: [number, number][],
   split: PrintSplit | null,
-  stabs: 'cherry' | 'mx' | 'none',
+  stabs: StabMode,
   keepouts: Box[] = [],
 ): [number, number][] {
   const flat = keys.filter((k) => Math.abs(k.rot) < 1e-6);

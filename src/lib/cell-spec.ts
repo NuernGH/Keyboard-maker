@@ -10,6 +10,13 @@ export const MX_HOLE = 14.0;
 
 export type UpAxis = '+X' | '-X' | '+Y' | '-Y' | '+Z' | '-Z';
 
+/**
+ * Klawisze od 2U: `cherry` = stabilizator Cherry/Costar, `mx` = dwa (spacja: trzy) MX w miejscu trzpieni
+ * stabilizatora, `mx-near` = jak `mx`, ale gdy obudowy MX wystawałyby poza nakładkę (Backspace 2U), stoją
+ * bliżej środka, `none` = sam przełącznik na środku.
+ */
+export type StabMode = 'cherry' | 'mx' | 'mx-near' | 'none';
+
 export interface PlateOptions {
   /** promień domknięcia szczelin między klawiszami (mm), 0 = bez wypełniania */
   fillGaps: number;
@@ -18,9 +25,10 @@ export interface PlateOptions {
   /**
    * Klawisze od 2U: `cherry` = wycięcia na stabilizatory Cherry/Costar montowane w płycie,
    * `mx` = zamiast stabilizatora przełączniki MX w miejscu jego trzpieni (2–2,75U: dwa, bez
-   * środkowego; dłuższe: trzy), `none` = sam przełącznik na środku.
+   * środkowego; dłuższe: trzy), `mx-near` = jak `mx`, ale przy 2U przełączniki co 19,05 mm (±9,525),
+   * żeby obudowy mieściły się pod pełną nakładką 2U; `none` = sam przełącznik na środku.
    */
-  stabs?: 'cherry' | 'mx' | 'none';
+  stabs?: StabMode;
 }
 
 export const DEFAULT_PLATE_OPTIONS: PlateOptions = { fillGaps: 4, margin: 0, stabs: 'cherry' };

@@ -2,7 +2,7 @@
 // Model układu: lista klawiszy z pozycją środka (mm), obrotem (stopnie) i rozmiarem (U).
 // Oś Y w górę (widok z góry), Z w górę z płyty. Wszystkie wymiary w mm.
 
-import { MX_BODY, stabOffset } from './cell-spec';
+import { MX_BODY, stabOffset, type StabMode } from './cell-spec';
 
 export const PITCH = 19.05;
 
@@ -326,15 +326,26 @@ export function polysOverlap(pa: [number, number][], pb: [number, number][], tol
  * Przy opcji „dwa MX zamiast stabilizatora” przełączniki stoją w miejscu trzpieni
  * stabilizatora; środkowy tylko wtedy, gdy obudowy się nie zderzą.
  */
-export function switchOffsets(k: Key, stabs: 'cherry' | 'mx' | 'none' | undefined): number[] {
-  if (stabs !== 'mx') return [0];
-  const s = stabOffset(Math.max(k.w, k.h));
+export function switchOffsets(k: Key, stabs: StabMode | undefined): number[] {
+  if (stabs !== 'mx' && stabs !== 'mx-near') return [0];
+  const u = Math.max(k.w, k.h);
+  let s = stabOffset(u);
   if (s === null) return [0];
+  // „bliżej”: nie dalej niż środek skrajnej komórki 1U pod klawiszem (2U: ±9,525 zamiast ±11,9)
+  if (stabs === 'mx-near') s = Math.min(s, Math.round(((u - 1) * PITCH * 1000) / 2) / 1000);
   return s >= MX_BODY + 0.5 ? [-s, 0, s] : [-s, s];
 }
 
+/**
+ * Miejsca komórek, które wyznaczają obrys płyty i obudowy. Przy `mx-near` takie jak przy `mx`, żeby obrys,
+ * szwy, śruby i spód zostały te same (nową płytę da się włożyć do obudowy wydrukowanej z `mx`).
+ */
+export function outlineSpots(k: Key, stabs: StabMode | undefined): [number, number][] {
+  return switchSpots(k, stabs === 'mx-near' ? 'mx' : stabs);
+}
+
 /** Środki przełączników klawisza w XY (z obrotem i kierunkiem pionowym). */
-export function switchSpots(k: Key, stabs: 'cherry' | 'mx' | 'none' | undefined): [number, number][] {
+export function switchSpots(k: Key, stabs: StabMode | undefined): [number, number][] {
   const vertical = k.h > k.w;
   return switchOffsets(k, stabs).map((d) => {
     const [dx, dy] = rotPt(vertical ? 0 : d, vertical ? d : 0, k.rot);
