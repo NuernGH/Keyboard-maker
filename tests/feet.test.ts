@@ -6,6 +6,9 @@ import { TEMPLATES, splitLeft, mirrorKeys } from '../src/lib/layout';
 import { islandFor, DEFAULT_ISLAND, type IslandParams } from '../src/lib/island';
 import { caseLayout, DEFAULT_CASE, SCREW_MARGIN, type CaseParams } from '../src/lib/case';
 import { planSplit, DEFAULT_PRINT } from '../src/lib/split';
+import { DEFAULT_EXTRAS, BATTERY_PRESETS } from '../src/lib/case-extras';
+import { pocketArea } from '../src/lib/feet';
+import { makeBox } from 'replicad';
 import { DEPLOYED, LEG, POCKET, POCKET_HALF, type FeetMode } from '../src/lib/feet';
 import { buildLeg, buildFeetBar, buildFeetPads, placeLeg } from '../src/lib/feet-geometry';
 
@@ -70,6 +73,26 @@ describe('nóżki: rozmieszczenie (bez CAD)', () => {
     });
   }
 
+  test('bateria ustępuje nóżkom w dnie; bez nóżek i z listwą zostaje na miejscu', () => {
+    for (const b of BATTERY_PRESETS) {
+      const cp0: CaseParams = { ...DEFAULT_CASE, extras: { ...DEFAULT_EXTRAS, battery: { on: true, l: b.l, w: b.w, t: b.t } } };
+      const plain = setup('ansi-60', ISL60, 'hotswap', 'none', 'left', cp0).lay;
+      const bar = setup('ansi-60', ISL60, 'hotswap', 'bar', 'left', cp0).lay;
+      const pocket = setup('ansi-60', ISL60, 'hotswap', 'pocket', 'left', cp0).lay;
+      const bat = (l: typeof plain) => l.extras.ghosts.find((g) => g.kind === 'battery')!.box;
+      expect(bat(bar)).toEqual(bat(plain));
+      const f = pocket.feet!;
+      expect(f.warns, b.id).toEqual([]);
+      expect(f.legs[1] - f.legs[0]).toBeGreaterThan(230);
+      const bb = bat(pocket);
+      for (const xc of f.legs) {
+        const a = pocketArea(xc, f.pivotY, 1.5);
+        expect(bb.x1 < a.x0 || bb.x0 > a.x1 || bb.y1 < a.y0 || bb.y0 > a.y1, `${b.id} ${xc}`).toBe(true);
+      }
+      expect(pocket.extras.warns.filter((w) => w.part === 'battery')).toEqual([]);
+    }
+  });
+
   test('inne szablony: bez błędów, nóżki z dala od śrub', () => {
     for (const id of ['split-4x6-4', 'split-3x5-3', 'macropad-3x3'])
       for (const mode of ['bar', 'pocket'] as const)
@@ -124,6 +147,15 @@ describe('nóżki: bryły (CAD)', () => {
     const leg = buildLeg();
     for (const xc of f.legs)
       for (const a of [0, 45, 90]) expect(vol(placeLeg(leg, f, xc, a).intersect(shell.clone()) as Shape3D), `${xc} ${a}°`).toBeLessThan(0.01);
+    // z baterią: spód poprawny, ogniwo nie wchodzi w spód
+    {
+      const cpB: CaseParams = { ...DEFAULT_CASE, extras: { ...DEFAULT_EXTRAS, battery: { on: true, l: 40, w: 45, t: 3 } } };
+      const s2 = setup('ansi-60', ISL60, 'hotswap', 'pocket', 'left', cpB);
+      const sh = buildCase(s2.keys, opts, s2.isl, cell.height, { ...cpB, feet: { mode: 'pocket' } }, s2.lay);
+      expect(isValidShape(sh)).toBe(true);
+      const g = s2.lay.extras.ghosts.find((q) => q.kind === 'battery')!.box;
+      expect(vol(makeBox([g.x0, g.y0, g.z0], [g.x1, g.y1, g.z1]).intersect(sh) as Shape3D)).toBeLessThan(0.05);
+    }
     // rozłożona wystaje pod spód
     const dep = placeLeg(leg, f, f.legs[0], DEPLOYED.deg).boundingBox.bounds;
     expect(lay.bottom - dep[0][2]).toBeGreaterThan(POCKET.depth / 2 + 8);

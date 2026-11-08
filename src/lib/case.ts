@@ -9,6 +9,9 @@ import { stabOffset } from './cell-spec';
 import { USB_PLUG, type Box, type IslandGeom } from './island';
 import { CASE_DOVETAIL, DOVETAIL, distToSeam, seamScrewTargets, type PrintSplit } from './split';
 import { emptyExtras, layoutExtras, type CaseExtras, type ExtrasLayout } from './case-extras';
+
+/** Odstęp kieszeni baterii od kieszeni nóżki (mm, z pogrubieniem dna). */
+const FEET_BATTERY_GAP = 2;
 import { feetLayout, pocketArea, type FeetLayout, type FeetParams } from './feet';
 
 export interface CaseParams {
@@ -431,44 +434,57 @@ export function caseLayout(
       ? { kind: 'long', floor: Math.ceil((cp.floor + b - pilotDepth) * 5 - 1e-6) / 5 }
       : { kind: 'short' };
   const usbCuts = usbCaseCuts(island, cp);
-  const extras = cp.extras
-    ? layoutExtras(cp.extras, {
-        keys: withSpots(keys, stabs),
-        island,
-        reach: Math.max(o.margin ?? SCREW_MARGIN, SCREW_MARGIN) + cp.gap,
-        wall: cp.wall,
-        cellHeight,
-        floorTop,
-        floor: cp.floor,
-        split,
-        usbCuts,
-        half: o.half ?? 'left',
-        single: !!o.single,
-      })
-    : emptyExtras();
-  const screws = screwPositions(keys, island, cp.screws, split, sp, SCREW_MARGIN + cp.gap + cp.wall, extras.keepouts);
-  const supports0 = cp.supports === false ? [] : supportPositions(keys, island, screws, split, stabs, extras.keepouts);
+  const extrasWith = (e: CaseExtras | undefined, reserve: Box[] = []) =>
+    e
+      ? layoutExtras(e, {
+          keys: withSpots(keys, stabs),
+          island,
+          reach: Math.max(o.margin ?? SCREW_MARGIN, SCREW_MARGIN) + cp.gap,
+          wall: cp.wall,
+          cellHeight,
+          floorTop,
+          floor: cp.floor,
+          split,
+          usbCuts,
+          half: o.half ?? 'left',
+          single: !!o.single,
+          reserve,
+        })
+      : emptyExtras();
   const pads = controllerPads(island, floorTop);
   const reach = Math.max(o.margin ?? SCREW_MARGIN, SCREW_MARGIN) + cp.gap;
-  const feet = cp.feet && cp.feet.mode !== 'none'
-    ? feetLayout(cp.feet, {
-        keys,
-        island,
-        screws,
-        headR: sp.head / 2,
-        bossR: sp.boss / 2,
-        reach: reach + cp.wall,
-        innerReach: reach,
-        bottom,
-        floorTop,
-        cellHeight,
-        // pogrubione dno: 1 mm pod komórkami i pod końcami pinów przełączników
-        topLimit: Math.min(-cellHeight, -MX_PINS.depth) - 1,
-        split,
-        keepouts: [...pads, ...usbCuts, ...extras.keepouts, ...extras.floorPockets],
-        screw: { length: screwLength, headDepth, head: sp.headDepth, pilotDepth, lengths: STANDARD_LENGTHS, biteMin: SCREW_BITE.min },
-      })
-    : undefined;
+  const screwsFor = (ex: ExtrasLayout) => screwPositions(keys, island, cp.screws, split, sp, SCREW_MARGIN + cp.gap + cp.wall, ex.keepouts);
+  const feetFor = (ex: ExtrasLayout, scr: [number, number][]) =>
+    cp.feet && cp.feet.mode !== 'none'
+      ? feetLayout(cp.feet, {
+          keys,
+          island,
+          screws: scr,
+          headR: sp.head / 2,
+          bossR: sp.boss / 2,
+          reach: reach + cp.wall,
+          innerReach: reach,
+          bottom,
+          floorTop,
+          cellHeight,
+          // pogrubione dno: 1 mm pod komórkami i pod końcami pinów przełączników
+          topLimit: Math.min(-cellHeight, -MX_PINS.depth) - 1,
+          split,
+          keepouts: [...pads, ...usbCuts, ...ex.keepouts, ...ex.floorPockets],
+          screw: { length: screwLength, headDepth, head: sp.headDepth, pilotDepth, lengths: STANDARD_LENGTHS, biteMin: SCREW_BITE.min },
+        })
+      : undefined;
+  let extras = extrasWith(cp.extras);
+  // nóżki w dnie (wybór Marcina 2026-11-08): bateria ustępuje nóżkom. Najpierw miejsce na nóżki bez baterii,
+  // potem bateria omija kieszenie. Bez nóżek (i z listwą) bateria zostaje tam, gdzie była.
+  if (cp.feet?.mode === 'pocket' && cp.extras?.battery?.on) {
+    const noBat = extrasWith({ ...cp.extras, battery: { ...cp.extras.battery, on: false } });
+    const pre = feetFor(noBat, screwsFor(noBat));
+    if (pre?.legs.length) extras = extrasWith(cp.extras, pre.legs.map((xc) => ({ ...pocketArea(xc, pre.pivotY, FEET_BATTERY_GAP), z0: 0, z1: 0 })));
+  }
+  const screws = screwsFor(extras);
+  const supports0 = cp.supports === false ? [] : supportPositions(keys, island, screws, split, stabs, extras.keepouts);
+  const feet = feetFor(extras, screws);
   // podpory nie stoją na kieszeniach nóżek (cienki strop, języczki zatrzasku)
   const supports = feet?.mode === 'pocket'
     ? supports0.filter(([x, y]) => feet.legs.every((xc) => {
