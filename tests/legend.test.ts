@@ -28,6 +28,19 @@ function placed(set: Parameters<typeof legendLayout>[1], p = DEFAULT_KEYCAP, w =
 }
 
 describe('legendy: kontury i układ', () => {
+  test('grawis „`”: własny kanciasty klocek, większy niż w czcionce i drukowalny dyszą 0,4', () => {
+    const g = textContours(font, '`', 3.6);
+    expect(g.contours.length).toBe(1);
+    expect(g.contours[0].length).toBe(4);
+    expect(g.width).toBeGreaterThan(1.7);
+    expect(g.height).toBeGreaterThan(1.4);
+    expect(thinCheck(g.contours, LEGEND_MIN_STROKE.groove).fraction).toBeLessThan(THIN_WARN);
+    // ta sama orientacja co kontury liter (zewnętrzne)
+    expect(Math.sign(area(g.contours[0]))).toBe(Math.sign(area(textContours(font, 'I', 3.6).contours[0])));
+    // w dłuższym tekście reszta znaków bez zmian
+    expect(textContours(font, 'a`b', 3.6).contours.length).toBe(textContours(font, 'ab', 3.6).contours.length + 1);
+  });
+
   test('litera o zadanej wysokości, otwór w „A” i „O” jako zagnieżdżony kontur', () => {
     const a = textContours(font, 'A', 4);
     expect(a.height).toBeCloseTo(4, 1);

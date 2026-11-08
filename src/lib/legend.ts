@@ -1,7 +1,7 @@
 // Legendy na nakładkach: układ warstw (Główna/Shift/AltGr/Fn) na górze nakładki i kontury liter z czcionki.
 // Bez zależności od OpenCascade: kontury to wielokąty w mm, bryły robi keycap.ts.
 
-import type { Font } from 'opentype.js';
+import type { Font, PathCommand } from 'opentype.js';
 
 export const LEGEND_LAYERS = ['main', 'shift', 'altgr', 'fn'] as const;
 export type LegendLayer = (typeof LEGEND_LAYERS)[number];
@@ -65,12 +65,44 @@ export function strokeWidth(font: Font, capH: number): number {
 export type Contour = [number, number][];
 
 /**
+ * Własne, kanciaste kształty znaków, które w czcionce zwężają się do ostrza (dysza 0,4 ich nie wydrukuje):
+ * wielokąt w jednostkach czcionki (y w górę, zgodnie z ruchem wskazówek zegara jak kontury TrueType),
+ * dla Noto Sans (1000 jednostek na em, wielka litera 714).
+ */
+export const BLOCKY: Record<string, [number, number][]> = {
+  // grawis: większy klocek o równej grubości (~0,29 wysokości litery) zamiast klina
+  '`': [
+    [30, 770],
+    [250, 770],
+    [400, 470],
+    [170, 470],
+  ],
+};
+
+/** Ścieżka tekstu jak `font.getPath`, ze znakami z {@link BLOCKY} zamienionymi na własne kształty. */
+function textPath(font: Font, text: string, size: number): { commands: PathCommand[] } {
+  if (![...text].some((ch) => BLOCKY[ch])) return font.getPath(text, 0, 0, size);
+  const commands: PathCommand[] = [];
+  const k = (size / font.unitsPerEm) * (font.unitsPerEm / 1000);
+  font.forEachGlyph(text, 0, 0, size, undefined, (g, gx, gy) => {
+    const block = g.unicode !== undefined ? BLOCKY[String.fromCodePoint(g.unicode)] : undefined;
+    if (!block) {
+      commands.push(...g.getPath(gx, gy, size).commands);
+      return;
+    }
+    block.forEach(([x, y], i) => commands.push({ type: i ? 'L' : 'M', x: gx + x * k, y: gy - y * k } as PathCommand));
+    commands.push({ type: 'Z' } as PathCommand);
+  });
+  return { commands };
+}
+
+/**
  * Kontury tekstu o wysokości wielkiej litery `capH` (mm), wyśrodkowane w (0, 0) wg obrysu.
  * Krzywe dzielone na odcinki nie dłuższe niż ok. `tol` mm.
  */
 export function textContours(font: Font, text: string, capH: number, tol = 0.08): { contours: Contour[]; width: number; height: number } {
   const size = capH / capHeightEm(font);
-  const path = font.getPath(text, 0, 0, size);
+  const path = textPath(font, text, size);
   const contours: Contour[] = [];
   let cur: Contour = [];
   let px = 0;
