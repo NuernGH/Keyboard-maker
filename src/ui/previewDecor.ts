@@ -4,7 +4,7 @@
  * (tekstura z canvas) i podświetlenie RGB pod obudową. Tylko wygląd; nic z tego nie trafia do plików.
  */
 import * as THREE from 'three';
-import type { PlacedLegend } from '../lib/legend';
+import { BLOCKY, type PlacedLegend } from '../lib/legend';
 import type { PreviewColors } from '../lib/colors';
 
 const topCache = new WeakMap<THREE.BufferGeometry, { w: number; h: number; z: number }>();
@@ -61,9 +61,21 @@ function drawLegends(items: PlacedLegend[], color: string, w: number, h: number)
   for (const it of items) {
     c2.font = `900 ${(it.size / CAP_EM) * PX}px ${FACE}, system-ui, Arial, sans-serif`;
     // generator ustawia obrys znaków (przecinek, kropka, „-” leżą nisko przy linii bazowej), więc tu też
-    const m = c2.measureText(it.text);
     const cx = (it.x + w / 2) * PX;
     const cy = (h / 2 - it.y) * PX;
+    const block = BLOCKY[it.text];
+    if (block) {
+      // własny kształt znaku jak w modelu (legend.ts), wyśrodkowany na obrysie
+      const k = ((it.size / CAP_EM) * PX) / 1000;
+      const xs = block.map((q) => q[0]), ys = block.map((q) => q[1]);
+      const mx = (Math.min(...xs) + Math.max(...xs)) / 2, my = (Math.min(...ys) + Math.max(...ys)) / 2;
+      c2.beginPath();
+      block.forEach(([x, y], i) => (i ? c2.lineTo : c2.moveTo).call(c2, cx + (x - mx) * k, cy - (y - my) * k));
+      c2.closePath();
+      c2.fill();
+      continue;
+    }
+    const m = c2.measureText(it.text);
     c2.fillText(it.text, cx - (m.actualBoundingBoxRight - m.actualBoundingBoxLeft) / 2, cy + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2);
   }
   const tex = new THREE.CanvasTexture(cv);
