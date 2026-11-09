@@ -1,76 +1,76 @@
 # Keyboard-maker
 
-Generator płyt klawiatur w przeglądarce. Etap 1 (prototyp techniczny): płaski split 4×6 + 4 klawisze kciukowe
-z wzorcowej komórki Cherry MX (`key socket.STEP` od Marcina), eksport STL (do druku) i STEP (do SolidWorks). Całość liczy się lokalnie,
-bez serwera. Docelowo ta sama aplikacja trafi do exe przez Tauri.
+A keyboard plate generator that runs in the browser. Stage 1 (technical prototype): a flat 4×6 split with 4 thumb keys,
+built from a reference Cherry MX cell (`key socket.STEP` by Marcin), with STL export (for printing) and STEP export (for SolidWorks). Everything is computed locally,
+with no server. The same app will later ship as an exe through Tauri.
 
-## Wersja online
+## Online version
 
-https://nuerngh.github.io/Keyboard-maker/ — publikowana automatycznie przez GitHub Actions
-(`.github/workflows/pages.yml`) po każdym merge'u do `main`.
+https://nuerngh.github.io/Keyboard-maker/ is published automatically by GitHub Actions
+(`.github/workflows/pages.yml`) after every merge to `main`.
 
-## Uruchomienie
+## Running it
 
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # testy układu i geometrii (OpenCascade w Node)
-npm run build    # statyczna strona w dist/
-python3 tools/build-artifact.py <katalog>   # wersja do podglądu w Claude (WASM spakowany gzipem, eksport jako ZIP)
+npm test         # layout and geometry tests (OpenCascade in Node)
+npm run build    # static site in dist/
+python3 tools/build-artifact.py <dir>   # build for preview in Claude (gzipped WASM, export as ZIP)
 ```
 
-## Co umie prototyp
+## What the prototype can do
 
-- Szablon split 4×6 + 4 kciukowe: stagger kolumn, pozycja, obrót i wachlarz klastra kciuka, ostatni klawisz 1–2U, pionowo lub poziomo.
-- Trzy warianty komórki:
-  - **Hot-swap**: cała komórka (8,58 mm), z kieszenią na gniazdo Kailh MX, bez wycięć na diodę.
-  - **Bez hot-swap**: tylko górne 5,08 mm komórki (płyta 1,27 mm z otworem 14×14 i ścianki z wybraniem 15,2), przełączniki lutowane.
-  - **Cienka płyta 1,5 mm**: sam otwór 14×14, bez ścianek.
-- Własna komórka: wczytaj dowolny plik STEP komórki 1U. Oś płyty wykrywa się automatycznie albo ustawiasz ją ręcznie.
-- Lewa i prawa połówka. Prawa to lustro pozycji klawiszy, ale komórki nie są lustrzane, więc gniazda hot-swap mają tę samą orientację.
-- Wyspa na elektronikę (wariant A): pole 38 × 68 mm przy wewnętrznej kolumnie z gniazdem na moduł OLED 1,3" z enkoderem EC11, kieszenią od spodu na nice!nano v2, wyjściem USB-C i przepustami na piny. W podglądzie widać uproszczone bryły elektroniki (nie trafiają do eksportu).
-- Szablon **Dactyl (zakrzywiona)**: domyślny model z [Dactyl Configurator](https://github.com/rianadon/dactyl-configurator) (5×6, mały palec 1,5U, kciuk 6 klawiszy, α 15°, β 5°, tenting 12°). Skorupa z otoczek wypukłych między słupkami w rogach komórek i ścianami do podłogi, nasza komórka (hot-swap albo bez), płaskie dno na 5 śrub M2,5, nice!nano w korytku na dnie z USB-C w tylnej ścianie. Krzywizny, tenting, wiersze, kolumny, przesunięcie kciuka i przesunięcia kolumn (przód / wysokość dla każdego palca) do zmiany; ściany gładkie (domyślnie), z zaokrąglonymi narożnikami albo kanciaste jak w oryginale; w podglądzie model przełącznika Cherry MX; ostrzeżenia o kolizjach nakładek i komórek.
-- Podgląd 3D: najpierw szybki podgląd komórek, potem dokładna bryła z CAD (liczona w Web Workerze).
-- Interfejs po polsku i angielsku.
+- 4×6 + 4 thumb split template: column stagger, thumb cluster position, rotation and fan, last key 1–2U, vertical or horizontal.
+- Three cell variants:
+  - **Hot-swap**: the full cell (8.58 mm), with a pocket for the Kailh MX socket and no diode cutouts.
+  - **No hot-swap**: only the top 5.08 mm of the cell (1.27 mm plate with a 14×14 hole and walls with a 15.2 recess), soldered switches.
+  - **Thin plate 1.5 mm**: just the 14×14 hole, no walls.
+- Custom cell: load any 1U cell STEP file. The plate axis is detected automatically or set by hand.
+- Left and right halves. The right half mirrors the key positions, but the cells are not mirrored, so the hot-swap sockets keep the same orientation.
+- Electronics island (variant A): a 38 × 68 mm area by the inner column with a seat for a 1.3" OLED module with an EC11 encoder, a pocket underneath for a nice!nano v2, a USB-C opening and pin passthroughs. The preview shows simplified electronics bodies (they are not exported).
+- **Dactyl (curved)** template: the default model from [Dactyl Configurator](https://github.com/rianadon/dactyl-configurator) (5×6, 1.5U pinky, 6 thumb keys, α 15°, β 5°, tenting 12°). The shell is built from convex hulls between posts at the cell corners, with walls down to the floor, our cell (hot-swap or not), a flat bottom with 5 M2.5 screws, and a nice!nano in a tray on the bottom with USB-C in the back wall. Curvature, tenting, rows, columns, thumb offset and column offsets (forward / height per finger) are adjustable; walls are smooth (default), rounded at the corners or angular like the original; the preview shows a Cherry MX switch model; keycap and cell collisions are flagged.
+- 3D preview: a fast cell preview first, then the exact CAD solid (computed in a Web Worker).
+- Interface in English (default) and Polish.
 
-## Jak powstaje bryła
+## How the solid is built
 
-1. Komórkę z pliku STEP obracamy tak, by płyta była na górze (z = 0), i liczymy jej „negatyw”: prostopadłościan obrysu minus komórka.
-2. Obrys płyty to suma prostokątów klawiszy, domknięta offsetem (+r, −r), żeby wypełnić szczeliny przy obróconych klawiszach kciuka.
-3. Płyta = obrys wyciągnięty na wysokość komórki minus negatywy w pozycjach klawiszy. Negatywy idą jako osobne narzędzia jednej operacji odejmowania (`cutMany` w `src/lib/geometry.ts`), bo jako jeden compound OpenCascade psuł ściany dna w wariancie hot-swap.
+1. The cell from the STEP file is rotated so the plate is on top (z = 0), and its "negative" is computed: the bounding box minus the cell.
+2. The plate outline is the union of the key rectangles, closed with an offset (+r, −r) to fill the gaps around rotated thumb keys.
+3. Plate = the outline extruded to the cell height minus the negatives at the key positions. The negatives go in as separate tools of a single cut (`cutMany` in `src/lib/geometry.ts`), because as one compound OpenCascade broke the bottom faces in the hot-swap variant.
 
-Dactyl: rozmieszczenie klawiszy (`apply-key-geometry`, 6 pozycji kciuka), mostki i ściany to port z Dactyl Configuratora (`src/lib/dactyl.ts`). Każda otoczka to bryła z trójkątów (quickhull), wszystkie łączone jedną operacją `BRepAlgoAPI_Fuse`, potem przycięcie do podłogi i odjęcie negatywów komórek (`src/lib/dactyl-geometry.ts`). Lewa połówka to lustro prawej. Gładkie ściany: kawałki ścian łączone w obwód, punkty ściany prowadzone krzywą Catmull-Rom (centripetal), dno ma obrys z tej samej krzywej. OpenCascade (WASM) nie oddaje całej pamięci po dużym łączeniu brył, więc podgląd Dactyla co dwie skorupy liczy w nowym workerze.
+Dactyl: key placement (`apply-key-geometry`, 6 thumb positions), bridges and walls are ported from Dactyl Configurator (`src/lib/dactyl.ts`). Each hull is a solid made of triangles (quickhull), all fused in one `BRepAlgoAPI_Fuse`, then trimmed to the floor and the cell negatives are subtracted (`src/lib/dactyl-geometry.ts`). The left half mirrors the right. Smooth walls: wall pieces are joined into a loop, wall points follow a centripetal Catmull-Rom curve, and the bottom outline uses the same curve. OpenCascade (WASM) does not release all memory after a large fuse, so the Dactyl preview restarts the worker every two shells.
 
-Testy sprawdzają, że siatka 2×2 ma dokładnie objętość czterech komórek (wymiary 1:1), że bryła przechodzi `BRepCheck_Analyzer` i że STEP po ponownym wczytaniu ma tę samą objętość.
+Tests check that a 2×2 grid has exactly the volume of four cells (1:1 dimensions), that the solid passes `BRepCheck_Analyzer`, and that a STEP file loaded back has the same volume.
 
-## Własny kontroler
+## Custom controller
 
-W „Elektronika → Kontroler” można wybrać „Własny (z modelu)…” i wgrać model STEP albo STL płytki. Generator kładzie model płasko, robi z niego mapę wysokości widzianą z góry (siatka 0,2 mm) i odczytuje: obrys, grubość płytki, wysokość z elementami, gniazda USB (szerokość, środki, spód, ile wystają), rzędy pinów i parę otworów montażowych. Liczby trafiają do formularza do sprawdzenia; przyciski „Odwróć góra/dół”, „Obróć o 90°” i „USB z drugiej strony” poprawiają zgadywanie. STL nie ma jednostek (domyślnie mm, do wyboru cm/cale/m). Model zostaje w przeglądarce; zapisywane są tylko liczby (w przeglądarce albo jako plik .json).
+In "Electronics → Controller" you can pick "Custom (from model)…" and upload a STEP or STL model of the board. The generator lays the model flat, builds a top-down height map (0.2 mm grid) and reads: the outline, board thickness, height with components, USB sockets (width, centres, bottom, overhang), pin rows and a pair of mounting holes. The numbers go into a form for you to check; the "Flip top/bottom", "Rotate 90°" and "USB on the other side" buttons fix wrong guesses. STL has no units (mm by default, cm/inches/m to choose). The model stays in the browser; only the numbers are saved (in the browser or as a .json file).
 
-„Dopasowanie w pionie” (Standard / Ciasno / Docisk / Własne) ustawia luz nad elementami (strop kieszeni) i luz podkładki z dna obudowy, a przy odwróconym kontrolerze luz podestu pod gniazdem USB. Docisk = podkładka zachodzi 0,2 mm i po przykręceniu dna zaciska płytkę.
+"Vertical fit" (Standard / Tight / Clamp / Custom) sets the clearance above components (pocket ceiling) and the clearance of the case floor pad, and for a flipped controller the clearance of the step under the USB socket. Clamp = the pad overlaps by 0.2 mm and clamps the board when the bottom is screwed on.
 
-## Struktura
+## Structure
 
-| Ścieżka | Co to |
+| Path | What it is |
 | --- | --- |
-| `src/lib/layout.ts` | model układu (klawisze w mm), szablon 4×6 + 4, lustro, test nakładania |
-| `src/lib/cell-spec.ts` | stałe i typy komórki (bez zależności od CAD) |
-| `src/lib/island.ts` | wymiary i wycięcia wyspy na elektronikę (bez CAD) |
-| `src/lib/controller-measure.ts` | pomiar własnego kontrolera z modelu STEP/STL (mapa wysokości: płytka, gniazda USB, rzędy pinów, otwory) |
-| `src/ui/CustomController.svelte` | panel własnego kontrolera: wgranie modelu, poprawki orientacji, formularz, zapis .json |
-| `src/lib/geometry.ts` | geometria w replicad / OpenCascade: komórka, obrys, płyta |
-| `src/lib/dactyl.ts` | Dactyl: rozmieszczenie, słupki, mostki, ściany, śruby, kolizje (bez CAD) |
-| `src/lib/dactyl-geometry.ts`, `src/lib/dactyl-parts.ts` | Dactyl w OpenCascade: skorupa, dno, uchwyt kontrolera |
-| `src/cad/` | Web Worker z jądrem CAD i klient do niego |
-| `src/ui/` | podgląd Three.js, teksty PL/EN |
-| `public/cells/mx-hotswap.step` | wzorcowa komórka 1U MX z hot-swap (`key socket.STEP` od Marcina, poprawiony Part1.STEP bez wycięć na diodę) |
-| `public/switches/cherry-mx.step` | przełącznik Cherry MX tylko do podglądu 3D (MIT, [C. Schillebeeckx](https://github.com/ConstantinoSchillebeeckx/cherry-mx-switch)), nie trafia do eksportu |
-| `public/fonts/NotoSans-Black.ttf` | czcionka legend na nakładkach (Noto Sans Black, SIL OFL 1.1, tekst w `public/fonts/OFL.txt`) |
-| `src/lib/switch-model.ts` | ustawienie przełącznika jak komórki (wierzch płyty z = 0, trzpień na środku) |
-| `tests/` | testy Vitest |
+| `src/lib/layout.ts` | layout model (keys in mm), 4×6 + 4 template, mirroring, overlap test |
+| `src/lib/cell-spec.ts` | cell constants and types (no CAD dependency) |
+| `src/lib/island.ts` | electronics island dimensions and cutouts (no CAD) |
+| `src/lib/controller-measure.ts` | measuring a custom controller from a STEP/STL model (height map: board, USB sockets, pin rows, holes) |
+| `src/ui/CustomController.svelte` | custom controller panel: model upload, orientation fixes, form, .json save |
+| `src/lib/geometry.ts` | geometry in replicad / OpenCascade: cell, outline, plate |
+| `src/lib/dactyl.ts` | Dactyl: placement, posts, bridges, walls, screws, collisions (no CAD) |
+| `src/lib/dactyl-geometry.ts`, `src/lib/dactyl-parts.ts` | Dactyl in OpenCascade: shell, bottom, controller holder |
+| `src/cad/` | Web Worker with the CAD kernel and its client |
+| `src/ui/` | Three.js preview, PL/EN texts |
+| `public/cells/mx-hotswap.step` | reference 1U MX hot-swap cell (`key socket.STEP` by Marcin, fixed Part1.STEP without diode cutouts) |
+| `public/switches/cherry-mx.step` | Cherry MX switch for the 3D preview only (MIT, [C. Schillebeeckx](https://github.com/ConstantinoSchillebeeckx/cherry-mx-switch)), not exported |
+| `public/fonts/NotoSans-Black.ttf` | keycap legend font (Noto Sans Black, SIL OFL 1.1, text in `public/fonts/OFL.txt`) |
+| `src/lib/switch-model.ts` | places the switch like the cell (plate top z = 0, stem centred) |
+| `tests/` | Vitest tests |
 
-## Licencja
+## License
 
-AGPL-3.0-or-later, patrz [LICENSE](LICENSE). Kod Dactyla to port z [rianadon/dactyl-configurator](https://github.com/rianadon/dactyl-configurator) (AGPL-3.0; wcześniej dactyl-keyboard Matthew Aderetha i dactyl-manuform Toma Shorta). Biblioteki: quickhull3d (MIT), opentype.js (MIT), replicad (AGPL-3.0), OpenCascade przez replicad-opencascadejs (LGPL-2.1), Three.js (MIT), Svelte (MIT).
-Model przełącznika `public/switches/cherry-mx.step` jest na licencji MIT (tekst w `public/switches/README.md`). Czcionka legend Noto Sans Black: SIL Open Font License 1.1 (`public/fonts/OFL.txt`).
-Modele z GrabCAD nie trafiają do tego repozytorium.
+AGPL-3.0-or-later, see [LICENSE](LICENSE). The Dactyl code is ported from [rianadon/dactyl-configurator](https://github.com/rianadon/dactyl-configurator) (AGPL-3.0; earlier dactyl-keyboard by Matthew Adereth and dactyl-manuform by Tom Short). Libraries: quickhull3d (MIT), opentype.js (MIT), replicad (AGPL-3.0), OpenCascade via replicad-opencascadejs (LGPL-2.1), Three.js (MIT), Svelte (MIT).
+The switch model `public/switches/cherry-mx.step` is MIT licensed (text in `public/switches/README.md`). Legend font Noto Sans Black: SIL Open Font License 1.1 (`public/fonts/OFL.txt`).
+Models from GrabCAD are not included in this repository.
