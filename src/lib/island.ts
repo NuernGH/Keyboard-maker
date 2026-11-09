@@ -134,6 +134,12 @@ export interface IslandParams {
    * Domyślnie włączone; false = elementami do góry, dociśnięty podkładką z dna obudowy.
    */
   flip?: boolean;
+  /**
+   * Pusty klin (opcja, domyślnie wyłączona): klin jest ramką otwartą na wylot pod płytką modułu, moduł leży
+   * na brzegach i pełnych końcach (z otworami na śruby modułu), przewody mają całe wnętrze. Śruby klina
+   * przechodzą na końce klina, na wolne miejsce między otworami modułu i kieszenią kontrolera.
+   */
+  wedgeHollow?: boolean;
   /** przylutowane goldpiny: przy odwróconym kontrolerze rowki w płycie na końcówki pinów */
   pins?: boolean;
   /** własny kontroler (z modelu użytkownika albo z formularza), gdy `controller` = 'custom' */
@@ -219,6 +225,7 @@ export const DEFAULT_ISLAND: IslandParams = {
   flip: true,
   pins: false,
   fit: 'standard',
+  wedgeHollow: false,
 };
 
 export const ISLAND_W = 38;
@@ -677,6 +684,69 @@ function place(g: IslandGeom, pos: IslandPosition, p: SplitParams, ip: IslandPar
   };
 }
 
+/** Pół boku słupka wokół śruby klina, która w pustym klinie zostaje w środku ramki (mm). */
+const WEDGE_PILLAR = 3.5;
+
+/** Prostokąt b bez prostokąta (x0, y0)–(x1, y1) w XY, jako do 4 prostokątów (z bez zmian). */
+function minusRect(b: Box, x0: number, y0: number, x1: number, y1: number): Box[] {
+  if (x1 <= b.x0 || x0 >= b.x1 || y1 <= b.y0 || y0 >= b.y1) return [b];
+  const out: Box[] = [];
+  if (x0 > b.x0) out.push({ ...b, x1: x0 });
+  if (x1 < b.x1) out.push({ ...b, x0: x1 });
+  const mx0 = Math.max(b.x0, x0);
+  const mx1 = Math.min(b.x1, x1);
+  if (y0 > b.y0) out.push({ ...b, x0: mx0, x1: mx1, y1: y0 });
+  if (y1 < b.y1) out.push({ ...b, x0: mx0, x1: mx1, y0: y1 });
+  return out;
+}
+
+/**
+ * Śruby na pełnych końcach pustego klina (układ lokalny wyspy z klinem: x wzdłuż, y od klawiszy): w linii
+ * otworów modułu, jak najbliżej środka głębokości. Łeb od spodu wyspy nie może wejść w kieszeń kontrolera
+ * ani inne otwory od spodu (0,6 mm ścianki), otwór pilotowy trzyma 0,8 mm od pochylonych otworów pod śruby
+ * modułu, a klin nad nim musi mieć co najmniej 3 mm. Zwraca [x, y, głębokość otworu pilotowego] dla końców,
+ * na których jest miejsce (koniec nad kontrolerem zwykle odpada).
+ */
+function hollowEndScrews(cuts: Box[], D: number, tilt: number, my: number): [number, number, number][] {
+  const a = (tilt * Math.PI) / 180;
+  const below = cuts.filter((c) => c.z0 <= -D + 1e-6);
+  const headR = WEDGE.head / 2 + 0.6;
+  const minAxis = (WEDGE.pilot + MODULE_HOLES.pilot) / 2 + 0.8;
+  // oś otworu pod śrubę modułu (y w module) na wysokości z klina, gdy otwór tam sięga
+  const modAxisY = (hy: number, z: number): number | null => {
+    const t = (z - WEDGE.base - hy * Math.sin(a)) / Math.cos(a);
+    if (t < -(MODULE.pcb + MODULE_HOLES.depth) - 0.5 || t > 0) return null;
+    return hy * Math.cos(a) - t * Math.sin(a);
+  };
+  const out: [number, number, number][] = [];
+  for (const sx of [-1, 1]) {
+    const x = (sx * MODULE_HOLES.dy) / 2;
+    let best: [number, number, number] | null = null;
+    for (let y = headR; y <= 2 * my - headR + 1e-6; y += 0.25) {
+      if (best && Math.abs(y - my) >= Math.abs(best[1] - my)) continue;
+      const hit = below.some((c) => {
+        const ex = Math.max(c.x0 - x, 0, x - c.x1);
+        const ey = Math.max(c.y0 - y, 0, y - c.y1);
+        return Math.hypot(ex, ey) < headR;
+      });
+      if (hit) continue;
+      // wierzch klina nad otworem minus gniazdo płytki modułu i 0,8 mm materiału
+      const depth = Math.min(WEDGE.pilotDepth, WEDGE.base + y * Math.tan(a) - MODULE.pcb / Math.cos(a) - 0.8);
+      if (depth < 3) continue;
+      let near = false;
+      for (const s of [-1, 1])
+        for (let z = 0; z <= depth + 1e-6 && !near; z += 0.25) {
+          const m = modAxisY(my + (s * MODULE_HOLES.dx) / 2, z);
+          if (m !== null && Math.abs(m - y) < minAxis) near = true;
+        }
+      if (near) continue;
+      best = [x, y, depth];
+    }
+    if (best) out.push(best);
+  }
+  return out;
+}
+
 /**
  * Wyspa leżąca poziomo nad (lub pod) siatką, z USB w długiej, zewnętrznej krawędzi.
  * Układ lokalny: x wzdłuż wyspy (0 = środek siatki), y od boku przy klawiszach (0) na zewnątrz.
@@ -806,10 +876,15 @@ function edgeIsland(
         cuts.push({ ...box(hx - r, hy - r, -MODULE.pcb - MODULE_HOLES.depth, hx + r, hy + r, 0), round: true });
       }
     if (tilt) wCuts.push(...cuts.splice(firstModCut).map(tl));
+    const hollow = tilt > 0 && !!ip.wedgeHollow;
     for (const sy of [-1, 1]) {
       const py = my + sy * 15.5;
       if (!tilt) cuts.push(box(slotX0, py - 1.6, -D - 1, slotX1, py + 1.6, 1));
-      else {
+      else if (hollow) {
+        // pusty klin: przewody idą wnętrzem ramki, w wyspie zostają przepusty pod wnętrzem klina
+        const [yb, zb] = tiltPoint(py, zb0 - MODULE.pcb - 6 + 0.5, tilt, 0, zb0);
+        cuts.push(box(slotX0, yb - 1.6, -D - 1, slotX1, yb + 1.6, zb));
+      } else {
         // przepust prostopadły do płytki na głębokość pinów, dalej pionowo w dół przez klin i wyspę
         const pinDepth = MODULE.pcb + 6;
         wCuts.push(tl(box(slotX0, py - 1.6, -pinDepth, slotX1, py + 1.6, 1)));
@@ -831,14 +906,32 @@ function edgeIsland(
           : longBack
             ? [ccx + cw / 2 + 5.5, slotX1 + 4.5]
             : [mL + 4.5, slotX1 + 4.5];
-      for (const sx of xs) {
+      let screws: [number, number, number][] = xs.map((x) => [x, sy, WEDGE.pilotDepth]);
+      if (hollow) {
+        // pusty klin: śruba idzie na pełny koniec klina po swojej stronie, gdy jest tam miejsce
+        // (pod końcem nie leży kontroler); inaczej zostaje na miejscu i dostaje słupek w środku ramki
+        const ends = hollowEndScrews(cuts, D, tilt, my);
+        screws = screws.map((o) => ends.find((e) => Math.sign(e[0]) === Math.sign(o[0])) ?? o);
+        // wnętrze ramki: pod płytką modułu (bez pełnych końców z otworami na śruby modułu i bez 2,5 mm brzegu
+        // przy dłuższych bokach) pionowo na wylot przez klin; ścianki ramki są pionowe od środka, więc drukują się
+        // bez nawisów, a przednia i tylna ścianka stoją na podstawie na całej długości
+        const [yF] = tiltPoint(my - mw / 2 + 2.5, zb0 - MODULE.pcb, tilt, 0, zb0);
+        const [yB] = tiltPoint(my + mw / 2 - 2.5, zb0 - MODULE.pcb, tilt, 0, zb0);
+        const ox = -mL - MODULE_HOLES.boss;
+        let open: Box[] = [box(-ox, yF, -1, ox, yB, 60)];
+        // słupek łączy się z tylną ścianką ramki (nad nim jest gniazdo modułu, więc sam by wisiał)
+        for (const [x, y] of screws)
+          if (Math.abs(x) < ox) open = open.flatMap((b) => minusRect(b, x - WEDGE_PILLAR, y - WEDGE_PILLAR, x + WEDGE_PILLAR, yB + 1));
+        wCuts.push(...open);
+      }
+      for (const [sx, sy, depth] of screws) {
         wScrews.push([sx, sy]);
         const c = WEDGE.clearance / 2;
         const h = WEDGE.head / 2;
         cuts.push({ ...box(sx - c, sy - c, -D - 1, sx + c, sy + c, 1), round: true });
         cuts.push({ ...box(sx - h, sy - h, -D - 1, sx + h, sy + h, -D + WEDGE.headDepth), round: true });
         const pr = WEDGE.pilot / 2;
-        wCuts.push({ ...box(sx - pr, sy - pr, -1, sx + pr, sy + pr, WEDGE.pilotDepth), round: true });
+        wCuts.push({ ...box(sx - pr, sy - pr, -1, sx + pr, sy + pr, depth), round: true });
       }
     }
     const pL = mL + MODULE.clearance;

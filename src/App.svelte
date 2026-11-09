@@ -923,6 +923,7 @@
               <option value="back">{t(lang, 'usbDirBack')}</option>
             </select>
           </label>
+          <label class="check" data-tip={t(lang, 'tipWedgeHollow')}><input type="checkbox" bind:checked={island.wedgeHollow} /> {t(lang, 'wedgeHollow')}</label>
           {:else if island.position === 'top' || island.position === 'bottom'}
           <label data-tip={t(lang, 'tipUsbOut')}>{t(lang, 'usbOut')}
             <select bind:value={island.usbOut}>
@@ -1010,6 +1011,16 @@
             </select>
           </label>
           <label class="check" data-tip={t(lang, 'tipSupports')}><input type="checkbox" bind:checked={caseP.supports} /> {t(lang, 'supports')}</label>
+          {#if island.enabled}
+          <label class="check" data-tip={t(lang, 'tipIslandScrews')}><input type="checkbox" bind:checked={caseP.islandScrews} /> {t(lang, 'islandScrews')}</label>
+          <label data-tip={t(lang, 'tipCablePocket')}>{t(lang, 'cablePocket')}
+            <select bind:value={caseP.cablePocket}>
+              <option value="none">{t(lang, 'cablePocketNone')}</option>
+              <option value="controller">{t(lang, 'cablePocketCtrl')}</option>
+              <option value="island">{t(lang, 'cablePocketIsland')}</option>
+            </select>
+          </label>
+          {/if}
           <label data-tip={t(lang, 'tipExplode')}>{t(lang, 'explode')} <input type="number" min="0" step="5" bind:value={caseP.explode} /></label>
         </div>
         {#if screwInfo}<p class="muted">{t(lang, 'screwInfo').replace('{n}', String(screwInfo.screws.length)).replace('{s}', lang === 'pl' ? screwInfo.screw.size.replace('.', ',') : screwInfo.screw.size).replace('{l}', String(screwInfo.screwLength))}{#if screwInfo.supports.length}{' '}{t(lang, 'supportInfo').replace('{n}', String(screwInfo.supports.length))}{/if}{' '}{t(lang, 'screwFits').replace('{l}', screwInfo.screwFits.length ? screwInfo.screwFits.join(', ') + ' mm' : '—')}</p>

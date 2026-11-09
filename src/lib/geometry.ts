@@ -24,7 +24,7 @@ import {
 } from 'replicad';
 import { PITCH, outlineSpots, switchSpots, type Key } from './layout';
 import { wedgeZ, type Box, type IslandGeom } from './island';
-import { LEDGE, SUPPORT, bossFilletSize, chamferSize, ledgeKeepouts, ledgeWidth, screwSpec, type ScrewSpec, type CaseLayout, type CaseParams } from './case';
+import { CABLE_POCKET, LEDGE, SUPPORT, bossFilletSize, chamferSize, ledgeKeepouts, ledgeWidth, screwSpec, type ScrewSpec, type CaseLayout, type CaseParams } from './case';
 import { CASE_DOVETAIL, leftRegion, type PrintSplit } from './split';
 import type { ExtrasLayout } from './case-extras';
 import { caseFeetParts } from './feet-geometry';
@@ -380,6 +380,30 @@ export function buildCase(
     tools.push(makeCylinder(sp.head / 2, headDepth + 0.5, [x, y, bottom - 0.5], [0, 0, 1]) as Shape3D);
   }
   for (const b of layout.usbCuts) tools.push(makeBox([b.x0, b.y0, b.z0], [b.x1, b.y1, b.z1]));
+  // słupki śrub przy wyspie mogą zachodzić pod wyspę, która sięga niżej niż płyta: tam słupek kończy się pod wyspą
+  if (layout.islandScrews?.length && island && island.depth > cellHeight + 1e-6) {
+    const r = island.rect;
+    const g = SUPPORT.gap;
+    for (const [x, y] of layout.islandScrews) {
+      const under = makeBox([r.x0 - g, r.y0 - g, -island.depth - g], [r.x1 + g, r.y1 + g, -cellHeight + 0.5]) as Shape3D;
+      const zone = makeCylinder(sp.boss / 2 + fr + 0.5, island.depth + 1, [x, y, -island.depth - 0.5], [0, 0, 1]) as Shape3D;
+      tools.push(under.intersect(zone) as Shape3D);
+    }
+  }
+  // kieszeń na przewody w dnie: omija słupki z kołnierzami, podpory i podest pod USB, w odstępie od ścianek
+  const pk = layout.cablePocket;
+  if (pk) {
+    const c = CABLE_POCKET.clear;
+    let pocket = makeBox([pk.x0, pk.y0, pk.z0], [pk.x1, pk.y1, pk.z1]) as Shape3D;
+    pocket = pocket.intersect(inner.offset(-c).sketchOnPlane('XY', pk.z0 - 1).extrude(pk.z1 - pk.z0 + 2) as Shape3D) as Shape3D;
+    const keep: Shape3D[] = [];
+    for (const [x, y] of layout.screws) keep.push(makeCylinder(sp.boss / 2 + fr + c, pk.z1 - pk.z0 + 2, [x, y, pk.z0 - 1], [0, 0, 1]) as Shape3D);
+    for (const [x, y] of layout.supports ?? []) keep.push(makeCylinder(SUPPORT.d / 2 + c, pk.z1 - pk.z0 + 2, [x, y, pk.z0 - 1], [0, 0, 1]) as Shape3D);
+    for (const b of layout.pads ?? []) keep.push(makeBox([b.x0 - c, b.y0 - c, pk.z0 - 1], [b.x1 + c, b.y1 + c, pk.z1 + 1]) as Shape3D);
+    for (const b of layout.extras?.floorPockets ?? []) keep.push(makeBox([b.x0 - c, b.y0 - c, pk.z0 - 1], [b.x1 + c, b.y1 + c, pk.z1 + 1]) as Shape3D);
+    if (keep.length) pocket = cutMany(pocket, keep);
+    tools.push(pocket);
+  }
   // dodatki: szczelina włącznika, otwór gniazda, kieszenie w dnie (bateria, zanurzone części)
   tools.push(...extraCaseCuts(layout.extras));
   const out = tools.length ? cutMany(body, tools) : body;
