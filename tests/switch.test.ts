@@ -43,8 +43,8 @@ describe('przełącznik Cherry MX w podglądzie', () => {
     test(`mieści się w płycie bez kolizji (${variant}, rząd ze stabilizatorem i z dwoma MX)`, async () => {
       const cell = await loadCell({ step: cellStep(), up: 'auto' }, variant);
       const tpl = TEMPLATES.find((t) => t.id === 'ansi-60')!.params;
-      const keys = splitLeft({ ...tpl, rowLayout: [ANSI_60[2]] }); // Caps … Enter 2,25U
-      for (const stabs of ['cherry', 'mx'] as const) {
+      const keys = splitLeft({ ...tpl, rowLayout: [ANSI_60[2], ANSI_60[0]] }); // Caps … Enter 2,25U, Esc … Backspace 2U
+      for (const stabs of ['cherry', 'mx', 'mx-near'] as const) {
         const plate = buildPlate(keys, cell, { fillGaps: 4, margin: 2, stabs });
         for (const k of keys)
           for (const [x, y] of switchSpots(k, stabs)) {

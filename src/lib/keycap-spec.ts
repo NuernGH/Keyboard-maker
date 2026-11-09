@@ -387,6 +387,27 @@ export function pressedCavityClear(p: KeycapParams): number {
   return m;
 }
 
+/**
+ * Najmniejszy odstęp obudowy MX od ścianki końcowej nakładki po pełnym wciśnięciu (mm), gdy przełącznik
+ * nie stoi na środku (opcja „dwa MX”): ujemny = obudowa wchodzi w ściankę (np. Backspace 2U przy ±11,9).
+ * `null`, gdy klawisz ma tylko środkowy przełącznik.
+ */
+export function stemEndClear(p: KeycapParams, k: Pick<Key, 'w' | 'h'>, stabs: StabMode): number | null {
+  const offs = capStems(k, stabs).filter((s) => !s.stab).map((s) => Math.abs(s.d));
+  const d = Math.max(0, ...offs);
+  if (d < 1e-6) return null;
+  const L = capLevels(p);
+  const u = Math.max(k.w, k.h);
+  const b = (u * PITCH - p.gap) / 2 - p.wall;
+  let m = Infinity;
+  for (const [h, half] of MX_HOUSING_HALF) {
+    const z = h + MX.travel;
+    if (z < L.z0 || z > L.ceiling) continue;
+    m = Math.min(m, b - (CAP_LIMITS.cavityTaper * (z - L.z0)) / (L.ceiling - L.z0) - (d + half));
+  }
+  return m;
+}
+
 /** Ostrzeżenia dla parametrów (klucze tekstów w i18n). */
 export function capWarnings(p: KeycapParams): string[] {
   const out: string[] = [];

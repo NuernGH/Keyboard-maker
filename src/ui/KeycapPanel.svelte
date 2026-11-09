@@ -21,6 +21,7 @@
     capType,
     layoutKeyLegends,
     capWarnings,
+    stemEndClear,
     legendMethod,
     orientPreset,
     shapeParams,
@@ -117,6 +118,7 @@
       capTooTall: 'Za wysoka: dolna krawędź po wciśnięciu uderzyłaby w kołnierz przełącznika. Przycięto do {h} mm.',
       capThinWall: 'Ścianka przy suficie wnętrza cieńsza niż 0,8 mm: zwiększ bok góry albo zmniejsz wysokość.',
       capCavityTight: 'Wnętrze za ciasne na obudowę przełącznika po wciśnięciu: zmniejsz ściankę.',
+      capEndTight: 'Klawisze {k}: obudowy MX stoją za blisko końców nakładki i ścianki końcowe siadają na nich po wciśnięciu. W płycie wybierz „dwa MX, przy 2U bliżej”.',
       tipClearance: 'O ile gniazdo jest szersze od krzyża przełącznika (łącznie na ramię). Za mały luz: nakładka nie wejdzie albo pęknie; za duży: będzie spadać. Sprawdź plikiem kalibracji.',
       tipHeight: 'Od dolnej do górnej krawędzi. Niżej = mniejszy odstęp od kołnierza przełącznika po wciśnięciu; generator nie pozwoli zejść poniżej 0,3 mm.',
     },
@@ -176,6 +178,7 @@
       capTooTall: 'Too tall: the bottom edge would hit the switch flange when pressed. Clamped to {h} mm.',
       capThinWall: 'Wall at the cavity ceiling thinner than 0.8 mm: increase top size or reduce height.',
       capCavityTight: 'Cavity too tight for the switch housing when pressed: reduce the wall.',
+      capEndTight: 'Keys {k}: the MX housings sit too close to the keycap ends and the end walls land on them when pressed. In the plate choose “two MX, closer on 2U”.',
       tipClearance: 'How much wider the socket is than the switch cross (total per arm). Too small: the cap will not fit or will crack; too large: it falls off. Check with the test file.',
       tipHeight: 'From the bottom edge to the top edge. Lower = less room above the switch flange when pressed; the generator keeps at least 0.3 mm.',
     },
@@ -191,6 +194,8 @@
   const lv = $derived(capLevels(params));
   const fine = $derived(fineLayerRange(params));
   const warns = $derived(capWarnings(params));
+  // „dwa MX”: obudowy przełączników przy końcach nakładki (Backspace 2U przy ±11,9 wchodzi w ścianki)
+  const endTight = $derived([...new Set(keys.filter((k) => (stemEndClear(params, k, stabs) ?? 1) < 0.2).map((k) => `${num(Math.max(k.w, k.h), 2)}U`))]);
   let busy = $state(false);
   let error = $state('');
 
@@ -526,6 +531,7 @@
   </label>
   <p class="muted">{tx('levels').replace('{z0}', num(lv.z0, 1)).replace('{zp}', num(lv.z0 - 4, 1)).replace('{top}', num(lv.topEdge, 1))}</p>
   {#each warns as w (w)}<p class="warn">{tx(w as K).replace('{h}', num(lv.maxHeight, 1))}</p>{/each}
+  {#if endTight.length}<p class="warn">{tx('capEndTight').replace('{k}', endTight.join(', '))}</p>{/if}
 
   <h3>{tx('types')}</h3>
   <ul class="caps">

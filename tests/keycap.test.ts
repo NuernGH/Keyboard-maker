@@ -13,6 +13,7 @@ import {
   capLevels,
   capSet,
   capStems,
+  stemEndClear,
   capType,
   capWarnings,
   topPreset,
@@ -230,6 +231,32 @@ describe('nakładka na przełączniku MX', () => {
     expect(capStems({ w: 2.25, h: 1 }, 'cherry').map((s) => s.d)).toEqual([-11.9, 0, 11.9]);
     expect(capStems({ w: 6.25, h: 1 }, 'mx').map((s) => s.d)).toEqual([-50, 0, 50]);
     expect(capStems({ w: 2, h: 1 }, 'none').map((s) => s.d)).toEqual([0]);
+  }, 300000);
+
+  test('Backspace 2U: przy „dwa MX” (±11,9) obudowy wchodzą w ścianki końcowe, przy „bliżej” mieszczą się', () => {
+    const tpl = TEMPLATES.find((t) => t.id === 'ansi-60')!.params;
+    const keys = splitLeft({ ...tpl, rowLayout: [ANSI_60[0]] });
+    const bs = keys.find((k) => k.w === 2)!;
+    // to samo liczy ostrzeżenie w panelu nakładek
+    expect(stemEndClear(DEFAULT_KEYCAP, bs, 'mx')!).toBeLessThan(0);
+    expect(stemEndClear(DEFAULT_KEYCAP, bs, 'mx-near')!).toBeGreaterThanOrEqual(0.3);
+    expect(stemEndClear(DEFAULT_KEYCAP, { w: 2.25, h: 1 }, 'mx')!).toBeGreaterThanOrEqual(0.3);
+    expect(stemEndClear(DEFAULT_KEYCAP, { w: 2.75, h: 1 }, 'mx')!).toBeGreaterThanOrEqual(0.3);
+    expect(stemEndClear(DEFAULT_KEYCAP, { w: 1, h: 1 }, 'mx')).toBeNull();
+    expect(stemEndClear(DEFAULT_KEYCAP, bs, 'cherry')).toBeNull();
+    // na modelu MX: nakładka z generatora nad dwoma MX co 19,05 mm, w spoczynku i po wciśnięciu
+    const t = capType(bs, 'mx-near');
+    expect(t.stems.map((s) => s.d)).toEqual([-9.525, 9.525]);
+    const cap = place(buildKeycap(DEFAULT_KEYCAP, t), bs);
+    for (const [x, y] of switchSpots(bs, 'mx-near')) {
+      expect(meet(cap, place(sw, bs, x, y))).toBeLessThan(0.001);
+      const down = cap.clone().translate(0, 0, -MX.travel) as Shape3D;
+      expect(meet(down, place(housingWithOpening, bs, x, y))).toBeLessThan(0.001);
+    }
+    // ta sama nakładka przy ±11,9 dotyka obudów po wciśnięciu (dlatego ostrzeżenie)
+    const old = place(buildKeycap(DEFAULT_KEYCAP, capType(bs, 'mx')), bs).translate(0, 0, -MX.travel) as Shape3D;
+    const hit = switchSpots(bs, 'mx').map(([x, y]) => meet(old, place(housingWithOpening, bs, x, y)));
+    expect(Math.max(...hit)).toBeGreaterThan(1);
   }, 300000);
 });
 
