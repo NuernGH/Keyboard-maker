@@ -56,7 +56,7 @@
 
   type Side = 'left' | 'right';
 
-  let lang = $state<Lang>('pl');
+  let lang = $state<Lang>('en');
   let params = $state<SplitParams>(structuredClone(SPLIT_4x6_4));
   let templateId = $state(TEMPLATES[0].id);
   let island = $state<IslandParams>({ ...DEFAULT_ISLAND });
@@ -877,64 +877,77 @@
       <h2>{t(lang, 'electronics')}</h2>
       <label class="check" data-tip={t(lang, 'tipIsland')}><input type="checkbox" bind:checked={island.enabled} /> {t(lang, 'island')}</label>
       {#if island.enabled}
-        <div class="grid2">
-          <label data-tip={t(lang, 'tipController')}>{t(lang, 'controller')}
-            <select
-              value={island.controller}
-              onchange={(e) => {
-                const v = e.currentTarget.value as IslandParams['controller'];
-                // pierwszy własny: zaczynamy od liczb dotychczasowego kontrolera
-                if (v === 'custom' && !island.custom) {
-                  const { model: _m, ...c } = controllerOf($state.snapshot(island) as IslandParams);
-                  island.custom = { ...c, name: lang === 'pl' ? 'Własny kontroler' : 'Custom controller' };
-                }
-                island.controller = v;
-              }}
-            >
-              {#each Object.entries(CONTROLLERS) as [id, c] (id)}<option value={id}>{c.name}</option>{/each}
-              <option value="custom" data-tip={t(lang, 'tipCtrlCustom')}>{island.controller === 'custom' && island.custom ? island.custom.name : t(lang, 'ctrlCustom')}</option>
-            </select>
-          </label>
+        {#if single}
+        <div class="group">
+          <h3>{t(lang, 'grpIsland')}</h3>
+          <div class="grid2">
+            <label data-tip={t(lang, 'tipIslandPos')}>{t(lang, 'islandPos')}
+              <select bind:value={island.position}>
+                <option value="top">{t(lang, 'posTop')}</option>
+                <option value="inner">{t(lang, 'right')}</option>
+                <option value="outer">{t(lang, 'left')}</option>
+                <option value="bottom">{t(lang, 'posBottom')}</option>
+              </select>
+            </label>
+            <label data-tip={t(lang, 'tipAlign')}>{t(lang, 'align')}
+              <select bind:value={island.align}>
+                <option value="start">{island.position === 'top' || island.position === 'bottom' ? t(lang, 'alignLeft') : t(lang, 'alignTop')}</option>
+                <option value="center">{t(lang, 'alignCenter')}</option>
+                <option value="end">{island.position === 'top' || island.position === 'bottom' ? t(lang, 'alignRight') : t(lang, 'alignBottom')}</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        {/if}
+        <div class="group">
+          <h3>{t(lang, 'grpController')}</h3>
+          <div class="grid2">
+            <label data-tip={t(lang, 'tipController')}>{t(lang, 'controller')}
+              <select
+                value={island.controller}
+                onchange={(e) => {
+                  const v = e.currentTarget.value as IslandParams['controller'];
+                  // pierwszy własny: zaczynamy od liczb dotychczasowego kontrolera
+                  if (v === 'custom' && !island.custom) {
+                    const { model: _m, ...c } = controllerOf($state.snapshot(island) as IslandParams);
+                    island.custom = { ...c, name: lang === 'pl' ? 'Własny kontroler' : 'Custom controller' };
+                  }
+                  island.controller = v;
+                }}
+              >
+                {#each Object.entries(CONTROLLERS) as [id, c] (id)}<option value={id}>{c.name}</option>{/each}
+                <option value="custom" data-tip={t(lang, 'tipCtrlCustom')}>{island.controller === 'custom' && island.custom ? island.custom.name : t(lang, 'ctrlCustom')}</option>
+              </select>
+            </label>
+            {#if single && (island.position === 'top' || island.position === 'bottom') && island.moduleSide !== 'none' && (island.tilt ?? 0) > 0}
+            <label data-tip={t(lang, 'tipUsbDir')}>{t(lang, 'usbDir')}
+              <select bind:value={island.usbDir}>
+                <option value="auto">{t(lang, 'usbDirAuto')}</option>
+                <option value="left">{t(lang, 'usbDirLeft')}</option>
+                <option value="right">{t(lang, 'usbDirRight')}</option>
+                <option value="back">{t(lang, 'usbDirBack')}</option>
+              </select>
+            </label>
+            {:else if single && (island.position === 'top' || island.position === 'bottom')}
+            <label data-tip={t(lang, 'tipUsbOut')}>{t(lang, 'usbOut')}
+              <select bind:value={island.usbOut}>
+                <option value="edge">{t(lang, 'usbEdge')}</option>
+                <option value="end">{t(lang, 'usbEnd')}</option>
+              </select>
+            </label>
+            {/if}
+            <label class="check" data-tip={t(lang, 'tipCtrlFlip')}><input type="checkbox" checked={island.flip ?? true} onchange={(e) => (island.flip = e.currentTarget.checked)} /> {t(lang, 'ctrlFlip')}</label>
+            {#if island.flip ?? true}
+            <label class="check" data-tip={t(lang, 'tipCtrlPins')}><input type="checkbox" bind:checked={island.pins} /> {t(lang, 'ctrlPins')}</label>
+            {/if}
+          </div>
+        {#if island.controller === 'custom'}
+          <CustomController {lang} bind:value={island.custom} stepMesh={(b) => client('right').stepMesh(b)} />
+        {/if}
+        </div>
+        <div class="group">
+          <h3>{t(lang, 'grpModule')}</h3>
           {#if single}
-          <label data-tip={t(lang, 'tipIslandPos')}>{t(lang, 'islandPos')}
-            <select bind:value={island.position}>
-              <option value="top">{t(lang, 'posTop')}</option>
-              <option value="inner">{t(lang, 'right')}</option>
-              <option value="outer">{t(lang, 'left')}</option>
-              <option value="bottom">{t(lang, 'posBottom')}</option>
-            </select>
-          </label>
-          <label data-tip={t(lang, 'tipAlign')}>{t(lang, 'align')}
-            <select bind:value={island.align}>
-              <option value="start">{island.position === 'top' || island.position === 'bottom' ? t(lang, 'alignLeft') : t(lang, 'alignTop')}</option>
-              <option value="center">{t(lang, 'alignCenter')}</option>
-              <option value="end">{island.position === 'top' || island.position === 'bottom' ? t(lang, 'alignRight') : t(lang, 'alignBottom')}</option>
-            </select>
-          </label>
-          {#if (island.position === 'top' || island.position === 'bottom') && island.moduleSide !== 'none'}
-          <label data-tip={t(lang, 'tipTilt')}>{t(lang, 'tilt')} <input type="number" min="0" max="60" step="5" bind:value={island.tilt} /></label>
-          {/if}
-          {#if (island.position === 'top' || island.position === 'bottom') && island.moduleSide !== 'none' && (island.tilt ?? 0) > 0}
-          <label data-tip={t(lang, 'tipUsbDir')}>{t(lang, 'usbDir')}
-            <select bind:value={island.usbDir}>
-              <option value="auto">{t(lang, 'usbDirAuto')}</option>
-              <option value="left">{t(lang, 'usbDirLeft')}</option>
-              <option value="right">{t(lang, 'usbDirRight')}</option>
-              <option value="back">{t(lang, 'usbDirBack')}</option>
-            </select>
-          </label>
-          <label class="check" data-tip={t(lang, 'tipWedgeHollow')}><input type="checkbox" bind:checked={island.wedgeHollow} /> {t(lang, 'wedgeHollow')}</label>
-          {#if island.wedgeHollow}
-          <label class="check" data-tip={t(lang, 'tipWedgeKeepScrews')}><input type="checkbox" bind:checked={island.wedgeKeepScrews} /> {t(lang, 'wedgeKeepScrews')}</label>
-          {/if}
-          {:else if island.position === 'top' || island.position === 'bottom'}
-          <label data-tip={t(lang, 'tipUsbOut')}>{t(lang, 'usbOut')}
-            <select bind:value={island.usbOut}>
-              <option value="edge">{t(lang, 'usbEdge')}</option>
-              <option value="end">{t(lang, 'usbEnd')}</option>
-            </select>
-          </label>
-          {/if}
           <label class="check" data-tip={t(lang, 'tipModuleSingle')}><input type="checkbox" checked={island.moduleSide !== 'none'} onchange={(e) => (island.moduleSide = e.currentTarget.checked ? 'left' : 'none')} /> {t(lang, 'moduleSingle')}</label>
           {:else}
           <label data-tip={t(lang, 'tipModuleSide')}>{t(lang, 'moduleSide')}
@@ -946,36 +959,43 @@
             </select>
           </label>
           {/if}
-          <label class="check" data-tip={t(lang, 'tipCtrlFlip')}><input type="checkbox" checked={island.flip ?? true} onchange={(e) => (island.flip = e.currentTarget.checked)} /> {t(lang, 'ctrlFlip')}</label>
-          {#if island.flip ?? true}
-          <label class="check" data-tip={t(lang, 'tipCtrlPins')}><input type="checkbox" bind:checked={island.pins} /> {t(lang, 'ctrlPins')}</label>
-          {:else}
-          <span></span>
+          {#if single && (island.position === 'top' || island.position === 'bottom') && island.moduleSide !== 'none'}
+          <div class="grid2">
+          <label data-tip={t(lang, 'tipTilt')}>{t(lang, 'tilt')} <input type="number" min="0" max="60" step="5" bind:value={island.tilt} /></label>
+            {#if (island.tilt ?? 0) > 0}
+          <label class="check" data-tip={t(lang, 'tipWedgeHollow')}><input type="checkbox" bind:checked={island.wedgeHollow} /> {t(lang, 'wedgeHollow')}</label>
+              {#if island.wedgeHollow}
+            <label class="check" data-tip={t(lang, 'tipWedgeKeepScrews')}><input type="checkbox" bind:checked={island.wedgeKeepScrews} /> {t(lang, 'wedgeKeepScrews')}</label>
+              {/if}
+            {/if}
+          </div>
           {/if}
-          <label data-tip={t(lang, 'tipFit')}>{t(lang, 'fit')}
-            <select value={island.fit ?? 'standard'} onchange={(e) => (island.fit = e.currentTarget.value as CtrlFit)}>
-              <option value="standard">{t(lang, 'fitStandard')}</option>
-              <option value="snug">{t(lang, 'fitSnug')}</option>
-              <option value="press">{t(lang, 'fitPress')}</option>
-              <option value="custom">{t(lang, 'fitCustom')}</option>
-            </select>
-          </label>
-          {#if island.fit === 'custom'}
-          <span></span>
-          {#if !(island.flip ?? true)}
-          <label data-tip={t(lang, 'tipFitTop')}>{t(lang, 'fitTop')} <input type="number" min="0" max="3" step="0.05" value={island.fitTop ?? 0.6} onchange={(e) => (island.fitTop = +e.currentTarget.value)} /></label>
-          {/if}
-          <label data-tip={t(lang, 'tipFitBottom')}>{t(lang, 'fitBottom')} <input type="number" min="-0.6" max="3" step="0.05" value={island.fitBottom ?? 0.2} onchange={(e) => (island.fitBottom = +e.currentTarget.value)} /></label>
-          {#if island.flip ?? true}<span></span>{/if}
-          {/if}
-          <label data-tip={t(lang, 'tipIslandDepth')}>{t(lang, 'islandDepth')} <input type="number" min="0" step="0.5" bind:value={island.depth} /></label>
-          <span></span>
-          <label data-tip={t(lang, 'tipIslandX')}>{t(lang, 'thumbX')} <input type="number" step="0.5" bind:value={island.offsetX} /></label>
-          <label data-tip={t(lang, 'tipIslandY')}>{t(lang, 'thumbY')} <input type="number" step="0.5" bind:value={island.offsetY} /></label>
         </div>
-        {#if island.controller === 'custom'}
-          <CustomController {lang} bind:value={island.custom} stepMesh={(b) => client('right').stepMesh(b)} />
-        {/if}
+        <details class="more">
+          <summary>{t(lang, 'moreSettings')}</summary>
+          <div class="grid2">
+            <label data-tip={t(lang, 'tipFit')}>{t(lang, 'fit')}
+              <select value={island.fit ?? 'standard'} onchange={(e) => (island.fit = e.currentTarget.value as CtrlFit)}>
+                <option value="standard">{t(lang, 'fitStandard')}</option>
+                <option value="snug">{t(lang, 'fitSnug')}</option>
+                <option value="press">{t(lang, 'fitPress')}</option>
+                <option value="custom">{t(lang, 'fitCustom')}</option>
+              </select>
+            </label>
+            {#if island.fit === 'custom'}
+            <span></span>
+            {#if !(island.flip ?? true)}
+            <label data-tip={t(lang, 'tipFitTop')}>{t(lang, 'fitTop')} <input type="number" min="0" max="3" step="0.05" value={island.fitTop ?? 0.6} onchange={(e) => (island.fitTop = +e.currentTarget.value)} /></label>
+            {/if}
+            <label data-tip={t(lang, 'tipFitBottom')}>{t(lang, 'fitBottom')} <input type="number" min="-0.6" max="3" step="0.05" value={island.fitBottom ?? 0.2} onchange={(e) => (island.fitBottom = +e.currentTarget.value)} /></label>
+            {#if island.flip ?? true}<span></span>{/if}
+            {/if}
+            <label data-tip={t(lang, 'tipIslandDepth')}>{t(lang, 'islandDepth')} <input type="number" min="0" step="0.5" bind:value={island.depth} /></label>
+            <span></span>
+            <label data-tip={t(lang, 'tipIslandX')}>{t(lang, 'thumbX')} <input type="number" step="0.5" bind:value={island.offsetX} /></label>
+            <label data-tip={t(lang, 'tipIslandY')}>{t(lang, 'thumbY')} <input type="number" step="0.5" bind:value={island.offsetY} /></label>
+          </div>
+        </details>
         <label class="check" data-tip={t(lang, 'tipShowElectronics')}><input type="checkbox" bind:checked={showElectronics} /> {t(lang, 'showElectronics')}</label>
       {/if}
     </section>
@@ -985,126 +1005,148 @@
       <label class="check" data-tip={t(lang, 'tipCase')}><input type="checkbox" bind:checked={caseP.enabled} /> {t(lang, 'caseBottomOn')}</label>
       {#if caseP.enabled && variant === 'thin-plate'}<p class="warn">{t(lang, 'caseThin')}</p>{/if}
       {#if caseOn}
-        <label class="check" data-tip={t(lang, 'tipSlimCase')}><input type="checkbox" checked={!!caseP.slim} onchange={(e) => toggleSlim(e.currentTarget.checked)} /> {t(lang, 'slimCase')}</label>
-        <div class="grid2">
-          <label data-tip={t(lang, 'tipCaseWall')}>{t(lang, 'caseWall')} <input type="number" min="1.2" step="0.2" bind:value={caseP.wall} /></label>
-          <label data-tip={t(lang, 'tipCaseFloor')}>{t(lang, 'caseFloor')} <input type="number" min={caseP.slim ? FLOOR_MIN.slim : FLOOR_MIN.normal} step="0.2" bind:value={caseP.floor} /></label>
-          <label data-tip={t(lang, 'tipCaseSpace')}>{t(lang, 'caseSpace')} <input type="number" min="0" step="0.5" bind:value={caseP.space} /></label>
-          <label data-tip={t(lang, 'tipCaseScrews')}>{t(lang, 'caseScrews')} <input type="number" min="3" max="12" step="1" bind:value={caseP.screws} /></label>
-          <label data-tip={t(lang, 'tipScrewSize')}>{t(lang, 'screwSize')}
-            <select bind:value={caseP.screwSize}>
-              <option value="M3">M3</option>
-              <option value="M2.5">M2,5</option>
-            </select>
-          </label>
-          <label data-tip={t(lang, 'tipScrewLength')}>{t(lang, 'screwLength')}
-            <select bind:value={caseP.screwLength}>
-              <option value={0}>{t(lang, 'screwLengthAuto')}</option>
-              {#each STANDARD_LENGTHS as l (l)}<option value={l}>{l} mm</option>{/each}
-            </select>
-          </label>
-          <label data-tip={t(lang, 'tipCaseGap')}>{t(lang, 'caseGap')} <input type="number" min="0" step="0.1" bind:value={caseP.gap} /></label>
-          <label data-tip={t(lang, 'tipLedge')}>{t(lang, 'ledge')} <input type="number" min="0" max="5.5" step="0.5" bind:value={caseP.ledge} /></label>
-          <label data-tip={t(lang, 'tipChamfer')}>{t(lang, 'chamfer')} <input type="number" min="0" max="2" step="0.5" bind:value={caseP.chamfer} /></label>
-          <label data-tip={t(lang, 'tipBossFillet')}>{t(lang, 'bossFillet')} <input type="number" min="0" max="3" step="0.5" bind:value={caseP.bossFillet} /></label>
-          <label data-tip={t(lang, 'tipBossFillet')}>{t(lang, 'bossFilletKind')}
-            <select bind:value={caseP.bossFilletKind}>
-              <option value="fillet">{t(lang, 'bossFilletRound')}</option>
-              <option value="chamfer">{t(lang, 'bossFilletChamfer')}</option>
-            </select>
-          </label>
-          <label class="check" data-tip={t(lang, 'tipSupports')}><input type="checkbox" bind:checked={caseP.supports} /> {t(lang, 'supports')}</label>
-          {#if island.enabled}
-          <label class="check" data-tip={t(lang, 'tipIslandScrews')}><input type="checkbox" bind:checked={caseP.islandScrews} /> {t(lang, 'islandScrews')}</label>
-          <label data-tip={t(lang, 'tipCablePocket')}>{t(lang, 'cablePocket')}
-            <select bind:value={caseP.cablePocket}>
-              <option value="none">{t(lang, 'cablePocketNone')}</option>
-              <option value="controller">{t(lang, 'cablePocketCtrl')}</option>
-              <option value="island">{t(lang, 'cablePocketIsland')}</option>
-            </select>
-          </label>
-          {/if}
-          <label data-tip={t(lang, 'tipExplode')}>{t(lang, 'explode')} <input type="number" min="0" step="5" bind:value={caseP.explode} /></label>
-        </div>
-        {#if screwInfo}<p class="muted">{t(lang, 'screwInfo').replace('{n}', String(screwInfo.screws.length)).replace('{s}', lang === 'pl' ? screwInfo.screw.size.replace('.', ',') : screwInfo.screw.size).replace('{l}', String(screwInfo.screwLength))}{#if screwInfo.supports.length}{' '}{t(lang, 'supportInfo').replace('{n}', String(screwInfo.supports.length))}{/if}{' '}{t(lang, 'screwFits').replace('{l}', screwInfo.screwFits.length ? screwInfo.screwFits.join(', ') + ' mm' : '—')}</p>
-          {#if screwInfo.screwWarn?.kind === 'long'}
-            {@const w = screwInfo.screwWarn}
-            <p class="warn">{t(lang, 'screwTooLong').replace('{l}', String(screwInfo.screwLength)).replace('{f}', mmTxt(w.floor))}
-              <button onclick={() => (caseP.floor = w.floor)}>{t(lang, 'screwSetFloor').replace('{f}', mmTxt(w.floor))}</button></p>
-          {:else if screwInfo.screwWarn?.kind === 'short'}
-            <p class="warn">{t(lang, 'screwTooShort').replace('{l}', String(screwInfo.screwLength))}</p>
-          {/if}
-        {/if}
-        <h3>{t(lang, 'extras')}</h3>
-        <label class="check" data-tip={t(lang, 'tipPower')}><input type="checkbox" bind:checked={ex.power.on} /> {t(lang, 'power')}</label>
-        {#if ex.power.on}
+        <div class="group">
+          <h3>{t(lang, 'grpCaseBody')}</h3>
+          <label class="check" data-tip={t(lang, 'tipSlimCase')}><input type="checkbox" checked={!!caseP.slim} onchange={(e) => toggleSlim(e.currentTarget.checked)} /> {t(lang, 'slimCase')}</label>
           <div class="grid2">
-            <label data-tip={t(lang, 'tipWallSide')}>{t(lang, 'wallSide')}
-              <select bind:value={ex.power.side}>
-                {#each WALL_SIDES as w (w)}<option value={w}>{wallName(w)}</option>{/each}
+            <label data-tip={t(lang, 'tipCaseWall')}>{t(lang, 'caseWall')} <input type="number" min="1.2" step="0.2" bind:value={caseP.wall} /></label>
+            <label data-tip={t(lang, 'tipCaseFloor')}>{t(lang, 'caseFloor')} <input type="number" min={caseP.slim ? FLOOR_MIN.slim : FLOOR_MIN.normal} step="0.2" bind:value={caseP.floor} /></label>
+            <label data-tip={t(lang, 'tipCaseSpace')}>{t(lang, 'caseSpace')} <input type="number" min="0" step="0.5" bind:value={caseP.space} /></label>
+            {#if island.enabled}
+            <label data-tip={t(lang, 'tipCablePocket')}>{t(lang, 'cablePocket')}
+              <select bind:value={caseP.cablePocket}>
+                <option value="none">{t(lang, 'cablePocketNone')}</option>
+                <option value="controller">{t(lang, 'cablePocketCtrl')}</option>
+                <option value="island">{t(lang, 'cablePocketIsland')}</option>
               </select>
             </label>
-            <label data-tip={t(lang, 'tipWallPos')}>{t(lang, 'wallPos')} <input type="range" min="0" max="100" step="5" bind:value={ex.power.pos} /></label>
+            {/if}
           </div>
-        {/if}
-        {#if !single}
-          <label class="check" data-tip={t(lang, 'tipLink')}><input type="checkbox" bind:checked={ex.link.on} /> {t(lang, 'link')}</label>
-          {#if ex.link.on}
+        </div>
+        <div class="group">
+          <h3>{t(lang, 'grpScrews')}</h3>
+          <div class="grid2">
+            <label data-tip={t(lang, 'tipCaseScrews')}>{t(lang, 'caseScrews')} <input type="number" min="3" max="12" step="1" bind:value={caseP.screws} /></label>
+            <label data-tip={t(lang, 'tipScrewSize')}>{t(lang, 'screwSize')}
+              <select bind:value={caseP.screwSize}>
+                <option value="M3">M3</option>
+                <option value="M2.5">M2,5</option>
+              </select>
+            </label>
+            <label data-tip={t(lang, 'tipScrewLength')}>{t(lang, 'screwLength')}
+              <select bind:value={caseP.screwLength}>
+                <option value={0}>{t(lang, 'screwLengthAuto')}</option>
+                {#each STANDARD_LENGTHS as l (l)}<option value={l}>{l} mm</option>{/each}
+              </select>
+            </label>
+            {#if island.enabled}
+            <label class="check" data-tip={t(lang, 'tipIslandScrews')}><input type="checkbox" bind:checked={caseP.islandScrews} /> {t(lang, 'islandScrews')}</label>
+            {/if}
+          </div>
+          {#if screwInfo}<p class="muted">{t(lang, 'screwInfo').replace('{n}', String(screwInfo.screws.length)).replace('{s}', lang === 'pl' ? screwInfo.screw.size.replace('.', ',') : screwInfo.screw.size).replace('{l}', String(screwInfo.screwLength))}{#if screwInfo.supports.length}{' '}{t(lang, 'supportInfo').replace('{n}', String(screwInfo.supports.length))}{/if}{' '}{t(lang, 'screwFits').replace('{l}', screwInfo.screwFits.length ? screwInfo.screwFits.join(', ') + ' mm' : '—')}</p>
+            {#if screwInfo.screwWarn?.kind === 'long'}
+              {@const w = screwInfo.screwWarn}
+              <p class="warn">{t(lang, 'screwTooLong').replace('{l}', String(screwInfo.screwLength)).replace('{f}', mmTxt(w.floor))}
+                <button onclick={() => (caseP.floor = w.floor)}>{t(lang, 'screwSetFloor').replace('{f}', mmTxt(w.floor))}</button></p>
+            {:else if screwInfo.screwWarn?.kind === 'short'}
+              <p class="warn">{t(lang, 'screwTooShort').replace('{l}', String(screwInfo.screwLength))}</p>
+            {/if}
+          {/if}
+        </div>
+        <div class="group">
+          <h3>{t(lang, 'grpFinish')}</h3>
+          <div class="grid2">
+            <label data-tip={t(lang, 'tipLedge')}>{t(lang, 'ledge')} <input type="number" min="0" max="5.5" step="0.5" bind:value={caseP.ledge} /></label>
+            <label data-tip={t(lang, 'tipChamfer')}>{t(lang, 'chamfer')} <input type="number" min="0" max="2" step="0.5" bind:value={caseP.chamfer} /></label>
+            <label class="check" data-tip={t(lang, 'tipSupports')}><input type="checkbox" bind:checked={caseP.supports} /> {t(lang, 'supports')}</label>
+          </div>
+        </div>
+        <details class="more">
+          <summary>{t(lang, 'moreSettings')}</summary>
+          <div class="grid2">
+            <label data-tip={t(lang, 'tipCaseGap')}>{t(lang, 'caseGap')} <input type="number" min="0" step="0.1" bind:value={caseP.gap} /></label>
+            <label data-tip={t(lang, 'tipBossFillet')}>{t(lang, 'bossFillet')} <input type="number" min="0" max="3" step="0.5" bind:value={caseP.bossFillet} /></label>
+            <label data-tip={t(lang, 'tipBossFillet')}>{t(lang, 'bossFilletKind')}
+              <select bind:value={caseP.bossFilletKind}>
+                <option value="fillet">{t(lang, 'bossFilletRound')}</option>
+                <option value="chamfer">{t(lang, 'bossFilletChamfer')}</option>
+              </select>
+            </label>
+            <label data-tip={t(lang, 'tipExplode')}>{t(lang, 'explode')} <input type="number" min="0" step="5" bind:value={caseP.explode} /></label>
+          </div>
+        </details>
+        <div class="group">
+          <h3>{t(lang, 'extras')}</h3>
+          <label class="check" data-tip={t(lang, 'tipPower')}><input type="checkbox" bind:checked={ex.power.on} /> {t(lang, 'power')}</label>
+          {#if ex.power.on}
             <div class="grid2">
-              <label data-tip={t(lang, 'tipLink')}>{t(lang, 'linkKind')}
-                <select bind:value={ex.link.kind}>
-                  <option value="trrs">{t(lang, 'linkTrrs')}</option>
-                  <option value="usbc">{t(lang, 'linkUsbc')}</option>
-                </select>
-              </label>
               <label data-tip={t(lang, 'tipWallSide')}>{t(lang, 'wallSide')}
-                <select bind:value={ex.link.side}>
+                <select bind:value={ex.power.side}>
                   {#each WALL_SIDES as w (w)}<option value={w}>{wallName(w)}</option>{/each}
                 </select>
               </label>
-              <label data-tip={t(lang, 'tipWallPos')}>{t(lang, 'wallPos')} <input type="range" min="0" max="100" step="5" bind:value={ex.link.pos} /></label>
+              <label data-tip={t(lang, 'tipWallPos')}>{t(lang, 'wallPos')} <input type="range" min="0" max="100" step="5" bind:value={ex.power.pos} /></label>
             </div>
           {/if}
-        {/if}
-        <label class="check" data-tip={t(lang, 'tipBattery')}><input type="checkbox" bind:checked={ex.battery.on} /> {t(lang, 'battery')}</label>
-        {#if ex.battery.on}
-          <div class="grid2">
-            <label data-tip={t(lang, 'tipBattery')}>{t(lang, 'batteryPreset')}
-              <select value={BATTERY_PRESETS.find((b) => b.l === ex.battery.l && b.w === ex.battery.w && b.t === ex.battery.t)?.id ?? ''}
-                onchange={(e) => { const b = BATTERY_PRESETS.find((x) => x.id === e.currentTarget.value); if (b) Object.assign(ex.battery, { l: b.l, w: b.w, t: b.t }); }}>
-                {#each BATTERY_PRESETS as b (b.id)}<option value={b.id}>{b.name}</option>{/each}
-                <option value="">{t(lang, 'batteryCustom')}</option>
-              </select>
-            </label>
-            <label>{t(lang, 'batteryL')} <input type="number" min="10" max="120" step="0.5" bind:value={ex.battery.l} /></label>
-            <label>{t(lang, 'batteryW')} <input type="number" min="5" max="80" step="0.5" bind:value={ex.battery.w} /></label>
-            <label>{t(lang, 'batteryT')} <input type="number" min="1" max="12" step="0.1" bind:value={ex.battery.t} /></label>
-          </div>
-        {/if}
-        <label data-tip={t(lang, 'tipFeet')}>{t(lang, 'feet')}
-          <select value={caseP.feet?.mode ?? 'none'} onchange={(e) => (caseP.feet = { ...(caseP.feet ?? {}), mode: e.currentTarget.value as FeetMode })}>
-            <option value="none">{t(lang, 'feetNone')}</option>
-            <option value="bar">{t(lang, 'feetBar')}</option>
-            <option value="pocket">{t(lang, 'feetPocket')}</option>
-          </select>
-        </label>
-        {#if caseP.feet?.mode === 'bar'}
-          <label class="check" data-tip={t(lang, 'tipFeetPegs')}><input type="checkbox" checked={caseP.feet.pegs !== false} onchange={(e) => (caseP.feet = { ...caseP.feet!, pegs: e.currentTarget.checked })} /> {t(lang, 'feetPegs')}</label>
-        {/if}
-        {#each Object.entries(feetBySide) as [s, f] (s)}
-          {@const pre = single ? '' : `${t(lang, s === 'left' ? 'left' : 'right')}: `}
-          {#if f && f.legs.length}
-            <p class="muted">{pre}{t(lang, f.mode === 'bar' ? 'feetInfoBar' : 'feetInfoPocket').replace('{t}', mmTxt(Math.round(f.tilt * 10) / 10)).replace('{l}', String(f.screwLength ?? '')).replace('{n}', String(f.bar?.screws.length ?? 0)).replace('{s}', screwInfo ? (lang === 'pl' ? screwInfo.screw.size.replace('.', ',') : screwInfo.screw.size) : 'M3')}</p>
+          {#if !single}
+            <label class="check" data-tip={t(lang, 'tipLink')}><input type="checkbox" bind:checked={ex.link.on} /> {t(lang, 'link')}</label>
+            {#if ex.link.on}
+              <div class="grid2">
+                <label data-tip={t(lang, 'tipLink')}>{t(lang, 'linkKind')}
+                  <select bind:value={ex.link.kind}>
+                    <option value="trrs">{t(lang, 'linkTrrs')}</option>
+                    <option value="usbc">{t(lang, 'linkUsbc')}</option>
+                  </select>
+                </label>
+                <label data-tip={t(lang, 'tipWallSide')}>{t(lang, 'wallSide')}
+                  <select bind:value={ex.link.side}>
+                    {#each WALL_SIDES as w (w)}<option value={w}>{wallName(w)}</option>{/each}
+                  </select>
+                </label>
+                <label data-tip={t(lang, 'tipWallPos')}>{t(lang, 'wallPos')} <input type="range" min="0" max="100" step="5" bind:value={ex.link.pos} /></label>
+              </div>
+            {/if}
           {/if}
-          {#each f?.warns ?? [] as w (w)}
-            <p class="warn">{pre}{t(lang, ({ noSpot: 'feetNoSpot', thinFloor: 'feetThinFloor', barLong: 'feetBarLong', padSmall: 'feetPadSmall' } as const)[w])}</p>
+          <label class="check" data-tip={t(lang, 'tipBattery')}><input type="checkbox" bind:checked={ex.battery.on} /> {t(lang, 'battery')}</label>
+          {#if ex.battery.on}
+            <div class="grid2">
+              <label data-tip={t(lang, 'tipBattery')}>{t(lang, 'batteryPreset')}
+                <select value={BATTERY_PRESETS.find((b) => b.l === ex.battery.l && b.w === ex.battery.w && b.t === ex.battery.t)?.id ?? ''}
+                  onchange={(e) => { const b = BATTERY_PRESETS.find((x) => x.id === e.currentTarget.value); if (b) Object.assign(ex.battery, { l: b.l, w: b.w, t: b.t }); }}>
+                  {#each BATTERY_PRESETS as b (b.id)}<option value={b.id}>{b.name}</option>{/each}
+                  <option value="">{t(lang, 'batteryCustom')}</option>
+                </select>
+              </label>
+              <label>{t(lang, 'batteryL')} <input type="number" min="10" max="120" step="0.5" bind:value={ex.battery.l} /></label>
+              <label>{t(lang, 'batteryW')} <input type="number" min="5" max="80" step="0.5" bind:value={ex.battery.w} /></label>
+              <label>{t(lang, 'batteryT')} <input type="number" min="1" max="12" step="0.1" bind:value={ex.battery.t} /></label>
+            </div>
+          {/if}
+          <label data-tip={t(lang, 'tipFeet')}>{t(lang, 'feet')}
+            <select value={caseP.feet?.mode ?? 'none'} onchange={(e) => (caseP.feet = { ...(caseP.feet ?? {}), mode: e.currentTarget.value as FeetMode })}>
+              <option value="none">{t(lang, 'feetNone')}</option>
+              <option value="bar">{t(lang, 'feetBar')}</option>
+              <option value="pocket">{t(lang, 'feetPocket')}</option>
+            </select>
+          </label>
+          {#if caseP.feet?.mode === 'bar'}
+            <label class="check" data-tip={t(lang, 'tipFeetPegs')}><input type="checkbox" checked={caseP.feet.pegs !== false} onchange={(e) => (caseP.feet = { ...caseP.feet!, pegs: e.currentTarget.checked })} /> {t(lang, 'feetPegs')}</label>
+          {/if}
+          {#each Object.entries(feetBySide) as [s, f] (s)}
+            {@const pre = single ? '' : `${t(lang, s === 'left' ? 'left' : 'right')}: `}
+            {#if f && f.legs.length}
+              <p class="muted">{pre}{t(lang, f.mode === 'bar' ? 'feetInfoBar' : 'feetInfoPocket').replace('{t}', mmTxt(Math.round(f.tilt * 10) / 10)).replace('{l}', String(f.screwLength ?? '')).replace('{n}', String(f.bar?.screws.length ?? 0)).replace('{s}', screwInfo ? (lang === 'pl' ? screwInfo.screw.size.replace('.', ',') : screwInfo.screw.size) : 'M3')}</p>
+            {/if}
+            {#each f?.warns ?? [] as w (w)}
+              <p class="warn">{pre}{t(lang, ({ noSpot: 'feetNoSpot', thinFloor: 'feetThinFloor', barLong: 'feetBarLong', padSmall: 'feetPadSmall' } as const)[w])}</p>
+            {/each}
           {/each}
-        {/each}
-        {#each Object.entries(extrasBySide) as [s, e] (s)}
-          {#each e?.warns ?? [] as w, i (i)}
-            <p class={w.kind === 'noSpot' || w.kind === 'tooTall' ? 'warn' : 'muted'}>{single ? '' : `${t(lang, s === 'left' ? 'left' : 'right')}: `}{extraWarnText(w)}</p>
+          {#each Object.entries(extrasBySide) as [s, e] (s)}
+            {#each e?.warns ?? [] as w, i (i)}
+              <p class={w.kind === 'noSpot' || w.kind === 'tooTall' ? 'warn' : 'muted'}>{single ? '' : `${t(lang, s === 'left' ? 'left' : 'right')}: `}{extraWarnText(w)}</p>
+            {/each}
           {/each}
-        {/each}
+        </div>
       {/if}
     </section>
 
@@ -1288,10 +1330,36 @@
   }
   h2 {
     font-size: 13px;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+    color: var(--accent);
+    margin: 0 0 8px;
+    padding-left: 8px;
+    border-left: 3px solid var(--accent);
+  }
+  h3 {
+    font-size: 12px;
+    font-weight: 600;
     color: var(--muted);
     margin: 0 0 6px;
+  }
+  .group {
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+    border-radius: 6px;
+    padding: 8px 10px 4px;
+    margin: 8px 0;
+  }
+  details.more {
+    margin: 6px 0 4px;
+  }
+  details.more > summary {
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--accent);
+    margin-bottom: 6px;
+    user-select: none;
   }
   section {
     padding: 10px 0;
