@@ -71,6 +71,16 @@ export interface CaseParams {
    * albo kieszenie w dnie spodu. Bez opcji obudowa się nie zmienia.
    */
   feet?: FeetParams;
+  /**
+   * Dodatkowe śruby przy wyspie (opcja, domyślnie wyłączona): w narożnikach wyspy od strony
+   * bez klawiszy, obok kieszeni kontrolera i gniazda USB. Wyspa bez nich nie ma żadnej śruby.
+   */
+  islandScrews?: boolean;
+  /**
+   * Kieszeń na przewody w dnie (opcja, domyślnie brak): `controller` = pod kontrolerem,
+   * `island` = pod całą wyspą. Wgłębienie od środka, pod nim zostaje co najmniej CABLE_POCKET.minFloor mm dna.
+   */
+  cablePocket?: 'none' | 'controller' | 'island';
 }
 
 /** Wartości cienkiej obudowy (analiza 2026-11-07: 60% hot-swap 14,6 → 12,1 mm). */
@@ -100,6 +110,8 @@ export const DEFAULT_CASE: CaseParams = {
   bossFillet: 1.5,
   bossFilletKind: 'chamfer',
   screwLength: 0,
+  islandScrews: false,
+  cablePocket: 'none',
 };
 
 /** Faza górnej krawędzi: najmniej płaskiej góry ścianki, która zostaje przy płycie (mm). */
@@ -203,6 +215,10 @@ export interface CaseLayout {
   extras: ExtrasLayout;
   /** składane nóżki (brak, gdy opcja wyłączona) */
   feet?: FeetLayout;
+  /** dodatkowe śruby przy wyspie (są też w `screws`) */
+  islandScrews?: [number, number][];
+  /** kieszeń na przewody w dnie (prostokąt; przy budowie omija słupki, podpory i podest pod USB) */
+  cablePocket?: Box;
 }
 
 /** Luz między podkładką a płytką kontrolera (mm), pas wolny od pinów przy dłuższych bokach, zwężenie podestu pod gniazdem USB. */
@@ -347,6 +363,78 @@ export function screwPositions(
   return picked;
 }
 
+/** Kieszeń na przewody w dnie: głębokość (mm), najcieńsze dno pod nią, odstęp od słupków, podpór i ścianek. */
+export const CABLE_POCKET = { depth: 2, minFloor: 1, clear: 0.8, inset: 1 };
+
+const boxGap = (b: { x0: number; y0: number; x1: number; y1: number }, x: number, y: number) => distToRect(b, x, y);
+
+/**
+ * Dodatkowe śruby przy wyspie: po jednej w każdym narożniku wyspy od strony bez klawiszy.
+ * Najlepiej po skosie SCREW_INSET od narożnika (jak przy zaokrąglonym narożniku płyty);
+ * gdy słupek wchodziłby w kieszeń kontrolera, otwór na USB albo przepust, śruba odsuwa się
+ * na najbliższe wolne miejsce w marginesie płyty. Śruba stoi poza wyspą (otwór pilotowy w pełnej
+ * płycie), a słupek, który zachodzi pod wyspę, jest przy budowie przycinany do jej spodu.
+ */
+export function islandScrewPositions(
+  keys: Key[],
+  island: IslandGeom | null,
+  sp: ScrewSpec,
+  o: { reach: number; margin: number; cellHeight: number; taken: [number, number][]; keepouts?: Box[]; split?: PrintSplit | null },
+): [number, number][] {
+  if (!island) return [];
+  const r = island.rect;
+  const clear = screwClear(sp);
+  const room = Math.min(o.reach - sp.boss / 2 - BOSS_SKIN, o.margin - sp.pilot / 2 - 1);
+  const minOut = sp.pilot / 2 + 0.8;
+  // otwory wyspy schodzące pod płytę (kieszeń kontrolera, USB, przepusty, łby śrub klina)
+  const below = island.cuts.filter((c) => c.z0 < -o.cellHeight + 1e-6);
+  const s = SCREW_INSET / Math.SQRT2;
+  const out: [number, number][] = [];
+  for (const [cx, sx] of [[r.x0, -1], [r.x1, 1]] as const)
+    for (const [cy, sy] of [[r.y0, -1], [r.y1, 1]] as const) {
+      // tylko narożniki z dala od klawiszy
+      if (keys.some((k) => distToKey(k, cx, cy) < PITCH / 2)) continue;
+      const ideal: [number, number] = [cx + sx * s, cy + sy * s];
+      let best: [number, number] | null = null;
+      let bestD = Infinity;
+      for (let a = -25; a <= 8; a += 0.25)
+        for (let b = -25; b <= 8; b += 0.25) {
+          const x = cx + sx * a;
+          const y = cy + sy * b;
+          const dd = Math.hypot(x - ideal[0], y - ideal[1]);
+          if (dd >= bestD) continue;
+          const dr = distToRect(r, x, y);
+          if (dr < minOut || dr > room) continue;
+          if (below.some((c) => boxGap(c, x, y) < sp.boss / 2 + 0.3)) continue;
+          if (keys.some((k) => distToKey(k, x, y) < clear)) continue;
+          if ([...o.taken, ...out].some(([tx, ty]) => Math.hypot(tx - x, ty - y) < sp.boss + 2)) continue;
+          if ((o.keepouts ?? []).some((k) => boxGap(k, x, y) < sp.boss / 2 + 0.5)) continue;
+          if (o.split && (distToSeam(o.split, x, y) < 3 + DOVETAIL.depth || Math.abs(x - o.split.caseX) < sp.boss / 2 + 1.5)) continue;
+          best = [x, y];
+          bestD = dd;
+        }
+      if (best) out.push(best);
+    }
+  return out;
+}
+
+/**
+ * Prostokąt kieszeni na przewody w dnie: pod płytką kontrolera albo pod całą wyspą (z kontrolerem,
+ * gdy wystaje poza wyspę), w odstępie CABLE_POCKET.inset od obrysu. Głębokość nie przekracza
+ * dna minus CABLE_POCKET.minFloor. Brak, gdy opcja wyłączona albo dno za cienkie.
+ */
+export function cablePocketBox(island: IslandGeom | null, mode: CaseParams['cablePocket'], floorTop: number, floor: number): Box | undefined {
+  if (!island || !mode || mode === 'none') return undefined;
+  const depth = Math.min(CABLE_POCKET.depth, floor - CABLE_POCKET.minFloor);
+  if (depth < 0.6) return undefined;
+  const n = island.ghosts.find((g) => g.kind === 'nano')?.box;
+  const r = island.rect;
+  const i = CABLE_POCKET.inset;
+  let b = mode === 'controller' && n ? { x0: n.x0, y0: n.y0, x1: n.x1, y1: n.y1 } : { ...r };
+  if (mode === 'island' && n) b = { x0: Math.min(b.x0, n.x0), y0: Math.min(b.y0, n.y0), x1: Math.max(b.x1, n.x1), y1: Math.max(b.y1, n.y1) };
+  return { x0: b.x0 + i, y0: b.y0 + i, x1: b.x1 - i, y1: b.y1 - i, z0: floorTop - depth, z1: floorTop + 0.01 };
+}
+
 /** Wycięcia w ściance obudowy na wtyki USB: otwory z wyspy przedłużone na zewnątrz i poszerzone na wtyk. */
 export function usbCaseCuts(island: IslandGeom | null, cp: CaseParams): Box[] {
   if (!island) return [];
@@ -474,17 +562,35 @@ export function caseLayout(
           screw: { length: screwLength, headDepth, head: sp.headDepth, pilotDepth, lengths: STANDARD_LENGTHS, biteMin: SCREW_BITE.min },
         })
       : undefined;
-  let extras = extrasWith(cp.extras);
+  // kieszeń na przewody: bateria ją omija (tak jak wyspę)
+  const pocket = cablePocketBox(island, cp.cablePocket, floorTop, cp.floor);
+  let extras = extrasWith(cp.extras, pocket ? [pocket] : []);
   // nóżki w dnie (wybór Marcina 2026-11-08): bateria ustępuje nóżkom. Najpierw miejsce na nóżki bez baterii,
   // potem bateria omija kieszenie. Bez nóżek (i z listwą) bateria zostaje tam, gdzie była.
   if (cp.feet?.mode === 'pocket' && cp.extras?.battery?.on) {
     const noBat = extrasWith({ ...cp.extras, battery: { ...cp.extras.battery, on: false } });
     const pre = feetFor(noBat, screwsFor(noBat));
-    if (pre?.legs.length) extras = extrasWith(cp.extras, pre.legs.map((xc) => ({ ...pocketArea(xc, pre.pivotY, FEET_BATTERY_GAP), z0: 0, z1: 0 })));
+    if (pre?.legs.length)
+      extras = extrasWith(cp.extras, [...pre.legs.map((xc) => ({ ...pocketArea(xc, pre.pivotY, FEET_BATTERY_GAP), z0: 0, z1: 0 })), ...(pocket ? [pocket] : [])]);
   }
-  const screws = screwsFor(extras);
+  const mainScrews = screwsFor(extras);
+  const islandScrews = cp.islandScrews
+    ? islandScrewPositions(keys, island, sp, {
+        reach: SCREW_MARGIN + cp.gap + cp.wall,
+        margin: Math.max(o.margin ?? SCREW_MARGIN, SCREW_MARGIN),
+        cellHeight,
+        taken: mainScrews,
+        keepouts: [...extras.keepouts, ...usbCuts],
+        split,
+      })
+    : [];
+  const screws = [...mainScrews, ...islandScrews];
   const supports0 = cp.supports === false ? [] : supportPositions(keys, island, screws, split, stabs, extras.keepouts);
-  const feet = feetFor(extras, screws);
+  // nóżki: listwa trzyma się zwykłych tylnych śrub; śruby przy wyspie i kieszeń na przewody to dla nich przeszkody
+  const feet = feetFor(
+    { ...extras, keepouts: [...extras.keepouts, ...islandScrews.map(([x, y]) => ({ x0: x - sp.boss / 2, x1: x + sp.boss / 2, y0: y - sp.boss / 2, y1: y + sp.boss / 2, z0: 0, z1: 0 })), ...(pocket ? [pocket] : [])] },
+    mainScrews,
+  );
   // podpory nie stoją na kieszeniach nóżek (cienki strop, języczki zatrzasku)
   const supports = feet?.mode === 'pocket'
     ? supports0.filter(([x, y]) => feet.legs.every((xc) => {
@@ -507,6 +613,8 @@ export function caseLayout(
     pads,
     extras,
     ...(feet ? { feet } : {}),
+    ...(islandScrews.length ? { islandScrews } : {}),
+    ...(pocket ? { cablePocket: pocket } : {}),
     ...(split?.caseDovetails
       ? { caseTabs: caseTabPositions(keys, split.caseX, screws, sp, supports, [...pads, ...usbCuts, ...extras.keepouts, ...extras.floorPockets]) }
       : {}),
