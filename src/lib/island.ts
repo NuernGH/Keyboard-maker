@@ -140,6 +140,11 @@ export interface IslandParams {
    * przechodzą na końce klina, na wolne miejsce między otworami modułu i kieszenią kontrolera.
    */
   wedgeHollow?: boolean;
+  /**
+   * Przy pustym klinie: śruby klina zostają tam, gdzie w zwykłym klinie (każda na słupku w ramce),
+   * więc pusty klin pasuje do już wydrukowanej wyspy. Domyślnie wyłączone (śruby na pełnych końcach).
+   */
+  wedgeKeepScrews?: boolean;
   /** przylutowane goldpiny: przy odwróconym kontrolerze rowki w płycie na końcówki pinów */
   pins?: boolean;
   /** własny kontroler (z modelu użytkownika albo z formularza), gdy `controller` = 'custom' */
@@ -226,6 +231,7 @@ export const DEFAULT_ISLAND: IslandParams = {
   pins: false,
   fit: 'standard',
   wedgeHollow: false,
+  wedgeKeepScrews: false,
 };
 
 export const ISLAND_W = 38;
@@ -910,8 +916,11 @@ function edgeIsland(
       if (hollow) {
         // pusty klin: śruba idzie na pełny koniec klina po swojej stronie, gdy jest tam miejsce
         // (pod końcem nie leży kontroler); inaczej zostaje na miejscu i dostaje słupek w środku ramki
-        const ends = hollowEndScrews(cuts, D, tilt, my);
-        screws = screws.map((o) => ends.find((e) => Math.sign(e[0]) === Math.sign(o[0])) ?? o);
+        // (albo, na życzenie, wszystkie zostają tam, gdzie w zwykłym klinie: ten sam rozstaw otworów w wyspie)
+        if (!ip.wedgeKeepScrews) {
+          const ends = hollowEndScrews(cuts, D, tilt, my);
+          screws = screws.map((o) => ends.find((e) => Math.sign(e[0]) === Math.sign(o[0])) ?? o);
+        }
         // wnętrze ramki: pod płytką modułu (bez pełnych końców z otworami na śruby modułu i bez 2,5 mm brzegu
         // przy dłuższych bokach) pionowo na wylot przez klin; ścianki ramki są pionowe od środka, więc drukują się
         // bez nawisów, a przednia i tylna ścianka stoją na podstawie na całej długości

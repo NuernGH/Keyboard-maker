@@ -924,6 +924,9 @@
             </select>
           </label>
           <label class="check" data-tip={t(lang, 'tipWedgeHollow')}><input type="checkbox" bind:checked={island.wedgeHollow} /> {t(lang, 'wedgeHollow')}</label>
+          {#if island.wedgeHollow}
+          <label class="check" data-tip={t(lang, 'tipWedgeKeepScrews')}><input type="checkbox" bind:checked={island.wedgeKeepScrews} /> {t(lang, 'wedgeKeepScrews')}</label>
+          {/if}
           {:else if island.position === 'top' || island.position === 'bottom'}
           <label data-tip={t(lang, 'tipUsbOut')}>{t(lang, 'usbOut')}
             <select bind:value={island.usbOut}>
