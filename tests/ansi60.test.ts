@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, test } from 'vitest';
 import { measureVolume, makeBox, makeCylinder, type Shape3D } from 'replicad';
 import { initOC, cellStep } from './oc';
 import { loadCell, buildPlate, buildCase, buildWedge, screwPilots, isValidShape, stabCuts, platePiece, casePiece } from '../src/lib/geometry';
-import { TEMPLATES, splitLeft, switchOffsets, switchSpots, ANSI_60, parseRowLayout, rowLayoutToText, keysOverlap, PITCH } from '../src/lib/layout';
+import { TEMPLATES, splitLeft, switchOffsets, switchSpots, outlineSpots, ANSI_60, parseRowLayout, rowLayoutToText, keysOverlap, PITCH } from '../src/lib/layout';
 import { islandFor, gridBounds, DEFAULT_ISLAND, type IslandParams } from '../src/lib/island';
 import { caseLayout, DEFAULT_CASE, SCREW_MARGIN, SCREW_SPECS, type ScrewSize } from '../src/lib/case';
 import { planSplit, plateBounds, pieceOf, seamScrewTargets, DEFAULT_PRINT, CASE_DOVETAIL } from '../src/lib/split';
@@ -56,6 +56,18 @@ describe('dwa MX zamiast stabilizatora', () => {
     for (let i = 0; i < spots.length; i++)
       for (let j = i + 1; j < spots.length; j++)
         if (Math.abs(spots[i][1] - spots[j][1]) < 1) expect(Math.abs(spots[i][0] - spots[j][0])).toBeGreaterThanOrEqual(15.6);
+  });
+
+  test('„przy 2U bliżej”: Backspace 2U co 19,05 mm, szersze bez zmian, obrys jak przy „dwa MX”', () => {
+    const keys = splitLeft(tpl);
+    const by = (w: number) => keys.find((k) => k.w === w)!;
+    expect(switchOffsets(by(2), 'mx-near')).toEqual([-9.525, 9.525]);
+    expect(switchOffsets(by(2.25), 'mx-near')).toEqual([-11.9, 11.9]);
+    expect(switchOffsets(by(2.75), 'mx-near')).toEqual([-11.9, 11.9]);
+    expect(switchOffsets(by(6.25), 'mx-near')).toEqual([-50, 0, 50]);
+    expect(switchOffsets(by(1), 'mx-near')).toEqual([0]);
+    expect(switchSpots({ id: 'v', x: 0, y: 0, rot: 0, w: 1, h: 2 }, 'mx-near')).toEqual([[0, -9.525], [0, 9.525]]);
+    for (const k of keys) expect(outlineSpots(k, 'mx-near')).toEqual(switchSpots(k, 'mx'));
   });
 });
 
@@ -118,6 +130,13 @@ describe('bryły 60%', () => {
       expect(plate.solids.length).toBe(1);
       // więcej materiału ubywa niż przy samym przełączniku na środku
       expect(measureVolume(buildPlate(keys, cell, { ...o, stabs: 'none' }))).toBeGreaterThan(measureVolume(plate));
+      // „przy 2U bliżej”: ten sam obrys (ta sama obudowa), inne miejsca przełączników Backspace
+      const near = buildPlate(keys, cell, { ...o, stabs: 'mx-near' });
+      expect(isValidShape(near)).toBe(true);
+      expect(near.solids.length).toBe(1);
+      const bb = (s: Shape3D) => s.boundingBox.bounds.flat();
+      bb(near).forEach((v, i) => expect(v).toBeCloseTo(bb(plate)[i], 3));
+      expect(Math.abs(measureVolume(near) - measureVolume(plate))).toBeLessThan(50);
     }, 120000);
 
   test('klin 25° pod OLED jako osobna część przykręcana do płaskiej wyspy', async () => {

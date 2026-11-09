@@ -855,10 +855,12 @@
         <select bind:value={plate.stabs}>
           <option value="cherry">{t(lang, 'stabCherry')}</option>
           <option value="mx">{t(lang, 'stabMx')}</option>
+          <option value="mx-near">{t(lang, 'stabMxNear')}</option>
           <option value="none">{t(lang, 'stabNone')}</option>
         </select>
       </label>
       {#if plate.stabs === 'mx'}<p class="muted">{t(lang, 'mxSpacing')}</p>{/if}
+      {#if plate.stabs === 'mx-near'}<p class="muted">{t(lang, 'mxNearSpacing')}</p>{/if}
       {#if !single}
       <label data-tip={t(lang, 'tipHalves')}>
         {t(lang, 'halves')}

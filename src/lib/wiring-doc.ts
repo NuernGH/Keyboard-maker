@@ -20,7 +20,7 @@ import {
   type WKey,
 } from './wiring';
 import { islandFor, type ControllerId, type IslandParams } from './island';
-import type { CellVariant } from './cell-spec';
+import type { CellVariant, StabMode } from './cell-spec';
 import { apply, applyDir, type DactylModel } from './dactyl';
 
 export type DocLang = 'pl' | 'en';
@@ -41,7 +41,7 @@ export interface WiringInput {
   layout: string;
   halves: WiringHalf[];
   ctrl: ControllerPins;
-  stabs: 'cherry' | 'mx' | 'none';
+  stabs: StabMode;
   hotswap: boolean;
   /** kontroler odwrócony w wyspie (domyślnie w generatorze) */
   flipped: boolean;
@@ -719,7 +719,7 @@ export function splitWiringInput(o: {
   variant: CellVariant;
   cellHeight: number;
   margin: number;
-  stabs: 'cherry' | 'mx' | 'none';
+  stabs: StabMode;
   lang: DocLang;
   layout: string;
 }): WiringInput {

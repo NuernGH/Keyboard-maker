@@ -22,7 +22,7 @@ import {
   measureVolume,
   type Shape3D,
 } from 'replicad';
-import { PITCH, switchSpots, type Key } from './layout';
+import { PITCH, outlineSpots, switchSpots, type Key } from './layout';
 import { wedgeZ, type Box, type IslandGeom } from './island';
 import { LEDGE, SUPPORT, bossFilletSize, chamferSize, ledgeKeepouts, ledgeWidth, screwSpec, type ScrewSpec, type CaseLayout, type CaseParams } from './case';
 import { CASE_DOVETAIL, leftRegion, type PrintSplit } from './split';
@@ -144,7 +144,7 @@ export function footprint(keys: Key[], opts: PlateOptions, island: IslandGeom | 
     const r = drawRectangle(k.w * PITCH, k.h * PITCH).rotate(k.rot).translate(k.x, k.y);
     d = d ? d.fuse(r) : r;
     // przełączniki w miejscu stabilizatora mogą wystawać poza klawisz (Backspace 2U): obrys je obejmuje
-    for (const [x, y] of switchSpots(k, opts.stabs))
+    for (const [x, y] of outlineSpots(k, opts.stabs))
       if (Math.hypot(x - k.x, y - k.y) > 1e-6) d = d.fuse(drawRectangle(PITCH, PITCH).rotate(k.rot).translate(x, y));
   }
   if (d && island) {

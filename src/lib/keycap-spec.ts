@@ -4,7 +4,7 @@
 // z public/switches/cherry-mx.step (wierzch płyty z = 0).
 
 import { PITCH, switchOffsets, type Key } from './layout';
-import { stabOffset } from './cell-spec';
+import { stabOffset, type StabMode } from './cell-spec';
 import { DEFAULT_LEGEND, legendLayout, type LegendMap, type LegendMethod, type LegendParams, type LegendSet, type PlacedLegend } from './legend';
 import type { Font } from 'opentype.js';
 
@@ -324,7 +324,7 @@ export interface CapType {
  * Gniazda nakładki wg płyty: przy stabilizatorze Cherry środek i trzpienie stabilizatora,
  * przy „dwa MX” tam, gdzie stoją przełączniki, bez stabilizatora tylko środek.
  */
-export function capStems(k: Pick<Key, 'w' | 'h'>, stabs: 'cherry' | 'mx' | 'none'): CapStem[] {
+export function capStems(k: Pick<Key, 'w' | 'h'>, stabs: StabMode): CapStem[] {
   if (stabs === 'cherry') {
     const s = stabOffset(Math.max(k.w, k.h));
     return s === null ? [{ d: 0, stab: false }] : [{ d: -s, stab: true }, { d: 0, stab: false }, { d: s, stab: true }];
@@ -334,7 +334,7 @@ export function capStems(k: Pick<Key, 'w' | 'h'>, stabs: 'cherry' | 'mx' | 'none
 
 const fmt = (v: number) => String(Math.round(v * 1000) / 1000);
 
-export function capType(k: Pick<Key, 'w' | 'h'>, stabs: 'cherry' | 'mx' | 'none'): CapType {
+export function capType(k: Pick<Key, 'w' | 'h'>, stabs: StabMode): CapType {
   const stems = capStems(k, stabs);
   const kind = stems.length === 1 ? '' : stabs === 'cherry' ? '-stab' : `-${stems.length}mx`;
   const size = k.h > k.w ? `${fmt(k.h)}u-v` : k.h !== 1 ? `${fmt(k.w)}x${fmt(k.h)}u` : `${fmt(k.w)}u`;
@@ -342,7 +342,7 @@ export function capType(k: Pick<Key, 'w' | 'h'>, stabs: 'cherry' | 'mx' | 'none'
 }
 
 /** Typy nakładek układu z liczbą sztuk, od najczęstszego. */
-export function capSet(keys: Pick<Key, 'w' | 'h'>[], stabs: 'cherry' | 'mx' | 'none'): { type: CapType; count: number }[] {
+export function capSet(keys: Pick<Key, 'w' | 'h'>[], stabs: StabMode): { type: CapType; count: number }[] {
   const m = new Map<string, { type: CapType; count: number }>();
   for (const k of keys) {
     const t = capType(k, stabs);
@@ -383,6 +383,27 @@ export function pressedCavityClear(p: KeycapParams): number {
     const z = h + MX.travel;
     if (z < L.z0 || z > L.ceiling) continue;
     m = Math.min(m, innerHalf(p, z) - half);
+  }
+  return m;
+}
+
+/**
+ * Najmniejszy odstęp obudowy MX od ścianki końcowej nakładki po pełnym wciśnięciu (mm), gdy przełącznik
+ * nie stoi na środku (opcja „dwa MX”): ujemny = obudowa wchodzi w ściankę (np. Backspace 2U przy ±11,9).
+ * `null`, gdy klawisz ma tylko środkowy przełącznik.
+ */
+export function stemEndClear(p: KeycapParams, k: Pick<Key, 'w' | 'h'>, stabs: StabMode): number | null {
+  const offs = capStems(k, stabs).filter((s) => !s.stab).map((s) => Math.abs(s.d));
+  const d = Math.max(0, ...offs);
+  if (d < 1e-6) return null;
+  const L = capLevels(p);
+  const u = Math.max(k.w, k.h);
+  const b = (u * PITCH - p.gap) / 2 - p.wall;
+  let m = Infinity;
+  for (const [h, half] of MX_HOUSING_HALF) {
+    const z = h + MX.travel;
+    if (z < L.z0 || z > L.ceiling) continue;
+    m = Math.min(m, b - (CAP_LIMITS.cavityTaper * (z - L.z0)) / (L.ceiling - L.z0) - (d + half));
   }
   return m;
 }
