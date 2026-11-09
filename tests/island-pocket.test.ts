@@ -158,3 +158,29 @@ describe('bryły z opcjami (OpenCascade)', () => {
       expect(vol(shell, [cx - 0.5, cy - 0.5, cl.bottom - 1], [cx + 0.5, cy + 0.5, cl.floorTop + 0.5])).toBeCloseTo(CABLE_POCKET.minFloor, 2);
     }, 300000);
 });
+
+describe('pusty klin: śruby jak w zwykłym klinie', () => {
+  beforeAll(async () => {
+    await initOC();
+  });
+  test('Marcin: ten sam rozstaw co zwykły klin, oba otwory na słupkach, klin w jednym kawałku', async () => {
+    const solid = islandFor(tpl, MARCIN, 'left', 'hotswap', H, SCREW_MARGIN)!;
+    const moved = islandFor(tpl, { ...MARCIN, wedgeHollow: true }, 'left', 'hotswap', H, SCREW_MARGIN)!;
+    const kept = islandFor(tpl, { ...MARCIN, wedgeHollow: true, wedgeKeepScrews: true }, 'left', 'hotswap', H, SCREW_MARGIN)!;
+    expect(kept.wedge!.screws).toEqual(solid.wedge!.screws);
+    expect(moved.wedge!.screws).not.toEqual(solid.wedge!.screws);
+    // otwory w wyspie jak przy zwykłym klinie: te same wycięcia (łby, przeloty)
+    const round = (g: typeof solid) => g.cuts.filter((c) => c.round).map((c) => [c.x0, c.y0, c.x1, c.y1].map((v) => v.toFixed(3)).join());
+    expect(round(kept).sort()).toEqual(round(solid).sort());
+    const w = buildWedge(kept);
+    expect(isValidShape(w)).toBe(true);
+    expect(w.solids.length).toBe(1);
+    const vol = (b: number[], c: number[]) => measureVolume(w.clone().intersect(makeBox(b as never, c as never)));
+    for (const [x, y] of kept.wedge!.screws) {
+      expect(vol([x - 0.4, y - 0.4, 0.5], [x + 0.4, y + 0.4, 3])).toBeLessThan(0.01);
+      expect(vol([x - 2.4, y - 2.4, 0], [x + 2.4, y + 2.4, 3])).toBeGreaterThan(40);
+    }
+    expect(measureVolume(w)).toBeLessThan(measureVolume(buildWedge(solid)) * 0.75);
+  }, 300000);
+});
+
