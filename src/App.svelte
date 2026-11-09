@@ -56,7 +56,7 @@
 
   type Side = 'left' | 'right';
 
-  let lang = $state<Lang>('pl');
+  let lang = $state<Lang>('en');
   let params = $state<SplitParams>(structuredClone(SPLIT_4x6_4));
   let templateId = $state(TEMPLATES[0].id);
   let island = $state<IslandParams>({ ...DEFAULT_ISLAND });
