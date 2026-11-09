@@ -1,16 +1,16 @@
-# Modele przełączników (tylko podgląd)
+# Switch models (preview only)
 
-`cherry-mx.step` — uproszczony przełącznik Cherry MX (PCB mount, 5 pinów).
-Źródło: https://github.com/ConstantinoSchillebeeckx/cherry-mx-switch (switch.step, 2017).
-Licencja: MIT, Copyright (c) 2017 Constantino Schillebeeckx — pełny tekst poniżej.
+`cherry-mx.step` is a simplified Cherry MX switch (PCB mount, 5 pins).
+Source: https://github.com/ConstantinoSchillebeeckx/cherry-mx-switch (switch.step, 2017).
+License: MIT, Copyright (c) 2017 Constantino Schillebeeckx; full text below.
 
-Używany wyłącznie w podglądzie 3D (nie trafia do eksportu STL/STEP).
-Wymiary od wierzchu płyty: kołnierz 15,64 × 16,33, część w otworze 13,98 × 13,98 (1,5 mm),
-dół obudowy −4,85, koniec pinów −7,64, czubek trzpienia +10,05.
+Used only in the 3D preview (not included in STL/STEP export).
+Dimensions from the plate top: flange 15.64 × 16.33, part in the hole 13.98 × 13.98 (1.5 mm),
+housing bottom −4.85, pin ends −7.64, stem tip +10.05.
 
-`cherry-mx.mesh` — ta sama bryła już ustawiona w komórce i zamieniona na trójkąty (format KMSH,
-src/lib/mesh-file.ts), żeby podgląd nie liczył STEP-a przy każdym wejściu. Licencja jak wyżej (MIT).
-Odświeżenie po zmianie modelu: `WRITE_SWITCH_MESH=1 npx vitest run tests/switch.test.ts`.
+`cherry-mx.mesh` is the same solid already placed in the cell and converted to triangles (KMSH format,
+src/lib/mesh-file.ts), so the preview does not have to parse the STEP file each time. Same license (MIT).
+To refresh after changing the model: `WRITE_SWITCH_MESH=1 npx vitest run tests/switch.test.ts`.
 
 ---
 
