@@ -184,3 +184,14 @@ describe('pusty klin: śruby jak w zwykłym klinie', () => {
   }, 300000);
 });
 
+
+describe('przepusty modułu w płycie pod klinem', () => {
+  // przedni rząd pinów leży nisko: jego przepust musi przechodzić przez wierzch płyty (wcześniej był zakryty 1,6 mm)
+  for (const hollow of [false, true])
+    test(hollow ? 'pusty klin' : 'pełny klin', () => {
+      const g = islandFor(tpl, { ...MARCIN, wedgeHollow: hollow }, 'left', 'hotswap', H, SCREW_MARGIN)!;
+      const drops = g.cuts.filter((c) => !c.tilt && !c.round && c.x1 - c.x0 > 20 && c.y1 - c.y0 < 4);
+      expect(drops.length).toBe(2);
+      for (const d of drops) expect(d.z1).toBeGreaterThanOrEqual(1);
+    });
+});

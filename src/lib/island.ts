@@ -889,13 +889,19 @@ function edgeIsland(
       else if (hollow) {
         // pusty klin: przewody idą wnętrzem ramki, w wyspie zostają przepusty pod wnętrzem klina
         const [yb, zb] = tiltPoint(py, zb0 - MODULE.pcb - 6 + 0.5, tilt, 0, zb0);
-        cuts.push(box(slotX0, yb - 1.6, -D - 1, slotX1, yb + 1.6, zb));
+        // przy przednim rzędzie punkt zejścia leży już w płycie: przepust zawsze na wylot przez wierzch
+        cuts.push(box(slotX0, yb - 1.6, -D - 1, slotX1, yb + 1.6, Math.max(zb, 1)));
       } else {
         // przepust prostopadły do płytki na głębokość pinów, dalej pionowo w dół przez klin i wyspę
         const pinDepth = MODULE.pcb + 6;
-        wCuts.push(tl(box(slotX0, py - 1.6, -pinDepth, slotX1, py + 1.6, 1)));
+        const channel = tl(box(slotX0, py - 1.6, -pinDepth, slotX1, py + 1.6, 1));
+        wCuts.push(channel);
         const [yb, zb] = tiltPoint(py, zb0 - pinDepth + 0.5, tilt, 0, zb0);
-        const drop = box(slotX0, yb - 1.6, -D - 1, slotX1, yb + 1.6, zb);
+        // Przy przednim rzędzie (nisko nad płytą) koniec przepustu schodzi poniżej spodu klina, w płytę:
+        // wtedy pochylony przepust wycinamy też z płyty, a pionowe zejście idzie na wylot przez wierzch płyty
+        // (wcześniej kończyło się 1,6 mm pod wierzchem i otwór był zakryty od góry).
+        const drop = box(slotX0, yb - 1.6, -D - 1, slotX1, yb + 1.6, Math.max(zb, 1));
+        if (zb < 1) cuts.push(channel);
         cuts.push(drop);
         wCuts.push(drop);
       }
